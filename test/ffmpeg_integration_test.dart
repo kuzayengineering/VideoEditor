@@ -546,6 +546,126 @@ void main() {
         expect(check.actualFrames, 120);
       });
 
+      Future<double> rmsDb(String path, double from, double length) async {
+        final r = await Process.run('ffmpeg', [
+          '-hide_banner',
+          '-v',
+          'error',
+          '-ss',
+          '$from',
+          '-t',
+          '$length',
+          '-i',
+          path,
+          '-vn',
+          '-af',
+          'astats=metadata=1:reset=0,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-',
+          '-f',
+          'null',
+          '-',
+        ]);
+        final all = RegExp(r'RMS_level=(-?[0-9.]+|-inf)')
+            .allMatches('${r.stdout}')
+            .map((m) => m.group(1)!)
+            .toList();
+        if (all.isEmpty) fail('no audio stats: ${r.stderr}');
+        final last = all.last;
+        return last == '-inf' ? -200 : double.parse(last);
+      }
+
+      test(
+        'audio tracks are mixed in at their place, volume and fades',
+        () async {
+          final music = '${dir.path}/tone.wav';
+          await _run([
+            '-f',
+            'lavfi',
+            '-i',
+            'sine=f=1000:d=6:r=48000',
+            '-ac',
+            '2',
+            music,
+          ]);
+          final videoInfo = await _probe(silent); // 2 s, no sound
+          final toneInfo = await _probe(music);
+          expect(toneInfo.hasVideo, isFalse);
+          Clip tone({double volume = 1, int fadeIn = 0}) => Clip(
+            id: 0,
+            kind: ClipKind.audio,
+            name: 'tone',
+            sourcePath: music,
+            media: toneInfo,
+            sourceDurationUs: toneInfo.durationUs,
+            sourceInUs: 0,
+            sourceOutUs: 3 * usPerSecond,
+            startUs: 1 * usPerSecond,
+            volume: volume,
+            fadeInUs: fadeIn,
+          );
+          final sdr30 = const ExportSettings(resolution: ExportResolution.p720)
+              .copyWith(
+                dynamicRange: DynamicRange.sdr,
+                codec: VideoCodec.h264,
+                frameRate: 30,
+              );
+          final base = Project.empty(id: 't')
+              .insertMedia([clipFor(silent, videoInfo)]);
+
+          final (_, check) = await exportProject(
+            base.addAudio(tone()),
+            sdr30,
+            'mix_full',
+          );
+          expect(check.actualFrames, 60); // video length decides; music is cut
+          final full = '${dir.path}/mix_full.mp4';
+          expect(
+            await rmsDb(full, 0.1, 0.7),
+            lessThan(-60),
+          ); // silence before 1 s
+          final loud = await rmsDb(full, 1.2, 0.6);
+          expect(loud, greaterThan(-30));
+
+          await exportProject(
+            base.addAudio(tone(volume: 0.5)),
+            sdr30,
+            'mix_half',
+          );
+          final half = await rmsDb('${dir.path}/mix_half.mp4', 1.2, 0.6);
+          expect(loud - half, closeTo(6.0, 0.6)); // half volume = -6 dB
+
+          await exportProject(
+            base.addAudio(tone(fadeIn: 800000)),
+            sdr30,
+            'mix_fade',
+          );
+          final early = await rmsDb('${dir.path}/mix_fade.mp4', 1.0, 0.2);
+          expect(early, lessThan(loud - 8)); // still fading in
+        },
+      );
+
+      test('a muted video clip and its extracted sound', () async {
+        final info = await _probe(sdr); // has a 660 Hz tone
+        final p0 = Project.empty(id: 't').insertMedia([clipFor(sdr, info)]);
+        final p1 = p0.extractAudio(p0.mainTrack.clips.single.id);
+        expect(p1.mainTrack.clips.single.volume, 0);
+        expect(p1.audioTracks.single.clips.single.kind, ClipKind.audio);
+        expect(p1.audioTracks.single.clips.single.startUs, 0);
+        final sdr30 = const ExportSettings(resolution: ExportResolution.p720)
+            .copyWith(
+              dynamicRange: DynamicRange.sdr,
+              codec: VideoCodec.h264,
+              frameRate: 30,
+            );
+        await exportProject(p1, sdr30, 'extracted');
+        expect(
+          await rmsDb('${dir.path}/extracted.mp4', 0.5, 1),
+          greaterThan(-35),
+        );
+        final muted = p1.deleteClip(p1.audioTracks.single.clips.single.id);
+        await exportProject(muted, sdr30, 'muted');
+        expect(await rmsDb('${dir.path}/muted.mp4', 0.5, 1), lessThan(-60));
+      });
+
       test('thumbnail of an HDR clip', () async {
         final info = await _probe(hlg);
         final out = '${dir.path}/thumb.jpg';

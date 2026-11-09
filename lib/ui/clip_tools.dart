@@ -574,3 +574,117 @@ class _CropPainter extends CustomPainter {
   @override
   bool shouldRepaint(_CropPainter old) => old.rect != rect;
 }
+
+// -----------------------------------------------------------------------------
+// Volume
+// -----------------------------------------------------------------------------
+
+Future<void> showVolumeSheet(BuildContext context, EditorController c) {
+  final id = c.selectedClipId;
+  if (id == null) return Future.value();
+  return _liveSheet(context, c, (context) {
+    final clip = c.project.placementOf(id)?.clip;
+    if (clip == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    void set(double v) =>
+        c.liveEdit((base) => base.updateClip(id, (x) => x.copyWith(volume: v)));
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Volume', style: theme.textTheme.titleMedium),
+            const Spacer(),
+            Text(
+              clip.volume == 0 ? 'Muted' : '${(clip.volume * 100).round()}%',
+              style: theme.textTheme.titleMedium,
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            IconButton(
+              tooltip: clip.volume == 0 ? 'Unmute' : 'Mute',
+              icon: Icon(clip.volume == 0 ? Icons.volume_off : Icons.volume_up),
+              onPressed: () => set(clip.volume == 0 ? 1 : 0),
+            ),
+            Expanded(
+              child: Slider(
+                max: Clip.maxVolume,
+                divisions: 40,
+                value: clip.volume,
+                onChanged: set,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          'Tip: to lower music under speech, split the music clip where the '
+          'speech starts and ends, and turn down the middle piece. Over 100% '
+          'is heard in the export (the preview tops out at 100%).',
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Fade
+// -----------------------------------------------------------------------------
+
+Future<void> showFadeSheet(BuildContext context, EditorController c) {
+  final id = c.selectedClipId;
+  if (id == null) return Future.value();
+  return _liveSheet(context, c, (context) {
+    final clip = c.project.placementOf(id)?.clip;
+    if (clip == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final maxUs = math.min(10 * usPerSecond, clip.durationUs);
+    String secs(int us) => '${(us / usPerSecond).toStringAsFixed(1)} s';
+    Widget row(String label, int value, void Function(int) onChanged) => Row(
+      children: [
+        SizedBox(width: 72, child: Text(label)),
+        Expanded(
+          child: Slider(
+            max: maxUs.toDouble(),
+            value: value.clamp(0, maxUs).toDouble(),
+            onChanged: (v) {
+              // Tenths of a second.
+              onChanged(((v / 100000).round()) * 100000);
+            },
+          ),
+        ),
+        SizedBox(width: 56, child: Text(secs(value), textAlign: TextAlign.end)),
+      ],
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Fade', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        row(
+          'Fade in',
+          clip.fadeInUs,
+          (v) => c.liveEdit(
+            (b) => b.updateClip(id, (x) => x.copyWith(fadeInUs: v)),
+          ),
+        ),
+        row(
+          'Fade out',
+          clip.fadeOutUs,
+          (v) => c.liveEdit(
+            (b) => b.updateClip(id, (x) => x.copyWith(fadeOutUs: v)),
+          ),
+        ),
+        Text(
+          'The sound rises from silence at the start and sinks to silence '
+          'at the end. Up to 10 seconds each.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  });
+}

@@ -7,6 +7,7 @@ import '../model/export_settings.dart';
 import '../model/history.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
+import 'audio_preview.dart';
 
 /// Holds everything the editor screen shows: the project (with undo/redo),
 /// the playhead position, the selected clip and the timeline zoom.
@@ -57,8 +58,14 @@ class EditorController extends ChangeNotifier {
   bool get previewDrawsEffects =>
       _preview?.drawsEffects(segmentsOf(project)) ?? false;
 
-  void attachPreview(PreviewPlayer preview) {
+  AudioPreviewMixer? _audio;
+
+  /// Silences the preview (used while recording a voice-over).
+  set previewMuted(bool value) => _audio?.muted = value;
+
+  void attachPreview(PreviewPlayer preview, {AudioPreviewMixer? audio}) {
     _preview = preview;
+    _audio = audio?..sync(project);
     _syncPreviewTimeline();
   }
 
@@ -153,6 +160,7 @@ class EditorController extends ChangeNotifier {
     if (!_playing) return;
     _playing = false;
     if (usesPreview) unawaited(_preview!.pause());
+    _audio?.stopAll();
     // Land on a whole frame so split points are exact.
     _playheadUs = snapToFrame(
       _playheadUs,
@@ -187,6 +195,7 @@ class EditorController extends ChangeNotifier {
   /// smooth estimate in between answers).
   void _followPlayer(int elapsedUs) {
     _playheadUs = (_playheadUs + elapsedUs).clamp(0, project.durationUs);
+    _audio?.update(project, _playheadUs, _playing, _preview);
     if (!_polling) {
       _polling = true;
       _preview!.position().then(
@@ -243,7 +252,11 @@ class EditorController extends ChangeNotifier {
       _selectedClipId = null;
     }
     _playheadUs = _playheadUs.clamp(0, project.durationUs);
-    if (!history.inGesture) _syncPreviewTimeline();
+    if (!history.inGesture) {
+      _syncPreviewTimeline();
+      _audio?.sync(project);
+      _audio?.stopAll();
+    }
     notifyListeners();
   }
 
@@ -320,6 +333,13 @@ class EditorController extends ChangeNotifier {
       ),
     ),
   );
+
+  /// Moves the selected video clip's sound to an audio track.
+  void extractAudioOfSelected() {
+    final id = _selectedClipId;
+    if (id == null) return;
+    _apply(project.extractAudio(id));
+  }
 
   void setBackground(BackgroundFill fill) =>
       _apply(project.withBackground(fill));

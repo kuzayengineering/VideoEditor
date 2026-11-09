@@ -163,6 +163,10 @@ class MpvPreviewPlayer implements PreviewPlayer {
   }
 
   @override
+  Future<void> setVolume(double volume) =>
+      _player.setVolume((volume * 100).clamp(0, 100).toDouble());
+
+  @override
   Future<void> dispose() => _player.dispose();
 
   /// Same files and ranges in the same order (looks may differ: those are
@@ -179,4 +183,42 @@ class MpvPreviewPlayer implements PreviewPlayer {
     }
     return true;
   }
+}
+
+/// Plays one audio-track clip during the Windows preview.
+class MpvAudioPlayer implements ClipAudioPlayer {
+  MpvAudioPlayer() {
+    final native = _player.platform;
+    if (native is NativePlayer) {
+      native.setProperty('vid', 'no'); // sound only
+      native.setProperty('keep-open', 'yes');
+    }
+  }
+
+  final Player _player = Player(
+    configuration: const PlayerConfiguration(logLevel: MPVLogLevel.error),
+  );
+
+  @override
+  Future<void> open(String source) => _player.open(Media(source), play: false);
+
+  @override
+  Future<void> seek(int sourceUs) =>
+      _player.seek(Duration(microseconds: sourceUs));
+
+  @override
+  Future<void> play() => _player.play();
+
+  @override
+  Future<void> pause() => _player.pause();
+
+  @override
+  Future<void> setVolume(double volume) =>
+      _player.setVolume((volume * 100).clamp(0, 100).toDouble());
+
+  @override
+  Future<void> setRate(double rate) => _player.setRate(rate);
+
+  @override
+  Future<void> dispose() => _player.dispose();
 }

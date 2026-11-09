@@ -33,12 +33,27 @@ class AndroidMediaEngine implements MediaEngine {
     final map = await _channel.invokeMapMethod<String, Object?>('probe', {
       'source': source,
     });
-    final info = MediaInfo.fromJson(map!);
-    if (!info.hasVideo || info.width == 0) {
-      throw Exception('This file has no video picture in it.');
-    }
-    return info;
+    return MediaInfo.fromJson(map!);
   }
+
+  @override
+  Future<List<PickedMedia>> pickAudio() async {
+    final list = await _channel.invokeListMethod<Map>('pickAudio') ?? const [];
+    return [
+      for (final m in list)
+        PickedMedia(m['source'] as String, m['name'] as String),
+    ];
+  }
+
+  @override
+  Future<Uint8List> waveform(String source) async =>
+      await _channel.invokeMethod<Uint8List>('waveform', {'source': source}) ??
+      Uint8List(0);
+
+  int _nextAudioId = 1;
+
+  @override
+  ClipAudioPlayer createAudioPlayer() => _AndroidClipAudio(_nextAudioId++);
 
   @override
   Future<List<String?>> thumbnails(
@@ -154,6 +169,18 @@ class AndroidMediaEngine implements MediaEngine {
     }
     await _channel.invokeMethod('startExport', {
       'segments': [for (final c in clips) PreviewSegment.of(c).toMap()],
+      'audioTracks': [
+        for (final t in project.audioTracks)
+          [
+            for (final a in t.clips)
+              if (a.isMedia && !a.reversed)
+                {
+                  ...PreviewSegment.of(a).toMap(),
+                  'startUs': a.startUs,
+                  'hasVideo': a.media?.hasVideo ?? false,
+                },
+          ],
+      ],
       'width': dims.width,
       'height': dims.height,
       'frameRate': s.frameRate,
@@ -306,10 +333,45 @@ class AndroidPreviewPlayer implements PreviewPlayer {
       _channel.invokeMethod('previewSeek', {'timeUs': timeUs, 'exact': exact});
 
   @override
+  Future<void> setVolume(double volume) =>
+      _channel.invokeMethod('previewVolume', {'volume': volume});
+
+  @override
   Future<int> position() async =>
       (await _channel.invokeMethod<num>('previewPosition'))?.toInt() ?? 0;
 
   @override
   Future<void> dispose() =>
       _channel.invokeMethod('previewSetTimeline', {'segments': <Object>[]});
+}
+
+class _AndroidClipAudio implements ClipAudioPlayer {
+  _AndroidClipAudio(this.id);
+
+  final int id;
+
+  @override
+  Future<void> open(String source) =>
+      _channel.invokeMethod('audioOpen', {'id': id, 'source': source});
+
+  @override
+  Future<void> seek(int sourceUs) =>
+      _channel.invokeMethod('audioSeek', {'id': id, 'sourceUs': sourceUs});
+
+  @override
+  Future<void> play() => _channel.invokeMethod('audioPlay', {'id': id});
+
+  @override
+  Future<void> pause() => _channel.invokeMethod('audioPause', {'id': id});
+
+  @override
+  Future<void> setVolume(double volume) =>
+      _channel.invokeMethod('audioVolume', {'id': id, 'volume': volume});
+
+  @override
+  Future<void> setRate(double rate) =>
+      _channel.invokeMethod('audioRate', {'id': id, 'rate': rate});
+
+  @override
+  Future<void> dispose() => _channel.invokeMethod('audioRelease', {'id': id});
 }

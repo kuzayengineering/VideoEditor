@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_controller.dart';
+import 'audio_preview.dart';
 import 'thumbnail_cache.dart';
 
 /// The YouCut-style timeline: the playhead stays fixed in the middle and the
@@ -16,9 +17,17 @@ import 'thumbnail_cache.dart';
 /// - Pinch (or Ctrl + mouse wheel) to zoom.
 /// - Tap a clip to select it, then drag its white edge handles to trim.
 class TimelineView extends StatefulWidget {
-  const TimelineView({super.key, required this.controller, this.thumbnails});
+  const TimelineView({
+    super.key,
+    required this.controller,
+    this.thumbnails,
+    this.waveforms,
+  });
 
   final EditorController controller;
+
+  /// Loudness outlines for sound clips.
+  final WaveformCache? waveforms;
 
   /// Pictures for real video clips (null in the demo).
   final ThumbnailCache? thumbnails;
@@ -40,12 +49,14 @@ class TimelineView extends StatefulWidget {
   State<TimelineView> createState() => _TimelineViewState();
 }
 
-enum _DragMode { none, pan, trimStart, trimEnd, zoom }
+enum _DragMode { none, pan, trimStart, trimEnd, zoom, move }
 
 class _TimelineViewState extends State<TimelineView> {
   _DragMode _mode = _DragMode.none;
   double _dragDx = 0;
   double _zoomStart = 1;
+  int _moveClipId = 0;
+  int _moveStartUs = 0;
 
   EditorController get c => widget.controller;
 
@@ -121,6 +132,15 @@ class _TimelineViewState extends State<TimelineView> {
       _mode = hit.$2;
       c.beginTrim(hit.$1.clip.id, start: hit.$2 == _DragMode.trimStart);
       HapticFeedback.selectionClick();
+    } else if (hit != null &&
+        hit.$1.clip.id == c.selectedClipId &&
+        hit.$1.track.kind == TrackKind.audio) {
+      // Dragging a selected sound clip moves it along its track.
+      _mode = _DragMode.move;
+      _moveClipId = hit.$1.clip.id;
+      _moveStartUs = hit.$1.startUs;
+      c.pause();
+      HapticFeedback.selectionClick();
     } else {
       _mode = _DragMode.pan;
       c.pause();
@@ -146,6 +166,11 @@ class _TimelineViewState extends State<TimelineView> {
       case _DragMode.trimEnd:
         _dragDx += d.focalPointDelta.dx;
         c.updateTrim((_dragDx / c.pixelsPerSecond * usPerSecond).round());
+      case _DragMode.move:
+        _dragDx += d.focalPointDelta.dx;
+        final delta = (_dragDx / c.pixelsPerSecond * usPerSecond).round();
+        final target = snapToFrame(_moveStartUs + delta, c.project.frameRate);
+        c.liveEdit((base) => base.moveAudioClip(_moveClipId, target));
       case _DragMode.none:
         break;
     }
@@ -156,6 +181,7 @@ class _TimelineViewState extends State<TimelineView> {
       c.endTrim();
     }
     if (_mode == _DragMode.pan) c.settle();
+    if (_mode == _DragMode.move) c.endLiveEdit();
     _mode = _DragMode.none;
   }
 
@@ -182,7 +208,7 @@ class _TimelineViewState extends State<TimelineView> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([c, widget.thumbnails]),
+      listenable: Listenable.merge([c, widget.thumbnails, widget.waveforms]),
       builder: (context, _) {
         final height = TimelineView.heightFor(c.project);
         return LayoutBuilder(
@@ -209,6 +235,7 @@ class _TimelineViewState extends State<TimelineView> {
                       colors: Theme.of(context).colorScheme,
                       textStyle: Theme.of(context).textTheme.labelSmall!,
                       thumbnails: widget.thumbnails,
+                      waveforms: widget.waveforms,
                     ),
                   ),
                 ),
@@ -231,6 +258,7 @@ class _TimelinePainter extends CustomPainter {
     required this.colors,
     required this.textStyle,
     this.thumbnails,
+    this.waveforms,
   });
 
   final Project project;
@@ -241,6 +269,7 @@ class _TimelinePainter extends CustomPainter {
   final ColorScheme colors;
   final TextStyle textStyle;
   final ThumbnailCache? thumbnails;
+  final WaveformCache? waveforms;
 
   double _x(int timeUs, Size size) =>
       size.width / 2 + (timeUs - playheadUs) / usPerSecond * pixelsPerSecond;
@@ -362,7 +391,10 @@ class _TimelinePainter extends CustomPainter {
         Paint()..color = Colors.black.withValues(alpha: 0.35),
       );
     }
-    // Subtle stripes stand in for waveforms (audio arrives in Stage 3).
+    if (p.clip.isMedia && p.clip.kind == ClipKind.audio) {
+      _paintWaveform(canvas, size, p, rect);
+    }
+    // Subtle stripes stand in for pictures and sound in the demo clips.
     if (!p.clip.isMedia) {
       final stripe = Paint()..color = Colors.white.withValues(alpha: 0.07);
       final spacing = p.clip.kind == ClipKind.video ? height * 1.2 : 6.0;
@@ -444,6 +476,26 @@ class _TimelinePainter extends CustomPainter {
         Rect.fromLTWH(rect.right, top, TimelineView.handleWidth, height),
         isLeft: false,
       );
+    }
+  }
+
+  /// Draws the loudness outline of a sound clip, scaled by its volume.
+  void _paintWaveform(Canvas canvas, Size size, ClipPlacement p, Rect rect) {
+    final peaks = waveforms?.peaksFor(p.clip.sourcePath!);
+    if (peaks == null || peaks.isEmpty) return;
+    final bar = Paint()..color = Colors.white.withValues(alpha: 0.55);
+    final mid = rect.center.dy;
+    final half = rect.height / 2 - 2;
+    final left = math.max(rect.left, 0.0);
+    final right = math.min(rect.right, size.width);
+    for (var x = left; x < right; x += 3) {
+      final offsetUs = ((x - rect.left) / pixelsPerSecond * usPerSecond)
+          .round();
+      final idx = p.clip.sourceTimeAt(offsetUs) ~/ 10000;
+      if (idx < 0 || idx >= peaks.length) continue;
+      final gain = p.clip.gainAt(offsetUs).clamp(0.0, 1.5);
+      final h = math.max(1.0, peaks[idx] / 255 * half * gain);
+      canvas.drawRect(Rect.fromLTRB(x, mid - h, x + 2, mid + h), bar);
     }
   }
 

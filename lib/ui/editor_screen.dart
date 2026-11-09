@@ -10,6 +10,7 @@ import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'canvas_sheet.dart';
+import 'audio_preview.dart';
 import 'clip_tools.dart';
 import 'editor_controller.dart';
 import 'export_progress_screen.dart';
@@ -19,6 +20,7 @@ import 'preview_view.dart';
 import 'thumbnail_cache.dart';
 import 'timeline_view.dart';
 import 'tools.dart';
+import 'voiceover_sheet.dart';
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, required this.project, this.autosave = true});
@@ -41,6 +43,8 @@ class _EditorScreenState extends State<EditorScreen>
   late AppServices _services;
   MediaEngine get _engine => _services.engine;
   ThumbnailCache? _thumbs;
+  WaveformCache? _waves;
+  AudioPreviewMixer? _mixer;
   PreviewPlayer? _preview;
   Widget? _previewWidget;
   Timer? _saveTimer;
@@ -60,11 +64,13 @@ class _EditorScreenState extends State<EditorScreen>
     if (_thumbs != null) return;
     _services = AppServices.of(context);
     _thumbs = ThumbnailCache(_engine)..ensureFor(c.project);
+    _waves = WaveformCache(_engine)..ensureFor(c.project);
     if (_engine.supportsMedia) {
       final preview = _engine.createPreview();
       _preview = preview;
       _previewWidget = preview.buildView(context);
-      c.attachPreview(preview);
+      _mixer = AudioPreviewMixer(_engine);
+      c.attachPreview(preview, audio: _mixer);
       // Reconnect to an export that is still running (e.g. the app was
       // closed and reopened during an export).
       _engine.runningExport().then((job) {
@@ -79,6 +85,8 @@ class _EditorScreenState extends State<EditorScreen>
     _ticker.dispose();
     c.dispose();
     _thumbs?.dispose();
+    _waves?.dispose();
+    _mixer?.dispose();
     _preview?.dispose();
     super.dispose();
   }
@@ -87,6 +95,7 @@ class _EditorScreenState extends State<EditorScreen>
     final project = c.project;
     if (identical(project, _lastSaved) || c.history.inGesture) return;
     _thumbs?.ensureFor(project);
+    _waves?.ensureFor(project);
     if (!widget.autosave || _services.store == null) return;
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 600), _flushSave);
@@ -108,6 +117,22 @@ class _EditorScreenState extends State<EditorScreen>
     c.insertMedia(clips);
     _toast(
       clips.length == 1 ? 'Added 1 video' : 'Added ${clips.length} videos',
+    );
+  }
+
+  Future<void> _addMusic() async {
+    c.pause();
+    final clips = await pickAndReadAudio(context, _engine, c.playheadUs);
+    if (clips.isEmpty || !mounted) return;
+    var project = c.project;
+    for (final clip in clips) {
+      project = project.addAudio(clip);
+    }
+    c.apply(project);
+    _toast(
+      clips.length == 1
+          ? 'Added "${clips.single.name}" at the playhead'
+          : 'Added ${clips.length} sounds at the playhead',
     );
   }
 
@@ -349,8 +374,20 @@ class _EditorScreenState extends State<EditorScreen>
           stage: 0,
           onTap: () => showCanvasSheet(context, c),
         ),
-        const EditorTool('Music', Icons.library_music_outlined, stage: 3),
-        const EditorTool('Voice-over', Icons.mic_none, stage: 3),
+        EditorTool(
+          'Music',
+          Icons.library_music_outlined,
+          stage: 3,
+          onTap: _engine.supportsMedia ? _addMusic : null,
+        ),
+        EditorTool(
+          'Voice-over',
+          Icons.mic_none,
+          stage: 3,
+          onTap: _engine.supportsMedia
+              ? () => showVoiceOverSheet(context, c, _engine)
+              : null,
+        ),
         const EditorTool('Text', Icons.text_fields, stage: 4),
         const EditorTool(
           'PiP',
@@ -381,8 +418,18 @@ class _EditorScreenState extends State<EditorScreen>
         stage: 0,
         onTap: c.deleteSelected,
       ),
-      const EditorTool('Volume', Icons.volume_up_outlined, stage: 3),
-      const EditorTool('Fade', Icons.trending_up, stage: 3),
+      EditorTool(
+        'Volume',
+        Icons.volume_up_outlined,
+        stage: 3,
+        onTap: sel.clip.isMedia ? () => showVolumeSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Fade',
+        Icons.trending_up,
+        stage: 3,
+        onTap: sel.clip.isMedia ? () => showFadeSheet(context, c) : null,
+      ),
       EditorTool(
         'Speed',
         Icons.speed,
@@ -434,7 +481,17 @@ class _EditorScreenState extends State<EditorScreen>
       ),
       const EditorTool('Filter', Icons.photo_filter_outlined, stage: 5),
       const EditorTool('Transition', Icons.compare_arrows, stage: 4),
-      const EditorTool('Extract audio', Icons.music_video_outlined, stage: 3),
+      EditorTool(
+        'Extract audio',
+        Icons.music_video_outlined,
+        stage: 3,
+        onTap: sel.clip.isMedia && (sel.clip.media?.hasAudio ?? false)
+            ? () {
+                c.extractAudioOfSelected();
+                _toast('The sound is now on its own audio track.');
+              }
+            : null,
+      ),
       const EditorTool('Cutout', Icons.person_outline, stage: 7),
       const EditorTool('Smooth slo-mo', Icons.slow_motion_video, stage: 7),
       const EditorTool('Equalizer', Icons.equalizer, stage: 6),
@@ -518,7 +575,11 @@ class _EditorScreenState extends State<EditorScreen>
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 230),
                       child: SingleChildScrollView(
-                        child: TimelineView(controller: c, thumbnails: _thumbs),
+                        child: TimelineView(
+                          controller: c,
+                          thumbnails: _thumbs,
+                          waveforms: _waves,
+                        ),
                       ),
                     ),
                     const Divider(height: 1),

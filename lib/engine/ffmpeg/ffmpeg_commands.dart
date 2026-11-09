@@ -6,6 +6,7 @@ library;
 
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../../model/export_settings.dart';
 import '../../model/project.dart';
@@ -356,6 +357,29 @@ List<String> thumbnailArgs(
 
 String _seconds(int us) => (us / usPerSecond).toStringAsFixed(6);
 
+/// Volume and fade filters for a clip lasting [lengthSeconds] (each
+/// begins with a comma, or the result is empty).
+String gainFilters(Clip c, double lengthSeconds) {
+  final f = c.effectiveFades;
+  final out = StringBuffer();
+  if ((c.volume - 1).abs() > 0.0001) {
+    out.write(',volume=${c.volume.toStringAsFixed(4)}');
+  }
+  if (f.fadeIn > 0) {
+    out.write(
+      ',afade=t=in:st=0:d=${(f.fadeIn / usPerSecond).toStringAsFixed(4)}',
+    );
+  }
+  if (f.fadeOut > 0) {
+    final d = f.fadeOut / usPerSecond;
+    final st = math.max(0.0, lengthSeconds - d);
+    out.write(
+      ',afade=t=out:st=${st.toStringAsFixed(4)}:d=${d.toStringAsFixed(4)}',
+    );
+  }
+  return out.toString();
+}
+
 int _even(double v) => math.max(2, (v / 2).round() * 2);
 
 String _speedPts(double speed) => (speed - 1).abs() < 0.0001
@@ -571,11 +595,11 @@ FfmpegExportPlan buildExportPlan({
     }
 
     final audioLen = segSeconds.toStringAsFixed(6);
-    if (info.hasAudio) {
+    if (info.hasAudio && c.volume > 0) {
       filters.add(
         '[$i:a]asetpts=PTS-STARTPTS,${atempoChain(c.speed)}aresample=48000,'
         'aformat=sample_fmts=fltp:channel_layouts=stereo,'
-        'apad,atrim=0:$audioLen,asetpts=N/SR/TB[a$i]',
+        'apad,atrim=0:$audioLen,asetpts=N/SR/TB${gainFilters(c, segSeconds)}[a$i]',
       );
     } else {
       filters.add(
@@ -585,7 +609,63 @@ FfmpegExportPlan buildExportPlan({
     }
     concatInputs.write('[v$i][a$i]');
   }
-  filters.add('${concatInputs}concat=n=${clips.length}:v=1:a=1[vout][aout]');
+  filters.add('${concatInputs}concat=n=${clips.length}:v=1:a=1[vout][amain]');
+
+  // Audio tracks (music, voice-over, extracted sound): each clip is cut,
+  // sped up or slowed, given its volume and fades, delayed to its place on
+  // the timeline, and mixed with the video's own sound. The mix is exactly
+  // as long as the video.
+  final videoSeconds = totalFrames / fps;
+  final mixInputs = <String>['[amain]'];
+  var inputIndex = clips.length;
+  for (final track in project.audioTracks) {
+    for (final a in track.clips) {
+      if (!a.isMedia || !(a.media?.hasAudio ?? false) || a.volume <= 0) {
+        continue;
+      }
+      final startSeconds = a.startUs / usPerSecond;
+      if (startSeconds >= videoSeconds) continue;
+      final String path;
+      final int fromUs;
+      if (a.reversed && a.reverseReady) {
+        path = a.reverseProxy!.path;
+        fromUs = a.reverseProxy!.proxyTimeOf(a.sourceOutUs);
+      } else {
+        path = a.sourcePath!;
+        fromUs = a.sourceInUs;
+      }
+      inputs.addAll([
+        '-ss',
+        _seconds(fromUs),
+        '-t',
+        _seconds(a.sourceLengthUs),
+        '-i',
+        path,
+      ]);
+      final lengthSeconds = a.durationUs / usPerSecond;
+      final delayMs = (a.startUs / 1000).round();
+      filters.add(
+        '[$inputIndex:a]asetpts=PTS-STARTPTS,${atempoChain(a.speed)}'
+        'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,'
+        'atrim=0:${lengthSeconds.toStringAsFixed(6)}'
+        '${gainFilters(a, lengthSeconds)},'
+        'adelay=$delayMs|$delayMs[t$inputIndex]',
+      );
+      mixInputs.add('[t$inputIndex]');
+      inputIndex++;
+    }
+  }
+  if (mixInputs.length == 1) {
+    filters.add('[amain]anull[aout]');
+  } else {
+    // normalize=0: every sound keeps the loudness you set (no automatic
+    // turning-down when tracks are added).
+    filters.add(
+      '${mixInputs.join()}amix=inputs=${mixInputs.length}:normalize=0:'
+      'duration=first:dropout_transition=0,'
+      'atrim=0:${videoSeconds.toStringAsFixed(6)}[aout]',
+    );
+  }
 
   final tags = colorTags(range);
   final args = [
@@ -791,4 +871,19 @@ ReversePlan buildReversePlan({
       outputPath,
     ],
   );
+}
+
+/// Loudest sample in each group of [perBucket] samples, scaled to 0–255.
+Uint8List peaksFromSamples(Int16List samples, int perBucket) {
+  final out = Uint8List((samples.length / perBucket).ceil());
+  for (var b = 0; b < out.length; b++) {
+    var peak = 0;
+    final end = math.min(samples.length, (b + 1) * perBucket);
+    for (var i = b * perBucket; i < end; i++) {
+      final v = samples[i].abs();
+      if (v > peak) peak = v;
+    }
+    out[b] = math.min(255, peak * 255 ~/ 32767);
+  }
+  return out;
 }

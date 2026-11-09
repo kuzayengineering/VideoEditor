@@ -535,6 +535,45 @@ class Project {
     return updateClip(clipId, (c) => c.copyWith(speed: s));
   }
 
+  /// Moves an audio clip along its track. It stops at neighbouring clips
+  /// and at the start of the timeline.
+  Project moveAudioClip(int clipId, int newStartUs) {
+    final p = placementOf(clipId);
+    if (p == null || p.track.kind != TrackKind.audio) return this;
+    final prevEnd = p.index > 0 ? p.track.clips[p.index - 1].endUs : 0;
+    final nextStart = p.index < p.track.clips.length - 1
+        ? p.track.clips[p.index + 1].startUs
+        : null;
+    var start = math.max(prevEnd, newStartUs);
+    if (nextStart != null) {
+      start = math.min(start, nextStart - p.clip.durationUs);
+    }
+    if (start < prevEnd || start == p.clip.startUs) return this;
+    return updateClip(clipId, (c) => c.copyWith(startUs: start));
+  }
+
+  /// Copies a video clip's sound onto an audio track (same moment, same
+  /// part of the file) and mutes the video, so the sound can be edited on
+  /// its own.
+  Project extractAudio(int clipId) {
+    final p = placementOf(clipId);
+    if (p == null || p.track.kind != TrackKind.main || !p.clip.isMedia) {
+      return this;
+    }
+    if (!(p.clip.media?.hasAudio ?? false)) return this;
+    final audio = p.clip.copyWith(
+      kind: ClipKind.audio,
+      startUs: p.startUs,
+      name: '${p.clip.name} (sound)',
+      rotation: 0,
+      flipH: false,
+      flipV: false,
+      crop: CropRect.full,
+      opacity: 1,
+    );
+    return updateClip(clipId, (c) => c.copyWith(volume: 0)).addAudio(audio);
+  }
+
   Project withBackground(BackgroundFill background) =>
       background == this.background ? this : copyWith(background: background);
 

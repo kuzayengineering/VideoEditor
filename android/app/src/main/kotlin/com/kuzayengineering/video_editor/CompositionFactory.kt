@@ -21,22 +21,94 @@ import androidx.media3.transformer.Effects
  */
 object CompositionFactory {
 
+    /**
+     * [audioTracks]: each list is one audio track (clips in time order, with
+     * their [Segment.startUs]). [withGain]: apply volume and fades in the
+     * sound itself (export); the preview sets player volume instead.
+     */
     fun build(
         segments: List<Segment>,
         width: Int,
         height: Int,
         maxFrameRate: Int?,
         hdrMode: Int,
+        audioTracks: List<List<Segment>> = emptyList(),
+        withGain: Boolean = false,
     ): Composition {
-        val items = segments.map { item(it, width, height, maxFrameRate) }
-        return Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items))
+        val items = segments.map { item(it, width, height, maxFrameRate, withGain) }
+        val videoLengthUs = segments.sumOf { it.timelineUs }
+        val sequences = mutableListOf(EditedMediaItemSequence.withAudioAndVideoFrom(items))
+        for (track in audioTracks) {
+            audioSequence(track, videoLengthUs)?.let { sequences += it }
+        }
+        return Composition.Builder(sequences)
             .setHdrMode(hdrMode)
             // Clips without sound get silence, so sound stays in sync.
             .experimentalSetForceAudioTrack(true)
             .build()
     }
 
-    private fun item(s: Segment, width: Int, height: Int, maxFrameRate: Int?): EditedMediaItem {
+    /** One audio track: its clips with silent gaps in between. */
+    private fun audioSequence(track: List<Segment>, videoLengthUs: Long): EditedMediaItemSequence? {
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
+        var cursor = 0L
+        var any = false
+        for (s in track.sortedBy { it.startUs }) {
+            if (s.startUs >= videoLengthUs || s.volume <= 0) continue
+            if (s.startUs > cursor) builder.addGap(s.startUs - cursor)
+            // Never run past the end of the video.
+            var clip = s
+            val room = videoLengthUs - s.startUs
+            if (s.timelineUs > room) {
+                clip = s.copy(outUs = s.inUs + Math.round(room * s.speed))
+            }
+            val mediaItem = MediaItem.Builder()
+                .setUri(Uri.parse(clip.source))
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(clip.inUs / 1000)
+                        .setEndPositionMs(clip.outUs / 1000)
+                        .build()
+                )
+                .build()
+            val b = EditedMediaItem.Builder(mediaItem)
+                .setRemoveVideo(true)
+                .setEffects(Effects(gainProcessors(clip), listOf()))
+            if (clip.sourceDurationUs > 0) b.setDurationUs(clip.sourceDurationUs)
+            applySpeed(b, clip.speed)
+            builder.addItem(b.build())
+            cursor = clip.startUs + clip.timelineUs
+            any = true
+        }
+        return if (any) builder.build() else null
+    }
+
+    private fun gainProcessors(s: Segment): List<AudioProcessor> {
+        if (Math.abs(s.volume - 1.0) < 0.0001 && s.fadeInUs <= 0 && s.fadeOutUs <= 0) {
+            return listOf()
+        }
+        return listOf(
+            GainEnvelopeProcessor(s.volume.toFloat(), s.fadeInUs, s.fadeOutUs, s.timelineUs)
+        )
+    }
+
+    private fun applySpeed(builder: EditedMediaItem.Builder, speed: Double) {
+        if (Math.abs(speed - 1.0) > 0.0001) {
+            val f = speed.toFloat()
+            builder.setSpeed(object : SpeedProvider {
+                override fun getSpeed(timeUs: Long): Float = f
+                override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
+            })
+        }
+    }
+
+    private fun item(
+        s: Segment,
+        width: Int,
+        height: Int,
+        maxFrameRate: Int?,
+        withGain: Boolean,
+    ): EditedMediaItem {
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.parse(s.source))
             .setClippingConfiguration(
@@ -78,16 +150,11 @@ object CompositionFactory {
         // Fit into the canvas; black bars where the shapes differ.
         video += Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
 
+        val audio = if (withGain) gainProcessors(s) else listOf()
         val builder = EditedMediaItem.Builder(mediaItem)
-            .setEffects(Effects(listOf<AudioProcessor>(), video))
+            .setEffects(Effects(audio, video))
         if (s.sourceDurationUs > 0) builder.setDurationUs(s.sourceDurationUs)
-        if (Math.abs(s.speed - 1.0) > 0.0001) {
-            val speed = s.speed.toFloat()
-            builder.setSpeed(object : SpeedProvider {
-                override fun getSpeed(timeUs: Long): Float = speed
-                override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
-            })
-        }
+        applySpeed(builder, s.speed)
         // Never more frames per second than asked for (speeding up a 60 fps
         // clip would otherwise produce 120 fps).
         if (maxFrameRate != null) builder.setFrameRate(maxFrameRate)

@@ -56,6 +56,9 @@ Future<List<Clip>> pickAndReadVideos(
     try {
       final info = await engine.probe(p.source);
       if (info.durationUs <= 0) throw Exception('it has no length');
+      if (!info.hasVideo || info.width == 0) {
+        throw Exception('it has no picture (use "Music" to add sound files)');
+      }
       clips.add(
         Clip(
           id: 0,
@@ -104,4 +107,55 @@ void _showError(BuildContext context, String text) {
       ],
     ),
   );
+}
+
+/// Lets the user pick music, sound files or videos (whose sound is used),
+/// and returns them as audio clips starting at [startUs].
+Future<List<Clip>> pickAndReadAudio(
+  BuildContext context,
+  MediaEngine engine,
+  int startUs,
+) async {
+  final List<PickedMedia> picked;
+  try {
+    picked = await engine.pickAudio();
+  } catch (e) {
+    if (context.mounted) {
+      _showError(context, 'Could not open the file picker.\n\n$e');
+    }
+    return const [];
+  }
+  if (picked.isEmpty || !context.mounted) return const [];
+  final clips = <Clip>[];
+  final failures = <String>[];
+  for (final p in picked) {
+    try {
+      final info = await engine.probe(p.source);
+      if (!info.hasAudio) throw Exception('it has no sound');
+      if (info.durationUs <= 0) throw Exception('it has no length');
+      clips.add(
+        Clip(
+          id: 0,
+          kind: ClipKind.audio,
+          name: _niceName(p.displayName),
+          sourcePath: p.source,
+          media: info,
+          sourceDurationUs: info.durationUs,
+          sourceInUs: 0,
+          sourceOutUs: info.durationUs,
+          startUs: startUs,
+          colorValue: 0xFF2E7D32,
+        ),
+      );
+    } catch (e) {
+      failures.add('• ${p.displayName}: $e');
+    }
+  }
+  if (failures.isNotEmpty && context.mounted) {
+    _showError(
+      context,
+      'Some files could not be added:\n\n${failures.join('\n')}',
+    );
+  }
+  return clips;
 }

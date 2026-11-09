@@ -26,6 +26,7 @@ class MainActivity : FlutterActivity() {
     private val io = Executors.newFixedThreadPool(3)
     private val main = Handler(Looper.getMainLooper())
     private val preview by lazy { PreviewManager(applicationContext) }
+    private val audioPlayers by lazy { ClipAudioPlayers(applicationContext) }
 
     private var pendingPick: MethodChannel.Result? = null
     private var pendingFolder: MethodChannel.Result? = null
@@ -41,6 +42,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         // An export keeps running in its own service; only the preview goes.
         preview.release()
+        audioPlayers.releaseAll()
         super.onDestroy()
     }
 
@@ -58,6 +60,34 @@ class MainActivity : FlutterActivity() {
     private fun onCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "pickVideos" -> pickVideos(result)
+            "pickAudio" -> pickAudio(result)
+            "waveform" -> {
+                val source = call.argument<String>("source")!!
+                background(result) { Waveform.peaks(applicationContext, source) }
+            }
+            "audioOpen" -> {
+                audioPlayers.open(call.argument<Int>("id")!!, call.argument<String>("source")!!)
+                result.success(null)
+            }
+            "audioSeek" -> {
+                audioPlayers.seek(call.argument<Int>("id")!!, call.argument<Number>("sourceUs")!!.toLong())
+                result.success(null)
+            }
+            "audioPlay" -> { audioPlayers.play(call.argument<Int>("id")!!); result.success(null) }
+            "audioPause" -> { audioPlayers.pause(call.argument<Int>("id")!!); result.success(null) }
+            "audioVolume" -> {
+                audioPlayers.volume(call.argument<Int>("id")!!, call.argument<Number>("volume")!!.toDouble())
+                result.success(null)
+            }
+            "audioRate" -> {
+                audioPlayers.rate(call.argument<Int>("id")!!, call.argument<Number>("rate")!!.toDouble())
+                result.success(null)
+            }
+            "audioRelease" -> { audioPlayers.release(call.argument<Int>("id")!!); result.success(null) }
+            "previewVolume" -> {
+                preview.setVolume(call.argument<Number>("volume")!!.toDouble())
+                result.success(null)
+            }
             "pickFolder" -> pickFolder(result)
             "probe" -> {
                 val source = call.argument<String>("source")!!
@@ -125,6 +155,20 @@ class MainActivity : FlutterActivity() {
                 type = "video/*"
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             }
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQUEST_PICK_VIDEOS)
+    }
+
+    /** Music, sound effects, or the sound of other videos. */
+    private fun pickAudio(result: MethodChannel.Result) {
+        pendingPick?.success(emptyList<Any>())
+        pendingPick = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/*"))
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         @Suppress("DEPRECATION")
         startActivityForResult(intent, REQUEST_PICK_VIDEOS)

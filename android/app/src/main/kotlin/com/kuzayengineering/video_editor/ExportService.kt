@@ -35,6 +35,7 @@ import java.util.concurrent.Executors
 /** Everything the export needs, sent from the Flutter side. */
 data class ExportRequest(
     val segments: List<Segment>,
+    val audioTracks: List<List<Segment>>,
     val width: Int,
     val height: Int,
     val frameRate: Double,
@@ -49,6 +50,8 @@ data class ExportRequest(
     companion object {
         fun from(m: Map<String, Any?>) = ExportRequest(
             segments = @Suppress("UNCHECKED_CAST") Segment.listFrom(m["segments"] as List<Map<String, Any?>>),
+            audioTracks = @Suppress("UNCHECKED_CAST") (m["audioTracks"] as List<List<Map<String, Any?>>>?)
+                ?.map { Segment.listFrom(it) } ?: emptyList(),
             width = (m["width"] as Number).toInt(),
             height = (m["height"] as Number).toInt(),
             frameRate = (m["frameRate"] as Number).toDouble(),
@@ -129,6 +132,8 @@ object ExportManager {
             val composition = CompositionFactory.build(
                 req.segments, req.width, req.height,
                 Math.round(req.frameRate).toInt(), hdrMode,
+                audioTracks = req.audioTracks,
+                withGain = true,
             )
 
             val encoders = DefaultEncoderFactory.Builder(ctx)

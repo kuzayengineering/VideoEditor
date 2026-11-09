@@ -117,6 +117,11 @@ class PreviewManager(private val context: Context) {
         player?.play()
     }
 
+    /** Loudness of the video's own sound (0–1; louder isn't possible here). */
+    fun setVolume(v: Double) {
+        player?.volume = v.toFloat().coerceIn(0f, 1f)
+    }
+
     fun pause() {
         player?.pause()
     }

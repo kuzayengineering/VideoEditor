@@ -112,9 +112,15 @@ class Clip {
     this.opacity = 1.0,
     this.reversed = false,
     this.reverseProxy,
+    this.volume = 1.0,
+    this.fadeInUs = 0,
+    this.fadeOutUs = 0,
   });
 
   static const minSpeed = 0.25;
+
+  /// Up to 200 % (doubling the loudness).
+  static const maxVolume = 2.0;
   static const maxSpeed = 4.0;
 
   /// Unique within a project.
@@ -170,6 +176,14 @@ class Clip {
   /// The prepared backwards copy, once made.
   final ReverseProxy? reverseProxy;
 
+  /// Loudness: 1.0 is as recorded, 0 is silent, 2.0 is twice as loud.
+  final double volume;
+
+  /// How long the sound takes to rise from silence at the start / fall to
+  /// silence at the end (timeline time).
+  final int fadeInUs;
+  final int fadeOutUs;
+
   /// Length of the used part of the original file.
   int get sourceLengthUs => sourceOutUs - sourceInUs;
 
@@ -196,6 +210,29 @@ class Clip {
     return (width: w * crop.width, height: h * crop.height);
   }
 
+  /// Fades can't be longer than the clip together.
+  ({int fadeIn, int fadeOut}) get effectiveFades {
+    final d = durationUs;
+    var fi = fadeInUs.clamp(0, d);
+    var fo = fadeOutUs.clamp(0, d);
+    if (fi + fo > d) {
+      final scale = d / (fi + fo);
+      fi = (fi * scale).floor();
+      fo = (fo * scale).floor();
+    }
+    return (fadeIn: fi, fadeOut: fo);
+  }
+
+  /// Loudness [offsetUs] into the clip, including fades (0.0–2.0).
+  double gainAt(int offsetUs) {
+    final f = effectiveFades;
+    var g = volume;
+    if (f.fadeIn > 0 && offsetUs < f.fadeIn) g *= offsetUs / f.fadeIn;
+    final fromEnd = durationUs - offsetUs;
+    if (f.fadeOut > 0 && fromEnd < f.fadeOut) g *= fromEnd / f.fadeOut;
+    return g.clamp(0.0, maxVolume);
+  }
+
   /// Which moment of the original file is showing [offsetUs] into the clip
   /// (accounts for speed and reverse).
   int sourceTimeAt(int offsetUs) {
@@ -219,12 +256,17 @@ class Clip {
     bool? reversed,
     ReverseProxy? reverseProxy,
     bool clearReverseProxy = false,
+    double? volume,
+    int? fadeInUs,
+    int? fadeOutUs,
+    ClipKind? kind,
+    String? sourcePath,
   }) {
     return Clip(
       id: id ?? this.id,
-      kind: kind,
+      kind: kind ?? this.kind,
       name: name ?? this.name,
-      sourcePath: sourcePath,
+      sourcePath: sourcePath ?? this.sourcePath,
       sourceDurationUs: sourceDurationUs,
       sourceInUs: sourceInUs ?? this.sourceInUs,
       sourceOutUs: sourceOutUs ?? this.sourceOutUs,
@@ -241,6 +283,9 @@ class Clip {
       reverseProxy: clearReverseProxy
           ? null
           : (reverseProxy ?? this.reverseProxy),
+      volume: volume ?? this.volume,
+      fadeInUs: fadeInUs ?? this.fadeInUs,
+      fadeOutUs: fadeOutUs ?? this.fadeOutUs,
     );
   }
 
@@ -263,6 +308,9 @@ class Clip {
     if (opacity < 1) 'opacity': opacity,
     if (reversed) 'reversed': true,
     if (reverseProxy != null) 'reverseProxy': reverseProxy!.toJson(),
+    if (volume != 1) 'volume': volume,
+    if (fadeInUs > 0) 'fadeInUs': fadeInUs,
+    if (fadeOutUs > 0) 'fadeOutUs': fadeOutUs,
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -293,6 +341,12 @@ class Clip {
       opacity: ((json['opacity'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 1.0),
       reversed: json['reversed'] as bool? ?? false,
       reverseProxy: ReverseProxy.fromJson(json['reverseProxy']),
+      volume: ((json['volume'] as num?)?.toDouble() ?? 1.0).clamp(
+        0.0,
+        maxVolume,
+      ),
+      fadeInUs: (json['fadeInUs'] as num?)?.toInt() ?? 0,
+      fadeOutUs: (json['fadeOutUs'] as num?)?.toInt() ?? 0,
     );
   }
 }

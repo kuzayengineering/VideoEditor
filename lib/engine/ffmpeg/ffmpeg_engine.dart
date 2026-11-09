@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:path_provider/path_provider.dart';
@@ -76,12 +77,62 @@ class FfmpegEngine implements MediaEngine {
     if (r.exitCode != 0) {
       throw MediaException('Could not read "$source": ${r.stderr}'.trim());
     }
-    final info = parseProbeJson('${r.stdout}');
-    if (!info.hasVideo) {
-      throw MediaException('"$source" has no video picture in it.');
-    }
-    return info;
+    return parseProbeJson('${r.stdout}');
   }
+
+  static const _audioTypes = XTypeGroup(
+    label: 'Audio and video',
+    extensions: [
+      'mp3',
+      'wav',
+      'm4a',
+      'aac',
+      'flac',
+      'ogg',
+      'opus',
+      'wma',
+      'aiff',
+      'mp4',
+      'mov',
+      'm4v',
+      'mkv',
+      'webm',
+      'avi',
+    ],
+  );
+
+  @override
+  Future<List<PickedMedia>> pickAudio() async {
+    final files = await openFiles(acceptedTypeGroups: [_audioTypes]);
+    return [for (final f in files) PickedMedia(f.path, f.name)];
+  }
+
+  @override
+  Future<Uint8List> waveform(String source) async {
+    // Sound only, mixed to mono at 4,000 samples a second: plenty for an
+    // outline and small even for long files.
+    final r = await Process.run(ffmpeg, [
+      '-v',
+      'error',
+      '-i',
+      source,
+      '-vn',
+      '-ac',
+      '1',
+      '-ar',
+      '4000',
+      '-f',
+      's16le',
+      '-',
+    ], stdoutEncoding: null);
+    if (r.exitCode != 0) return Uint8List(0);
+    final bytes = Uint8List.fromList(r.stdout as List<int>);
+    final samples = bytes.buffer.asInt16List(0, bytes.lengthInBytes ~/ 2);
+    return peaksFromSamples(samples, 40);
+  }
+
+  @override
+  ClipAudioPlayer createAudioPlayer() => MpvAudioPlayer();
 
   Directory? _thumbDir;
   Future<Directory> _thumbnailDirectory() async {

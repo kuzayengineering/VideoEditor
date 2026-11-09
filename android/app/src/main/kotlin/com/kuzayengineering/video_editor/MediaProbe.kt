@@ -27,7 +27,16 @@ data class Segment(
     /** left, top, right, bottom as fractions of the turned picture. */
     val crop: List<Double> = listOf(0.0, 0.0, 1.0, 1.0),
     val opacity: Double = 1.0,
+    val volume: Double = 1.0,
+    val fadeInUs: Long = 0,
+    val fadeOutUs: Long = 0,
+    /** Where an audio-track clip starts on the timeline. */
+    val startUs: Long = 0,
+    /** True when the file also has a picture (its sound is used alone). */
+    val hasVideo: Boolean = true,
 ) {
+    val timelineUs: Long get() = Math.round(lengthUs / speed)
+
     val lengthUs: Long get() = outUs - inUs
 
     val hasEffects: Boolean
@@ -50,6 +59,11 @@ data class Segment(
             crop = (map["crop"] as List<*>?)?.map { (it as Number).toDouble() }
                 ?: listOf(0.0, 0.0, 1.0, 1.0),
             opacity = (map["opacity"] as Number?)?.toDouble() ?: 1.0,
+            volume = (map["volume"] as Number?)?.toDouble() ?: 1.0,
+            fadeInUs = (map["fadeInUs"] as Number?)?.toLong() ?: 0L,
+            fadeOutUs = (map["fadeOutUs"] as Number?)?.toLong() ?: 0L,
+            startUs = (map["startUs"] as Number?)?.toLong() ?: 0L,
+            hasVideo = map["hasVideo"] as Boolean? ?: true,
         )
 
         fun listFrom(list: List<Map<String, Any?>>) = list.map(::from)

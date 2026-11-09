@@ -131,7 +131,17 @@ Status notes:
 - Speed adjustment (normal speed changes; smoothing comes in Stage 7)
 - Reverse playback
 
-### Stage 3 — Audio, part 1
+### Stage 3 — Audio, part 1 *(in testing)*
+
+Status notes:
+- Works on both Android and Windows: music/sound files and the sound of
+  other videos on any number of audio tracks, drag to move, split/copy/
+  delete, volume 0–200 %, fade in/out, "Extract audio" (puts a video's sound
+  on its own track and mutes the video), voice-over recording, real
+  waveforms on the timeline.
+- The preview plays volumes up to 100 %; louder settings are heard in the
+  export.
+
 - Multiple audio tracks
 - Insert audio from an audio file (MP3, WAV, M4A, FLAC, and so on)
 - Insert audio taken from another video file

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 
@@ -79,6 +80,9 @@ class PreviewSegment {
         'flipV': c.flipV,
         'crop': c.crop.toJson(),
         'opacity': c.opacity,
+        'volume': c.volume,
+        'fadeInUs': c.effectiveFades.fadeIn,
+        'fadeOutUs': c.effectiveFades.fadeOut,
       },
     };
   }
@@ -105,6 +109,21 @@ List<PreviewSegment> segmentsOf(Project project) => [
   for (final c in project.mainTrack.clips)
     if (c.isMedia) PreviewSegment.of(c),
 ];
+
+/// Plays one audio-track clip during preview.
+abstract class ClipAudioPlayer {
+  Future<void> open(String source);
+
+  /// Jumps to [sourceUs] in the file.
+  Future<void> seek(int sourceUs);
+  Future<void> play();
+  Future<void> pause();
+
+  /// 0.0–1.0 (preview can't go louder than the file).
+  Future<void> setVolume(double volume);
+  Future<void> setRate(double rate);
+  Future<void> dispose();
+}
 
 /// Shows the edit while editing.
 abstract class PreviewPlayer {
@@ -133,6 +152,9 @@ abstract class PreviewPlayer {
 
   /// Current timeline position.
   Future<int> position();
+
+  /// Loudness of the video's own sound (0.0–1.0).
+  Future<void> setVolume(double volume);
 
   Future<void> dispose();
 }
@@ -235,8 +257,18 @@ abstract class MediaEngine {
   /// Asks the user to choose videos.
   Future<List<PickedMedia>> pickVideos();
 
-  /// Reads size, frame rate, HDR type and so on.
+  /// Asks the user to choose music, sounds, or videos whose sound to use.
+  Future<List<PickedMedia>> pickAudio();
+
+  /// Reads size, frame rate, HDR type and so on (works for sound-only
+  /// files too: then [MediaInfo.hasVideo] is false).
   Future<MediaInfo> probe(String source);
+
+  /// The loudness outline of a file's sound: 100 values per second, each
+  /// 0–255. Empty if the file has no sound.
+  Future<Uint8List> waveform(String source);
+
+  ClipAudioPlayer createAudioPlayer();
 
   /// Small preview images at the given source times. Returns one file path
   /// per requested time (null where a frame couldn't be made).
@@ -289,6 +321,16 @@ class NoMediaEngine implements MediaEngine {
   @override
   Future<MediaInfo> probe(String source) =>
       Future.error(UnsupportedError('No video engine on this platform'));
+
+  @override
+  Future<List<PickedMedia>> pickAudio() async => const [];
+
+  @override
+  Future<Uint8List> waveform(String source) async => Uint8List(0);
+
+  @override
+  ClipAudioPlayer createAudioPlayer() =>
+      throw UnsupportedError('No video engine on this platform');
 
   @override
   Future<List<String?>> thumbnails(
