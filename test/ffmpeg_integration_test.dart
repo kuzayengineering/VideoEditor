@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_editor/engine/ffmpeg/ffmpeg_commands.dart';
+import 'package:video_editor/engine/media_engine.dart';
 import 'package:video_editor/model/export_settings.dart';
 import 'package:video_editor/model/project.dart';
 import 'package:video_editor/model/timecode.dart';
@@ -62,6 +63,28 @@ Future<double> _avgLuma(String path, {double atSeconds = 0.1}) async {
   ]);
   final m = RegExp(r'YAVG=([0-9.]+)').firstMatch('${r.stdout}${r.stderr}');
   return double.parse(m!.group(1)!);
+}
+
+Clip media16x9Placeholder() => const Clip(
+  id: 0,
+  kind: ClipKind.video,
+  name: 'shape',
+  sourcePath: 'unused',
+  media: MediaInfo(
+    durationUs: 1000000,
+    width: 1920,
+    height: 1080,
+    frameRate: 30,
+  ),
+  sourceDurationUs: 1000000,
+  sourceInUs: 0,
+  sourceOutUs: 1000000,
+);
+
+extension on Project {
+  /// Removes the first clip (used to set the canvas shape from a clip that
+  /// isn't exported).
+  Project deleteFirst() => deleteClip(mainTrack.clips.first.id);
 }
 
 void main() {
@@ -346,6 +369,181 @@ void main() {
         expect(await exportLuma(sdrWhite, DynamicRange.hdr10), closeTo(572, 6));
         final sdrFromHdr = await exportLuma(hlgWhite, DynamicRange.sdr);
         expect(sdrFromHdr, inInclusiveRange(220, 235));
+      });
+
+      Future<(MediaInfo, ExportVerification)> exportProject(
+        Project project,
+        ExportSettings settings,
+        String name,
+      ) async {
+        final out = '${dir.path}/$name.mp4';
+        final enc = settings.codec == VideoCodec.hevc ? 'libx265' : 'libx264';
+        final plan = buildExportPlan(
+          project: project,
+          settings: settings,
+          encoder: [
+            ...VideoEncoder.hevcCandidates,
+            ...VideoEncoder.h264Candidates,
+          ].firstWhere((e) => e.name == enc),
+          outputPath: out,
+        );
+        final r = await Process.run('ffmpeg', plan.args);
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+        final v = await Process.run('ffprobe', verifyArgs(out));
+        return (
+          await _probe(out),
+          parseVerification(
+            '${v.stdout}',
+            plan.expectedFrames,
+            plan.durationUs,
+          ),
+        );
+      }
+
+      test('rotate, mirror, crop and double speed', () async {
+        final info = await _probe(hlg);
+        final c = clipFor(hlg, info).copyWith(
+          rotation: 1,
+          flipH: true,
+          crop: const CropRect(0, 0.25, 1, 0.75),
+          speed: 2,
+        );
+        final project = Project.empty(id: 't').insertMedia([c]);
+        // Turned 90° the 1280x720 clip is 720x1280; keeping the middle half
+        // of its height gives 720x640.
+        expect(project.mainTrack.clips.single.displaySize, (
+          width: 720.0,
+          height: 640.0,
+        ));
+        final (out, check) = await exportProject(
+          project,
+          const ExportSettings(
+            resolution: ExportResolution.p720,
+            frameRate: 60,
+          ),
+          'look',
+        );
+        expect(check.actualFrames, 90); // 3 s at 2x = 1.5 s at 60 fps
+        expect(out.transfer, ColorTransfer.hlg);
+      });
+
+      test('opacity over a white background, and blurred background', () async {
+        // A black clip at 50 % over white should come out mid grey.
+        final black = '${dir.path}/black.mp4';
+        await _run([
+          '-f',
+          'lavfi',
+          '-i',
+          'color=c=black:s=640x360:r=30:d=1',
+          '-pix_fmt',
+          'yuv420p',
+          '-c:v',
+          'libx264',
+          '-preset',
+          'ultrafast',
+          '-color_primaries',
+          'bt709',
+          '-color_trc',
+          'bt709',
+          '-colorspace',
+          'bt709',
+          black,
+        ]);
+        final info = await _probe(black);
+        final sdr30 = const ExportSettings(resolution: ExportResolution.p720)
+            .copyWith(
+              dynamicRange: DynamicRange.sdr,
+              codec: VideoCodec.h264,
+              frameRate: 30,
+            );
+        final faded = Project.empty(id: 't')
+            .insertMedia([clipFor(black, info).copyWith(opacity: 0.5)])
+            .withBackground(const BackgroundFill.color(0xFFFFFFFF));
+        final (_, check) = await exportProject(faded, sdr30, 'opacity');
+        expect(check.actualFrames, 30);
+        final y = await _avgLuma('${dir.path}/opacity.mp4');
+        expect(y, closeTo(126, 8));
+
+        // Portrait clip on a landscape canvas with a blurred background.
+        final rInfo = await _probe(rotated);
+        final blurred = Project.empty(id: 't', frameRate: 30)
+            .insertMedia([media16x9Placeholder(), clipFor(rotated, rInfo)])
+            .deleteFirst()
+            .withBackground(const BackgroundFill.blur());
+        expect(blurred.canvas, CanvasRatio.landscape16x9);
+        final (out, check2) = await exportProject(blurred, sdr30, 'blur');
+        expect((out.width, out.height), (1280, 720));
+        expect(check2.ok, isTrue);
+      });
+
+      test('reverse: pieces reversed and joined last-to-first', () async {
+        final info = await _probe(hlg);
+        final work = await Directory('${dir.path}/rev').create();
+        final out = '${dir.path}/reversed.mp4';
+        final plan = buildReversePlan(
+          source: hlg,
+          info: info,
+          inUs: 500000,
+          outUs: 2500000,
+          encoder: VideoEncoder.hevcCandidates.firstWhere(
+            (e) => e.name == 'libx265',
+          ),
+          workDir: work.path,
+          outputPath: out,
+        );
+        expect(plan.chunkArgs.length, 2); // 2 s in 1 s pieces (720p)
+        for (final a in plan.chunkArgs) {
+          final r = await Process.run('ffmpeg', a);
+          expect(r.exitCode, 0, reason: '${r.stderr}');
+        }
+        await File(plan.concatListPath).writeAsString(plan.concatList);
+        final r = await Process.run('ffmpeg', plan.concatArgs);
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+        final rev = await _probe(out);
+        expect(rev.durationUs, closeTo(2 * usPerSecond, 60000));
+        expect(rev.transfer, ColorTransfer.hlg);
+
+        // First frame of the reversed copy == last used frame of the original.
+        Future<String> frameHash(String path, double at) async {
+          final x = await Process.run('ffmpeg', [
+            '-hide_banner',
+            '-v',
+            'error',
+            '-ss',
+            '$at',
+            '-i',
+            path,
+            '-frames:v',
+            '1',
+            '-vf',
+            'scale=32:18,format=gray',
+            '-f',
+            'rawvideo',
+            '-',
+          ], stdoutEncoding: null);
+          return (x.stdout as List<int>).map((b) => b ~/ 32).join();
+        }
+
+        final firstOfReversed = await frameHash(out, 0);
+        final lastOfOriginal = await frameHash(hlg, 2.5 - 1 / 60);
+        final firstOfOriginal = await frameHash(hlg, 0.5);
+        expect(firstOfReversed, lastOfOriginal);
+        expect(firstOfReversed, isNot(firstOfOriginal));
+
+        // The reversed clip exports at the right length.
+        final clip = clipFor(hlg, info, inUs: 500000, outUs: 2500000).copyWith(
+          reversed: true,
+          reverseProxy: ReverseProxy(out, 500000, 2500000),
+        );
+        final (_, check) = await exportProject(
+          Project.empty(id: 't').insertMedia([clip]),
+          const ExportSettings(
+            resolution: ExportResolution.p720,
+            frameRate: 60,
+          ),
+          'reversed_export',
+        );
+        expect(check.actualFrames, 120);
       });
 
       test('thumbnail of an HDR clip', () async {

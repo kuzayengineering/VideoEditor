@@ -19,8 +19,57 @@ String buildEdl(List<PreviewSegment> segments) {
   return 'edl://${parts.join(';')}';
 }
 
+/// Converts between timeline time (after each clip's speed change) and the
+/// time inside the EDL (the clips at normal speed, back to back).
+class SpeedMap {
+  SpeedMap(List<PreviewSegment> segments)
+    : speeds = [for (final s in segments) s.speed],
+      timelineStarts = _starts([for (final s in segments) s.timelineUs]),
+      edlStarts = _starts([for (final s in segments) s.lengthUs]);
+
+  final List<double> speeds;
+  final List<int> timelineStarts;
+  final List<int> edlStarts;
+
+  static List<int> _starts(List<int> lengths) {
+    final out = <int>[];
+    var t = 0;
+    for (final l in lengths) {
+      out.add(t);
+      t += l;
+    }
+    return out;
+  }
+
+  int _index(List<int> starts, int t) {
+    var i = 0;
+    while (i + 1 < starts.length && starts[i + 1] <= t) {
+      i++;
+    }
+    return i;
+  }
+
+  int segmentAtTimeline(int t) => _index(timelineStarts, t);
+  int segmentAtEdl(int e) => _index(edlStarts, e);
+
+  int toEdl(int timelineUs) {
+    if (speeds.isEmpty) return timelineUs;
+    final i = segmentAtTimeline(timelineUs);
+    return edlStarts[i] +
+        ((timelineUs - timelineStarts[i]) * speeds[i]).round();
+  }
+
+  int toTimeline(int edlUs) {
+    if (speeds.isEmpty) return edlUs;
+    final i = segmentAtEdl(edlUs);
+    return timelineStarts[i] + ((edlUs - edlStarts[i]) / speeds[i]).round();
+  }
+}
+
 /// Windows preview, powered by mpv. HDR footage is tone-mapped for the
-/// (SDR) preview; exports keep full HDR.
+/// (SDR) preview; exports keep full HDR. Turn, mirror, crop, opacity and
+/// background are drawn by the screen around the video; speed is applied by
+/// changing mpv's playback speed as each clip starts.
 class MpvPreviewPlayer implements PreviewPlayer {
   MpvPreviewPlayer() {
     final native = _player.platform;
@@ -41,17 +90,30 @@ class MpvPreviewPlayer implements PreviewPlayer {
   );
   late final VideoController _video = VideoController(_player);
   List<PreviewSegment> _segments = const [];
+  SpeedMap _map = SpeedMap(const []);
   bool _exactSeeks = true;
+  double _rate = 1.0;
 
   @override
   Widget buildView(BuildContext context) =>
       Video(controller: _video, controls: NoVideoControls, fill: Colors.black);
 
   @override
-  Future<void> setTimeline(List<PreviewSegment> segments) async {
-    if (_listEquals(segments, _segments)) return;
+  bool drawsEffects(List<PreviewSegment> segments) => false;
+
+  @override
+  Future<void> setTimeline(
+    List<PreviewSegment> segments, {
+    int canvasWidth = 1920,
+    int canvasHeight = 1080,
+  }) async {
+    if (_sameMedia(segments, _segments)) {
+      _segments = List.of(segments);
+      return;
+    }
     final position = await this.position();
     _segments = List.of(segments);
+    _map = SpeedMap(_segments);
     if (segments.isEmpty) {
       await _player.stop();
       return;
@@ -60,8 +122,20 @@ class MpvPreviewPlayer implements PreviewPlayer {
     await seek(position);
   }
 
+  Future<void> _applyRateFor(int edlUs) async {
+    if (_map.speeds.isEmpty) return;
+    final rate = _map.speeds[_map.segmentAtEdl(edlUs)];
+    if ((rate - _rate).abs() > 0.0001) {
+      _rate = rate;
+      await _player.setRate(rate);
+    }
+  }
+
   @override
-  Future<void> play() => _player.play();
+  Future<void> play() async {
+    await _applyRateFor(_player.state.position.inMicroseconds);
+    await _player.play();
+  }
 
   @override
   Future<void> pause() => _player.pause();
@@ -75,19 +149,33 @@ class MpvPreviewPlayer implements PreviewPlayer {
         await native.setProperty('hr-seek', exact ? 'yes' : 'no');
       }
     }
-    await _player.seek(Duration(microseconds: timeUs));
+    final edl = _map.toEdl(timeUs);
+    await _applyRateFor(edl);
+    await _player.seek(Duration(microseconds: edl));
   }
 
   @override
-  Future<int> position() async => _player.state.position.inMicroseconds;
+  Future<int> position() async {
+    final edl = _player.state.position.inMicroseconds;
+    // Crossing into a clip with a different speed: switch playback speed.
+    await _applyRateFor(edl);
+    return _map.toTimeline(edl);
+  }
 
   @override
   Future<void> dispose() => _player.dispose();
 
-  static bool _listEquals(List<PreviewSegment> a, List<PreviewSegment> b) {
+  /// Same files and ranges in the same order (looks may differ: those are
+  /// drawn by the screen, so the player needn't reload).
+  static bool _sameMedia(List<PreviewSegment> a, List<PreviewSegment> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
+      if (a[i].source != b[i].source ||
+          a[i].inUs != b[i].inUs ||
+          a[i].outUs != b[i].outUs ||
+          a[i].speed != b[i].speed) {
+        return false;
+      }
     }
     return true;
   }

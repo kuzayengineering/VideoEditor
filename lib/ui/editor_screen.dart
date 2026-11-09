@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -9,6 +10,7 @@ import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'canvas_sheet.dart';
+import 'clip_tools.dart';
 import 'editor_controller.dart';
 import 'export_progress_screen.dart';
 import 'export_sheet.dart';
@@ -109,9 +111,111 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
+  Future<void> _crop() async {
+    final sel = c.selected;
+    if (sel == null || !sel.clip.isMedia) return;
+    c.pause();
+    final clip = sel.clip;
+    final offset = (c.playheadUs - sel.startUs).clamp(0, clip.durationUs);
+    File? frame;
+    try {
+      final files = await _engine.thumbnails(clip.sourcePath!, clip.media!, [
+        clip.sourceTimeAt(offset),
+      ], height: 720);
+      if (files.first != null) frame = File(files.first!);
+    } catch (_) {}
+    if (!mounted) return;
+    final rect = await Navigator.of(context).push<CropRect>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) =>
+            CropScreen(clip: clip, frame: frame, canvas: c.project.canvas),
+      ),
+    );
+    if (rect != null) {
+      c.updateSelected((x) => x.copyWith(crop: rect));
+    }
+  }
+
+  Future<void> _toggleReverse() async {
+    final sel = c.selected;
+    if (sel == null) return;
+    c.pause();
+    if (sel.clip.reversed) {
+      c.updateSelected((x) => x.copyWith(reversed: false));
+      return;
+    }
+    final proxy = await _prepareReverse(sel.clip);
+    if (proxy == null || !mounted) return;
+    c.updateSelected((x) => x.copyWith(reversed: true, reverseProxy: proxy));
+  }
+
+  /// Makes the backwards copy, with a progress dialog. Null if it failed
+  /// (the reason is shown).
+  Future<ReverseProxy?> _prepareReverse(Clip clip) async {
+    if (clip.reverseProxy?.covers(clip.sourceInUs, clip.sourceOutUs) ?? false) {
+      return clip.reverseProxy;
+    }
+    final progress = ValueNotifier<double>(0);
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('Preparing reverse'),
+          content: ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (context, v, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(value: v > 0 ? v : null),
+                const SizedBox(height: 12),
+                Text(
+                  'Making a backwards copy of "${clip.name}" '
+                  '(${formatShortDuration(clip.sourceLengthUs)}). '
+                  'Longer 4K clips take a while.',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    try {
+      final proxy = await _engine.prepareReverse(
+        clip,
+        onProgress: (f) => progress.value = f,
+      );
+      navigator.pop();
+      return proxy;
+    } catch (e) {
+      navigator.pop();
+      if (mounted) await _alert('Can\'t reverse', '$e');
+      return null;
+    } finally {
+      progress.dispose();
+    }
+  }
+
+  /// Reversed clips whose in/out points moved need a fresh backwards copy.
+  Future<bool> _ensureReversesReady() async {
+    for (final clip in c.project.mainTrack.clips) {
+      if (!clip.reversed || clip.reverseReady) continue;
+      final proxy = await _prepareReverse(clip);
+      if (proxy == null || !mounted) return false;
+      c.apply(
+        c.project.updateClip(clip.id, (x) => x.copyWith(reverseProxy: proxy)),
+      );
+    }
+    return true;
+  }
+
   Future<void> _export() async {
     c.pause();
     if (!await showExportSheet(context, c, _engine) || !mounted) return;
+    if (!await _ensureReversesReady() || !mounted) return;
     final problem = await _engine.checkExport(c.project, c.exportSettings);
     if (!mounted) return;
     if (problem != null) {
@@ -255,7 +359,12 @@ class _EditorScreenState extends State<EditorScreen>
         ),
         const EditorTool('Filter', Icons.photo_filter_outlined, stage: 5),
         const EditorTool('Captions', Icons.closed_caption_outlined, stage: 7),
-        const EditorTool('Background', Icons.wallpaper, stage: 2),
+        EditorTool(
+          'Background',
+          Icons.wallpaper,
+          stage: 2,
+          onTap: () => showBackgroundSheet(context, c, _engine),
+        ),
       ];
     }
     final common = [
@@ -274,7 +383,12 @@ class _EditorScreenState extends State<EditorScreen>
       ),
       const EditorTool('Volume', Icons.volume_up_outlined, stage: 3),
       const EditorTool('Fade', Icons.trending_up, stage: 3),
-      const EditorTool('Speed', Icons.speed, stage: 2),
+      EditorTool(
+        'Speed',
+        Icons.speed,
+        stage: 2,
+        onTap: () => showSpeedSheet(context, c),
+      ),
       const EditorTool('Pitch', Icons.multitrack_audio, stage: 6),
     ];
     if (sel.clip.kind == ClipKind.audio) {
@@ -288,11 +402,36 @@ class _EditorScreenState extends State<EditorScreen>
     }
     return [
       ...common,
-      const EditorTool('Rotate', Icons.rotate_90_degrees_cw_outlined, stage: 2),
-      const EditorTool('Mirror', Icons.flip, stage: 2),
-      const EditorTool('Crop', Icons.crop, stage: 2),
-      const EditorTool('Reverse', Icons.settings_backup_restore, stage: 2),
-      const EditorTool('Opacity', Icons.opacity, stage: 2),
+      EditorTool(
+        'Rotate',
+        Icons.rotate_90_degrees_cw_outlined,
+        stage: 2,
+        onTap: sel.clip.isMedia ? c.rotateSelected : null,
+      ),
+      EditorTool(
+        'Mirror',
+        Icons.flip,
+        stage: 2,
+        onTap: sel.clip.isMedia ? c.mirrorSelected : null,
+      ),
+      EditorTool(
+        'Crop',
+        Icons.crop,
+        stage: 2,
+        onTap: sel.clip.isMedia ? _crop : null,
+      ),
+      EditorTool(
+        sel.clip.reversed ? 'Un-reverse' : 'Reverse',
+        Icons.settings_backup_restore,
+        stage: 2,
+        onTap: sel.clip.isMedia ? _toggleReverse : null,
+      ),
+      EditorTool(
+        'Opacity',
+        Icons.opacity,
+        stage: 2,
+        onTap: sel.clip.isMedia ? () => showOpacitySheet(context, c) : null,
+      ),
       const EditorTool('Filter', Icons.photo_filter_outlined, stage: 5),
       const EditorTool('Transition', Icons.compare_arrows, stage: 4),
       const EditorTool('Extract audio', Icons.music_video_outlined, stage: 3),
@@ -368,7 +507,11 @@ class _EditorScreenState extends State<EditorScreen>
                 child: Column(
                   children: [
                     Expanded(
-                      child: PreviewView(controller: c, player: _previewWidget),
+                      child: PreviewView(
+                        controller: c,
+                        player: _previewWidget,
+                        thumbnails: _thumbs,
+                      ),
                     ),
                     _TransportBar(controller: c),
                     const Divider(height: 1),

@@ -17,8 +17,23 @@ data class Segment(
     val outUs: Long,
     val hasAudio: Boolean = true,
     val frameRate: Double = 30.0,
+    /** Length of the whole source file. */
+    val sourceDurationUs: Long = 0,
+    val speed: Double = 1.0,
+    /** Quarter turns clockwise. */
+    val rotation: Int = 0,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false,
+    /** left, top, right, bottom as fractions of the turned picture. */
+    val crop: List<Double> = listOf(0.0, 0.0, 1.0, 1.0),
+    val opacity: Double = 1.0,
 ) {
     val lengthUs: Long get() = outUs - inUs
+
+    val hasEffects: Boolean
+        get() = rotation != 0 || flipH || flipV || opacity < 0.999 ||
+            Math.abs(speed - 1.0) > 0.0001 ||
+            crop[0] > 0.0005 || crop[1] > 0.0005 || crop[2] < 0.9995 || crop[3] < 0.9995
 
     companion object {
         fun from(map: Map<String, Any?>) = Segment(
@@ -27,6 +42,14 @@ data class Segment(
             outUs = (map["outUs"] as Number).toLong(),
             hasAudio = map["hasAudio"] as Boolean? ?: true,
             frameRate = (map["frameRate"] as Number?)?.toDouble() ?: 30.0,
+            sourceDurationUs = (map["sourceDurationUs"] as Number?)?.toLong() ?: 0L,
+            speed = (map["speed"] as Number?)?.toDouble() ?: 1.0,
+            rotation = (map["rotation"] as Number?)?.toInt() ?: 0,
+            flipH = map["flipH"] as Boolean? ?: false,
+            flipV = map["flipV"] as Boolean? ?: false,
+            crop = (map["crop"] as List<*>?)?.map { (it as Number).toDouble() }
+                ?: listOf(0.0, 0.0, 1.0, 1.0),
+            opacity = (map["opacity"] as Number?)?.toDouble() ?: 1.0,
         )
 
         fun listFrom(list: List<Map<String, Any?>>) = list.map(::from)

@@ -112,7 +112,17 @@ Status notes:
 - Save and reopen projects (drafts)
 - Windows app checks for new releases itself and offers a one-click update
 
-### Stage 2 — Basic editing tools
+### Stage 2 — Basic editing tools *(in testing)*
+
+Status notes:
+- **Windows:** everything below works, including reverse (a backwards copy
+  is prepared in short pieces, so 4K needs little memory) and colored or
+  blurred backgrounds.
+- **Android:** rotate, mirror, crop, speed and opacity work (preview and
+  export use the same Media3 effects). **Reverse** and **colored/blurred
+  backgrounds** still need custom work beyond Google's video tools and come
+  in a later update.
+
 - Rotate, mirror (flip), crop
 - Aspect ratios: 16:9, 9:16, 1:1, 4:5, 4:3, 21:9 and custom, with a background
   fill (color or blur)

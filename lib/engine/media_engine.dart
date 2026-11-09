@@ -16,29 +16,94 @@ class PickedMedia {
 
 /// One stretch of the main track, as the preview player needs it.
 class PreviewSegment {
-  const PreviewSegment(this.source, this.inUs, this.outUs);
+  const PreviewSegment(
+    this.source,
+    this.inUs,
+    this.outUs, {
+    this.speed = 1.0,
+    this.clip,
+  });
+
+  /// From a clip: backwards clips use their reversed copy.
+  factory PreviewSegment.of(Clip c) {
+    final proxy = c.reverseProxy;
+    if (c.reverseReady && proxy != null) {
+      return PreviewSegment(
+        proxy.path,
+        proxy.proxyTimeOf(c.sourceOutUs),
+        proxy.proxyTimeOf(c.sourceInUs),
+        speed: c.speed,
+        clip: c,
+      );
+    }
+    return PreviewSegment(
+      c.sourcePath!,
+      c.sourceInUs,
+      c.sourceOutUs,
+      speed: c.speed,
+      clip: c,
+    );
+  }
 
   final String source;
   final int inUs;
   final int outUs;
+  final double speed;
+
+  /// The clip this came from (for rotation, crop and so on).
+  final Clip? clip;
 
   int get lengthUs => outUs - inUs;
+
+  /// Length on the timeline (after speed).
+  int get timelineUs => (lengthUs / speed).round();
+
+  bool get hasEffects => (clip?.hasLook ?? false) || (speed - 1).abs() > 0.0001;
+
+  Map<String, Object?> toMap() {
+    final c = clip;
+    return {
+      'source': source,
+      'inUs': inUs,
+      'outUs': outUs,
+      'speed': speed,
+      if (c != null) ...{
+        'hasAudio': c.media?.hasAudio ?? true,
+        'frameRate': c.media?.frameRate ?? 30,
+        // Reversed copies are only as long as the range they cover.
+        'sourceDurationUs': c.reverseReady
+            ? c.reverseProxy!.sourceOutUs - c.reverseProxy!.sourceInUs
+            : c.sourceDurationUs,
+        'rotation': c.rotation,
+        'flipH': c.flipH,
+        'flipV': c.flipV,
+        'crop': c.crop.toJson(),
+        'opacity': c.opacity,
+      },
+    };
+  }
 
   @override
   bool operator ==(Object other) =>
       other is PreviewSegment &&
       other.source == source &&
       other.inUs == inUs &&
-      other.outUs == outUs;
+      other.outUs == outUs &&
+      other.speed == speed &&
+      other.clip?.rotation == clip?.rotation &&
+      other.clip?.flipH == clip?.flipH &&
+      other.clip?.flipV == clip?.flipV &&
+      other.clip?.crop == clip?.crop &&
+      other.clip?.opacity == clip?.opacity;
 
   @override
-  int get hashCode => Object.hash(source, inUs, outUs);
+  int get hashCode => Object.hash(source, inUs, outUs, speed);
 }
 
 /// Main-track clips that can be previewed / exported, in order.
 List<PreviewSegment> segmentsOf(Project project) => [
   for (final c in project.mainTrack.clips)
-    if (c.isMedia) PreviewSegment(c.sourcePath!, c.sourceInUs, c.sourceOutUs),
+    if (c.isMedia) PreviewSegment.of(c),
 ];
 
 /// Shows the edit while editing.
@@ -47,7 +112,17 @@ abstract class PreviewPlayer {
   Widget buildView(BuildContext context);
 
   /// Replaces what is being previewed. The playhead position is kept.
-  Future<void> setTimeline(List<PreviewSegment> segments);
+  /// [canvasWidth]/[canvasHeight] give the output shape.
+  Future<void> setTimeline(
+    List<PreviewSegment> segments, {
+    int canvasWidth = 1920,
+    int canvasHeight = 1080,
+  });
+
+  /// True if the player itself draws turn/mirror/crop/opacity and the black
+  /// bars for these segments (the picture then fills the whole canvas).
+  /// False means the screen applies them around the plain video.
+  bool drawsEffects(List<PreviewSegment> segments);
 
   Future<void> play();
   Future<void> pause();
@@ -172,6 +247,16 @@ abstract class MediaEngine {
     int height = 120,
   });
 
+  /// Prepares a backwards copy of [clip]'s range (see [ReverseProxy]).
+  /// [onProgress] receives 0.0–1.0. Throws if this platform can't do it.
+  Future<ReverseProxy> prepareReverse(
+    Clip clip, {
+    void Function(double fraction)? onProgress,
+  });
+
+  /// Whether colored or blurred backgrounds can be exported here.
+  bool get supportsBackgrounds;
+
   /// Asks the user to choose a folder to save exports to.
   /// Returns an opaque folder reference, or null if cancelled.
   Future<String?> pickOutputFolder();
@@ -215,6 +300,15 @@ class NoMediaEngine implements MediaEngine {
 
   @override
   Future<String?> pickOutputFolder() async => null;
+
+  @override
+  Future<ReverseProxy> prepareReverse(
+    Clip clip, {
+    void Function(double fraction)? onProgress,
+  }) => Future.error(UnsupportedError('No video engine on this platform'));
+
+  @override
+  bool get supportsBackgrounds => true;
 
   @override
   String describeFolder(String? folder) => folder ?? 'Default folder';

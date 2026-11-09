@@ -52,6 +52,11 @@ class EditorController extends ChangeNotifier {
   /// placeholders).
   bool get usesPreview => _preview != null && project.hasMedia;
 
+  /// True if the preview player draws clip effects itself (Android with
+  /// effects); otherwise the screen draws them around the video.
+  bool get previewDrawsEffects =>
+      _preview?.drawsEffects(segmentsOf(project)) ?? false;
+
   void attachPreview(PreviewPlayer preview) {
     _preview = preview;
     _syncPreviewTimeline();
@@ -65,7 +70,19 @@ class EditorController extends ChangeNotifier {
     final segments = segmentsOf(project);
     if (listEquals(segments, _previewSegments)) return;
     _previewSegments = segments;
-    unawaited(p.setTimeline(segments).then((_) => _seekPreview(exact: true)));
+    final canvas = project.canvas;
+    final long = 1920.0;
+    final cw = canvas.value >= 1 ? long : long * canvas.value;
+    final ch = canvas.value >= 1 ? long / canvas.value : long;
+    unawaited(
+      p
+          .setTimeline(
+            segments,
+            canvasWidth: (cw / 2).round() * 2,
+            canvasHeight: (ch / 2).round() * 2,
+          )
+          .then((_) => _seekPreview(exact: true)),
+    );
   }
 
   bool _seekBusy = false;
@@ -212,6 +229,9 @@ class EditorController extends ChangeNotifier {
   // Edits
   // ---------------------------------------------------------------------------
 
+  /// Records an edit made elsewhere (one undo step).
+  void apply(Project next) => _apply(next);
+
   void _apply(Project next) {
     history.apply(next);
     _afterChange();
@@ -264,6 +284,66 @@ class EditorController extends ChangeNotifier {
   }
 
   void setCanvas(CanvasRatio canvas) => _apply(project.withCanvas(canvas));
+
+  // ---------------------------------------------------------------------------
+  // Clip adjustments (Stage 2)
+  // ---------------------------------------------------------------------------
+
+  /// Changes the selected clip (one undo step).
+  void updateSelected(Clip Function(Clip c) change) {
+    final id = _selectedClipId;
+    if (id == null) return;
+    _apply(project.updateClip(id, change));
+  }
+
+  void rotateSelected() => updateSelected(
+    // Turning swaps the crop's sides around with the picture.
+    (c) => c.copyWith(
+      rotation: c.rotation + 1,
+      crop: CropRect(
+        1 - c.crop.bottom,
+        c.crop.left,
+        1 - c.crop.top,
+        c.crop.right,
+      ),
+    ),
+  );
+
+  void mirrorSelected() => updateSelected(
+    (c) => c.copyWith(
+      flipH: !c.flipH,
+      crop: CropRect(
+        1 - c.crop.right,
+        c.crop.top,
+        1 - c.crop.left,
+        c.crop.bottom,
+      ),
+    ),
+  );
+
+  void setBackground(BackgroundFill fill) =>
+      _apply(project.withBackground(fill));
+
+  /// Live changes while a slider is being dragged; [endLiveEdit] makes them
+  /// one undo step.
+  void liveEdit(Project Function(Project base) change) {
+    final base = history.beginGesture();
+    history.updateGesture(change(base));
+    _playheadUs = _playheadUs.clamp(0, project.durationUs);
+    notifyListeners();
+  }
+
+  void endLiveEdit() {
+    if (!history.inGesture) return;
+    history.endGesture();
+    _afterChange();
+  }
+
+  void cancelLiveEdit() {
+    if (!history.inGesture) return;
+    history.cancelGesture();
+    _afterChange();
+  }
 
   void rename(String name) => _apply(project.renamed(name));
 

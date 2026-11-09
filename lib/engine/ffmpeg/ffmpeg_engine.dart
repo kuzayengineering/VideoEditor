@@ -125,6 +125,67 @@ class FfmpegEngine implements MediaEngine {
   }
 
   @override
+  bool get supportsBackgrounds => true;
+
+  @override
+  Future<ReverseProxy> prepareReverse(
+    Clip clip, {
+    void Function(double fraction)? onProgress,
+  }) async {
+    final info = clip.media!;
+    final source = clip.sourcePath!;
+    final encoder = await encoderFor(
+      info.isHdr || info.bitDepth > 8 ? VideoCodec.hevc : VideoCodec.h264,
+      tenBit: info.isHdr || info.bitDepth > 8,
+    );
+    if (encoder == null) {
+      throw MediaException(
+        'No video encoder available to prepare the reversed copy.',
+      );
+    }
+    final base = await getApplicationSupportDirectory();
+    final key =
+        '${source.hashCode.toUnsigned(32).toRadixString(16)}_'
+        '${clip.sourceInUs}_${clip.sourceOutUs}';
+    final out = File('${base.path}/reversed/$key.mp4');
+    if (await out.exists()) {
+      return ReverseProxy(out.path, clip.sourceInUs, clip.sourceOutUs);
+    }
+    await out.parent.create(recursive: true);
+    final work = await Directory(
+      '${(await getApplicationCacheDirectory()).path}/reverse_$key',
+    ).create(recursive: true);
+    try {
+      final plan = buildReversePlan(
+        source: source,
+        info: info,
+        inUs: clip.sourceInUs,
+        outUs: clip.sourceOutUs,
+        encoder: encoder,
+        workDir: work.path,
+        outputPath: '${out.path}.part.mp4',
+      );
+      for (var i = 0; i < plan.chunkArgs.length; i++) {
+        final r = await Process.run(ffmpeg, plan.chunkArgs[i]);
+        if (r.exitCode != 0) {
+          throw MediaException('Reversing failed: ${r.stderr}'.trim());
+        }
+        onProgress?.call((i + 1) / (plan.chunkArgs.length + 1));
+      }
+      await File(plan.concatListPath).writeAsString(plan.concatList);
+      final r = await Process.run(ffmpeg, plan.concatArgs);
+      if (r.exitCode != 0) {
+        throw MediaException('Reversing failed: ${r.stderr}'.trim());
+      }
+      await File('${out.path}.part.mp4').rename(out.path);
+      onProgress?.call(1);
+      return ReverseProxy(out.path, clip.sourceInUs, clip.sourceOutUs);
+    } finally {
+      await work.delete(recursive: true);
+    }
+  }
+
+  @override
   Future<String?> pickOutputFolder() =>
       getDirectoryPath(confirmButtonText: 'Save here');
 

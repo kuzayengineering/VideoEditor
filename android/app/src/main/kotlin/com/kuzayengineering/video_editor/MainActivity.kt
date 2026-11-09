@@ -72,7 +72,11 @@ class MainActivity : FlutterActivity() {
                 }
             }
             "previewSetTimeline" -> {
-                preview.setTimeline(Segment.listFrom(call.argument<List<Map<String, Any?>>>("segments")!!))
+                preview.setTimeline(
+                    Segment.listFrom(call.argument<List<Map<String, Any?>>>("segments")!!),
+                    call.argument<Int>("canvasWidth") ?: 1920,
+                    call.argument<Int>("canvasHeight") ?: 1080,
+                )
                 result.success(null)
             }
             "previewPlay" -> { preview.play(); result.success(null) }

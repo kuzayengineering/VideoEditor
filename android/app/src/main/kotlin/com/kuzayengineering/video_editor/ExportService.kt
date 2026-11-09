@@ -21,17 +21,9 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.DocumentsContract
 import android.provider.MediaStore
-import androidx.media3.common.Effect
-import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
-import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.effect.FrameDropEffect
-import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
-import androidx.media3.transformer.EditedMediaItem
-import androidx.media3.transformer.EditedMediaItemSequence
-import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
@@ -127,27 +119,6 @@ object ExportManager {
 
         try {
             val maxSourceFps = req.segments.maxOf { it.frameRate }
-            val items = req.segments.map { s ->
-                val mediaItem = MediaItem.Builder()
-                    .setUri(Uri.parse(s.source))
-                    .setClippingConfiguration(
-                        MediaItem.ClippingConfiguration.Builder()
-                            .setStartPositionMs(s.inUs / 1000)
-                            .setEndPositionMs(s.outUs / 1000)
-                            .build()
-                    )
-                    .build()
-                val video = mutableListOf<Effect>()
-                if (s.frameRate > req.frameRate + 0.5) {
-                    video += FrameDropEffect.createDefaultFrameDropEffect(req.frameRate.toFloat())
-                }
-                // Fit into the canvas; black bars where the shapes differ.
-                video += Presentation.createForWidthAndHeight(
-                    req.width, req.height, Presentation.LAYOUT_SCALE_TO_FIT)
-                EditedMediaItem.Builder(mediaItem)
-                    .setEffects(Effects(listOf<AudioProcessor>(), video))
-                    .build()
-            }
             // HDR inputs stay HDR (Media3 keeps the clips' own HDR format), or
             // are tone-mapped on the graphics chip when SDR is chosen.
             val hdrMode = if (req.range == "sdr") {
@@ -155,11 +126,10 @@ object ExportManager {
             } else {
                 Composition.HDR_MODE_KEEP_HDR
             }
-            val composition = Composition.Builder(EditedMediaItemSequence.Builder(items).build())
-                .setHdrMode(hdrMode)
-                // Clips without sound get silence, so sound stays in sync.
-                .experimentalSetForceAudioTrack(true)
-                .build()
+            val composition = CompositionFactory.build(
+                req.segments, req.width, req.height,
+                Math.round(req.frameRate).toInt(), hdrMode,
+            )
 
             val encoders = DefaultEncoderFactory.Builder(ctx)
                 .setRequestedVideoEncoderSettings(

@@ -356,6 +356,55 @@ List<String> thumbnailArgs(
 
 String _seconds(int us) => (us / usPerSecond).toStringAsFixed(6);
 
+int _even(double v) => math.max(2, (v / 2).round() * 2);
+
+String _speedPts(double speed) => (speed - 1).abs() < 0.0001
+    ? 'setpts=PTS-STARTPTS'
+    : 'setpts=(PTS-STARTPTS)/${speed.toStringAsFixed(4)}';
+
+/// Audio speed change that keeps the pitch (each atempo step handles
+/// 0.5×–2×, so bigger changes are chained). Ends with a comma, or is empty.
+String atempoChain(double speed) {
+  if ((speed - 1).abs() < 0.0001) return '';
+  final steps = <double>[];
+  var s = speed;
+  while (s > 2.0) {
+    steps.add(2.0);
+    s /= 2.0;
+  }
+  while (s < 0.5) {
+    steps.add(0.5);
+    s /= 0.5;
+  }
+  steps.add(s);
+  return steps.map((x) => 'atempo=${x.toStringAsFixed(5)},').join();
+}
+
+/// Rotate, mirror and crop filters for a clip (in that order: the crop is
+/// drawn on the turned picture, the way the user sees it).
+List<String> lookFilters(Clip c) {
+  final f = <String>[];
+  switch (c.rotation) {
+    case 1:
+      f.add('transpose=clock');
+    case 2:
+      f.addAll(['hflip', 'vflip']);
+    case 3:
+      f.add('transpose=cclock');
+  }
+  if (c.flipH) f.add('hflip');
+  if (c.flipV) f.add('vflip');
+  final r = c.crop;
+  if (!r.isFull) {
+    String frac(double v) => v.toStringAsFixed(5);
+    f.add(
+      'crop=w=trunc(iw*${frac(r.width)}/2)*2:h=trunc(ih*${frac(r.height)}/2)*2:'
+      'x=trunc(iw*${frac(r.left)}):y=trunc(ih*${frac(r.top)})',
+    );
+  }
+  return f;
+}
+
 class FfmpegExportPlan {
   const FfmpegExportPlan({
     required this.args,
@@ -406,6 +455,9 @@ FfmpegExportPlan buildExportPlan({
   final concatInputs = StringBuffer();
   var totalFrames = 0;
 
+  final workFmt = tenBit ? 'yuv420p10le' : 'yuv420p';
+  final bg = project.background;
+
   for (var i = 0; i < clips.length; i++) {
     final c = clips[i];
     final info = c.media!;
@@ -413,35 +465,115 @@ FfmpegExportPlan buildExportPlan({
     totalFrames += frames;
     final segSeconds = frames / fps;
 
+    // Backwards clips read from their prepared reversed copy.
+    final String path;
+    final int startUs;
+    if (c.reversed) {
+      final proxy = c.reverseProxy;
+      if (proxy == null || !c.reverseReady) {
+        throw ArgumentError(
+          'The reversed clip "${c.name}" is not ready yet. Turn Reverse off '
+          'and on again to prepare it.',
+        );
+      }
+      path = proxy.path;
+      startUs = proxy.proxyTimeOf(c.sourceOutUs);
+    } else {
+      path = c.sourcePath!;
+      startUs = c.sourceInUs;
+    }
     inputs.addAll([
-      '-ss', _seconds(c.sourceInUs),
+      '-ss', _seconds(startUs),
       // A little extra is read so the exact frame count can be cut below.
       '-t', _seconds(c.sourceLengthUs + 200000),
-      '-i', c.sourcePath!,
+      '-i', path,
     ]);
 
     final color = colorConversionFilter(info, range);
-    filters.add(
-      [
-        '[$i:v]setpts=PTS-STARTPTS',
-        'fps=$fpsText',
-        'scale=$w:$h:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic',
-        ?color,
-        'pad=$w:$h:(ow-iw)/2:(oh-ih)/2:color=black',
-        'setsar=1',
-        'format=$pixFmt',
-        // Repeat the last frame if the file runs short, then cut to the exact
-        // number of frames this clip occupies on the timeline.
-        'tpad=stop_mode=clone:stop_duration=1',
-        'trim=end_frame=$frames',
-        'setpts=N/($fpsText)/TB[v$i]',
-      ].join(','),
-    );
+    final head = [
+      '[$i:v]${_speedPts(c.speed)}',
+      'fps=$fpsText',
+      ...lookFilters(c),
+    ].join(',');
+    // Every clip ends the same way: exact pixel format and exact frame count
+    // (repeat the last frame if the file runs short, then cut).
+    final tail = [
+      'setsar=1',
+      'format=$pixFmt',
+      'tpad=stop_mode=clone:stop_duration=1',
+      'trim=end_frame=$frames',
+      'setpts=N/($fpsText)/TB[v$i]',
+    ].join(',');
+    final fit =
+        'scale=$w:$h:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic';
+
+    if (bg.isPlainBlack && c.opacity >= 0.999) {
+      // Simple and fastest: fit, black bars.
+      filters.add(
+        [
+          head,
+          fit,
+          ?color,
+          'pad=$w:$h:(ow-iw)/2:(oh-ih)/2:color=black',
+          tail,
+        ].join(','),
+      );
+    } else {
+      final String fgSource;
+      String background;
+      if (bg.blur) {
+        filters.add('$head,split=2[f$i][b$i]');
+        fgSource = '[f$i]';
+        // Blur at quarter size (fast), then enlarge: soft background made
+        // from the video itself.
+        final qw = _even(w / 4), qh = _even(h / 4);
+        background = [
+          '[b$i]scale=$qw:$qh:force_original_aspect_ratio=increase',
+          'crop=$qw:$qh',
+          'boxblur=luma_radius=${math.max(2, qh ~/ 18)}:luma_power=2',
+          'scale=$w:$h:flags=bilinear',
+          ?color,
+          'format=$workFmt',
+        ].join(',');
+      } else {
+        fgSource = '[fh$i]';
+        filters.add('$head[fh$i]');
+        final rgb = (bg.colorValue & 0xFFFFFF)
+            .toRadixString(16)
+            .padLeft(6, '0');
+        final bgColor = colorConversionFilter(
+          const MediaInfo(durationUs: 0, width: 0, height: 0),
+          range,
+        );
+        background = [
+          'color=c=0x$rgb:s=${w}x$h:r=$fpsText:d=${(segSeconds + 1).toStringAsFixed(3)}',
+          'format=yuv420p',
+          ?bgColor,
+          'format=$workFmt',
+        ].join(',');
+      }
+      filters.add(
+        '$fgSource$fit,${color != null ? '$color,' : ''}format=$workFmt[fg$i]',
+      );
+      if (c.opacity < 0.999) {
+        filters.add('$background,split=2[bga$i][bgb$i]');
+        filters.add(
+          '[bga$i][fg$i]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1[comp$i]',
+        );
+        filters.add(
+          '[comp$i][bgb$i]blend=all_mode=normal:'
+          'all_opacity=${c.opacity.toStringAsFixed(3)}:shortest=1,$tail',
+        );
+      } else {
+        filters.add('$background[bg$i]');
+        filters.add('[bg$i][fg$i]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1,$tail');
+      }
+    }
 
     final audioLen = segSeconds.toStringAsFixed(6);
     if (info.hasAudio) {
       filters.add(
-        '[$i:a]asetpts=PTS-STARTPTS,aresample=48000,'
+        '[$i:a]asetpts=PTS-STARTPTS,${atempoChain(c.speed)}aresample=48000,'
         'aformat=sample_fmts=fltp:channel_layouts=stereo,'
         'apad,atrim=0:$audioLen,asetpts=N/SR/TB[a$i]',
       );
@@ -542,4 +674,121 @@ ExportVerification parseVerification(
 int? parseProgressLine(String line) {
   if (!line.startsWith('out_time_us=')) return null;
   return int.tryParse(line.substring('out_time_us='.length).trim());
+}
+
+// -----------------------------------------------------------------------------
+// Reverse
+// -----------------------------------------------------------------------------
+
+class ReversePlan {
+  const ReversePlan({
+    required this.chunkArgs,
+    required this.chunkPaths,
+    required this.concatListPath,
+    required this.concatList,
+    required this.concatArgs,
+  });
+
+  /// One command per piece; each reverses a short piece of the clip.
+  final List<List<String>> chunkArgs;
+  final List<String> chunkPaths;
+
+  /// The pieces in backwards order, joined without re-encoding.
+  final String concatListPath;
+  final String concatList;
+  final List<String> concatArgs;
+}
+
+/// Plans a reversed copy of [inUs]–[outUs] of [source].
+///
+/// Reversing needs every frame of a stretch in memory at once, so the clip is
+/// done in short pieces (half a second for 4K, a second otherwise), each
+/// reversed, then the pieces are joined last-to-first. Quality is kept high
+/// and the original color format (HDR or SDR) is preserved.
+ReversePlan buildReversePlan({
+  required String source,
+  required MediaInfo info,
+  required int inUs,
+  required int outUs,
+  required VideoEncoder encoder,
+  required String workDir,
+  required String outputPath,
+}) {
+  final pixels = info.width * info.height;
+  final chunkUs = pixels > 2500000 ? 500000 : usPerSecond;
+  final tenBit = info.isHdr || info.bitDepth > 8;
+  final range = switch (info.transfer) {
+    ColorTransfer.hlg => DynamicRange.hlg,
+    ColorTransfer.pq => DynamicRange.hdr10,
+    ColorTransfer.sdr => DynamicRange.sdr,
+  };
+  final tags = colorTags(range);
+  final fps = info.frameRate > 0 ? info.frameRate : 30.0;
+  final bitrate = (pixels * fps * 0.3).round();
+  final chunkArgs = <List<String>>[];
+  final chunkPaths = <String>[];
+  var k = 0;
+  for (var a = inUs; a < outUs; a += chunkUs, k++) {
+    final len = math.min(chunkUs, outUs - a);
+    final out = '$workDir/chunk_${k.toString().padLeft(5, '0')}.mp4';
+    chunkPaths.add(out);
+    chunkArgs.add([
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-ss',
+      _seconds(a),
+      '-t',
+      _seconds(len),
+      '-i',
+      source,
+      '-vf',
+      'reverse,format=${encoder.pixelFormat(tenBit: tenBit)}',
+      if (info.hasAudio) ...['-af', 'areverse'] else '-an',
+      ...encoder.args(
+        bitrate: bitrate,
+        maxrate: (bitrate * 1.5).round(),
+        tenBit: tenBit,
+        range: range,
+        fps: fps,
+      ),
+      '-color_primaries',
+      tags.primaries,
+      '-color_trc',
+      tags.transfer,
+      '-colorspace',
+      tags.matrix,
+      if (info.hasAudio) ...['-c:a', 'aac', '-b:a', '320000'],
+      out,
+    ]);
+  }
+  final listPath = '$workDir/pieces.txt';
+  final list = [
+    for (final p in chunkPaths.reversed) "file '${p.replaceAll("'", r"'\''")}'",
+  ].join('\n');
+  return ReversePlan(
+    chunkArgs: chunkArgs,
+    chunkPaths: chunkPaths,
+    concatListPath: listPath,
+    concatList: list,
+    concatArgs: [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      listPath,
+      '-c',
+      'copy',
+      '-movflags',
+      '+faststart',
+      if (encoder.codec == VideoCodec.hevc) ...['-tag:v', 'hvc1'],
+      outputPath,
+    ],
+  );
 }

@@ -7,10 +7,91 @@ export 'media_info.dart';
 /// What a clip holds.
 enum ClipKind { video, audio }
 
+/// Part of the picture to keep, as fractions of the (rotated) frame:
+/// 0,0 is the top-left corner and 1,1 the bottom-right.
+class CropRect {
+  const CropRect(this.left, this.top, this.right, this.bottom);
+
+  static const full = CropRect(0, 0, 1, 1);
+
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  double get width => right - left;
+  double get height => bottom - top;
+  bool get isFull =>
+      left <= 0.0005 && top <= 0.0005 && right >= 0.9995 && bottom >= 0.9995;
+
+  /// Keeps the rectangle inside the frame and at least 5 % in each direction.
+  CropRect normalized() {
+    const minSize = 0.05;
+    final l = left.clamp(0.0, 1.0 - minSize);
+    final t = top.clamp(0.0, 1.0 - minSize);
+    final r = right.clamp(l + minSize, 1.0);
+    final b = bottom.clamp(t + minSize, 1.0);
+    return CropRect(l, t, r, b);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CropRect &&
+      other.left == left &&
+      other.top == top &&
+      other.right == right &&
+      other.bottom == bottom;
+
+  @override
+  int get hashCode => Object.hash(left, top, right, bottom);
+
+  List<double> toJson() => [left, top, right, bottom];
+
+  factory CropRect.fromJson(Object? json) {
+    if (json is! List || json.length != 4) return full;
+    final v = [for (final x in json) (x as num).toDouble()];
+    return CropRect(v[0], v[1], v[2], v[3]).normalized();
+  }
+}
+
+/// A reversed copy of part of a source file, made when "Reverse" is turned on
+/// (a video can't be decoded backwards on the fly, so a copy is prepared).
+class ReverseProxy {
+  const ReverseProxy(this.path, this.sourceInUs, this.sourceOutUs);
+
+  final String path;
+
+  /// The part of the original that the copy covers.
+  final int sourceInUs;
+  final int sourceOutUs;
+
+  bool covers(int inUs, int outUs) =>
+      inUs >= sourceInUs - 1000 && outUs <= sourceOutUs + 1000;
+
+  /// Where original moment [sourceUs] is found inside the reversed copy.
+  int proxyTimeOf(int sourceUs) => sourceOutUs - sourceUs;
+
+  Map<String, Object?> toJson() => {
+    'path': path,
+    'inUs': sourceInUs,
+    'outUs': sourceOutUs,
+  };
+
+  static ReverseProxy? fromJson(Object? json) {
+    if (json is! Map) return null;
+    return ReverseProxy(
+      json['path'] as String,
+      (json['inUs'] as num).toInt(),
+      (json['outUs'] as num).toInt(),
+    );
+  }
+}
+
 /// One piece of media placed on the timeline.
 ///
 /// A clip never changes the original file. It just says "use this part of
-/// that file": from [sourceInUs] to [sourceOutUs], played at [speed].
+/// that file": from [sourceInUs] to [sourceOutUs], played at [speed], with
+/// these adjustments.
 class Clip {
   const Clip({
     required this.id,
@@ -24,7 +105,17 @@ class Clip {
     this.speed = 1.0,
     this.colorValue = 0xFF607D8B,
     this.media,
+    this.rotation = 0,
+    this.flipH = false,
+    this.flipV = false,
+    this.crop = CropRect.full,
+    this.opacity = 1.0,
+    this.reversed = false,
+    this.reverseProxy,
   });
+
+  static const minSpeed = 0.25;
+  static const maxSpeed = 4.0;
 
   /// Unique within a project.
   final int id;
@@ -60,6 +151,25 @@ class Clip {
   /// Placeholder color (ARGB) used until real thumbnails exist.
   final int colorValue;
 
+  /// Quarter turns clockwise (0–3).
+  final int rotation;
+
+  /// Mirrored left↔right / upside down.
+  final bool flipH;
+  final bool flipV;
+
+  /// Part of the (rotated, mirrored) picture to keep.
+  final CropRect crop;
+
+  /// 1.0 is fully visible; lower lets the background show through.
+  final double opacity;
+
+  /// Plays backwards.
+  final bool reversed;
+
+  /// The prepared backwards copy, once made.
+  final ReverseProxy? reverseProxy;
+
   /// Length of the used part of the original file.
   int get sourceLengthUs => sourceOutUs - sourceInUs;
 
@@ -67,6 +177,31 @@ class Clip {
   int get durationUs => (sourceLengthUs / speed).round();
 
   int get endUs => startUs + durationUs;
+
+  /// True when any picture adjustment is applied.
+  bool get hasLook =>
+      rotation != 0 || flipH || flipV || !crop.isFull || opacity < 0.999;
+
+  /// True when the reversed copy is ready for the current in/out points.
+  bool get reverseReady =>
+      reversed && (reverseProxy?.covers(sourceInUs, sourceOutUs) ?? false);
+
+  /// The picture size after rotation and crop (before fitting into the
+  /// canvas).
+  ({double width, double height}) get displaySize {
+    final m = media;
+    if (m == null) return (width: 16, height: 9);
+    final w = (rotation.isOdd ? m.height : m.width).toDouble();
+    final h = (rotation.isOdd ? m.width : m.height).toDouble();
+    return (width: w * crop.width, height: h * crop.height);
+  }
+
+  /// Which moment of the original file is showing [offsetUs] into the clip
+  /// (accounts for speed and reverse).
+  int sourceTimeAt(int offsetUs) {
+    final s = (offsetUs * speed).round();
+    return reversed ? sourceOutUs - s : sourceInUs + s;
+  }
 
   Clip copyWith({
     int? id,
@@ -76,6 +211,14 @@ class Clip {
     int? startUs,
     double? speed,
     int? colorValue,
+    int? rotation,
+    bool? flipH,
+    bool? flipV,
+    CropRect? crop,
+    double? opacity,
+    bool? reversed,
+    ReverseProxy? reverseProxy,
+    bool clearReverseProxy = false,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -89,6 +232,15 @@ class Clip {
       speed: speed ?? this.speed,
       colorValue: colorValue ?? this.colorValue,
       media: media,
+      rotation: (rotation ?? this.rotation) % 4,
+      flipH: flipH ?? this.flipH,
+      flipV: flipV ?? this.flipV,
+      crop: crop ?? this.crop,
+      opacity: opacity ?? this.opacity,
+      reversed: reversed ?? this.reversed,
+      reverseProxy: clearReverseProxy
+          ? null
+          : (reverseProxy ?? this.reverseProxy),
     );
   }
 
@@ -104,6 +256,13 @@ class Clip {
     'speed': speed,
     'colorValue': colorValue,
     if (media != null) 'media': media!.toJson(),
+    if (rotation != 0) 'rotation': rotation,
+    if (flipH) 'flipH': true,
+    if (flipV) 'flipV': true,
+    if (!crop.isFull) 'crop': crop.toJson(),
+    if (opacity < 1) 'opacity': opacity,
+    if (reversed) 'reversed': true,
+    if (reverseProxy != null) 'reverseProxy': reverseProxy!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -119,11 +278,21 @@ class Clip {
       sourceInUs: math.max(0, sourceIn),
       sourceOutUs: math.min(sourceDuration, sourceOut),
       startUs: (json['startUs'] as num?)?.toInt() ?? 0,
-      speed: (json['speed'] as num?)?.toDouble() ?? 1.0,
+      speed: ((json['speed'] as num?)?.toDouble() ?? 1.0).clamp(
+        minSpeed,
+        maxSpeed,
+      ),
       colorValue: (json['colorValue'] as num?)?.toInt() ?? 0xFF607D8B,
       media: json['media'] == null
           ? null
           : MediaInfo.fromJson((json['media'] as Map).cast<String, Object?>()),
+      rotation: ((json['rotation'] as num?)?.toInt() ?? 0) % 4,
+      flipH: json['flipH'] as bool? ?? false,
+      flipV: json['flipV'] as bool? ?? false,
+      crop: CropRect.fromJson(json['crop']),
+      opacity: ((json['opacity'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 1.0),
+      reversed: json['reversed'] as bool? ?? false,
+      reverseProxy: ReverseProxy.fromJson(json['reverseProxy']),
     );
   }
 }

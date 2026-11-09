@@ -56,6 +56,21 @@ class AndroidMediaEngine implements MediaEngine {
   }
 
   @override
+  bool get supportsBackgrounds => false;
+
+  @override
+  Future<ReverseProxy> prepareReverse(
+    Clip clip, {
+    void Function(double fraction)? onProgress,
+  }) => Future.error(
+    Exception(
+      'Reverse isn\'t available on Android yet. Google\'s video tools '
+      'can\'t play video backwards, so it needs custom work. It\'s planned; '
+      'the Windows version can already do it.',
+    ),
+  );
+
+  @override
   Future<String?> pickOutputFolder() =>
       _channel.invokeMethod<String>('pickFolder');
 
@@ -77,6 +92,14 @@ class AndroidMediaEngine implements MediaEngine {
         if (c.isMedia) c,
     ];
     if (clips.isEmpty) return 'Add a video first.';
+    if (clips.any((c) => c.reversed)) {
+      return 'A clip is set to play in reverse, which Android can\'t export '
+          'yet. Turn Reverse off for that clip.';
+    }
+    if (!project.background.isPlainBlack) {
+      return 'Colored and blurred backgrounds can\'t be exported on Android '
+          'yet. Set the background back to black.';
+    }
     final transfers = {for (final c in clips) c.media!.transfer};
     final range = settings.dynamicRange;
     if (range.isHdr) {
@@ -130,16 +153,7 @@ class AndroidMediaEngine implements MediaEngine {
       durationUs += c.durationUs;
     }
     await _channel.invokeMethod('startExport', {
-      'segments': [
-        for (final c in clips)
-          {
-            'source': c.sourcePath,
-            'inUs': c.sourceInUs,
-            'outUs': c.sourceOutUs,
-            'hasAudio': c.media!.hasAudio,
-            'frameRate': c.media!.frameRate,
-          },
-      ],
+      'segments': [for (final c in clips) PreviewSegment.of(c).toMap()],
       'width': dims.width,
       'height': dims.height,
       'frameRate': s.frameRate,
@@ -267,13 +281,19 @@ class AndroidPreviewPlayer implements PreviewPlayer {
   );
 
   @override
-  Future<void> setTimeline(List<PreviewSegment> segments) =>
-      _channel.invokeMethod('previewSetTimeline', {
-        'segments': [
-          for (final s in segments)
-            {'source': s.source, 'inUs': s.inUs, 'outUs': s.outUs},
-        ],
-      });
+  Future<void> setTimeline(
+    List<PreviewSegment> segments, {
+    int canvasWidth = 1920,
+    int canvasHeight = 1080,
+  }) => _channel.invokeMethod('previewSetTimeline', {
+    'segments': [for (final s in segments) s.toMap()],
+    'canvasWidth': canvasWidth,
+    'canvasHeight': canvasHeight,
+  });
+
+  @override
+  bool drawsEffects(List<PreviewSegment> segments) =>
+      segments.any((s) => s.hasEffects);
 
   @override
   Future<void> play() => _channel.invokeMethod('previewPlay');
@@ -291,5 +311,5 @@ class AndroidPreviewPlayer implements PreviewPlayer {
 
   @override
   Future<void> dispose() =>
-      _channel.invokeMethod('previewSetTimeline', {'segments': []});
+      _channel.invokeMethod('previewSetTimeline', {'segments': <Object>[]});
 }

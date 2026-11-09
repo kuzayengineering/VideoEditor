@@ -383,7 +383,12 @@ class _TimelinePainter extends CustomPainter {
 
     final name = TextPainter(
       text: TextSpan(
-        text: p.clip.name,
+        text: [
+          p.clip.name,
+          if ((p.clip.speed - 1).abs() > 0.001)
+            '${p.clip.speed.toStringAsFixed(p.clip.speed == p.clip.speed.roundToDouble() ? 0 : 2)}×',
+          if (p.clip.reversed) '◀ reversed',
+        ].join('  ·  '),
         style: textStyle.copyWith(
           color: Colors.white,
           fontWeight: FontWeight.w600,
@@ -457,8 +462,7 @@ class _TimelinePainter extends CustomPainter {
       final tile = Rect.fromLTWH(x, rect.top, tileW, rect.height);
       final timelineUs =
           p.startUs + ((x - rect.left) / pixelsPerSecond * usPerSecond).round();
-      final sourceUs =
-          p.clip.sourceInUs + ((timelineUs - p.startUs) * p.clip.speed).round();
+      final sourceUs = p.clip.sourceTimeAt(timelineUs - p.startUs);
       final img = cache.imageAt(p.clip.sourcePath!, sourceUs);
       if (img == null) continue;
       // Cover-fit the image into the tile.

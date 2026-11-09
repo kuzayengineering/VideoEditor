@@ -68,6 +68,40 @@ class CanvasRatio {
   static int _gcd(int a, int b) => b == 0 ? a : _gcd(b, a % b);
 }
 
+/// What fills the canvas where the video doesn't cover it.
+class BackgroundFill {
+  const BackgroundFill.color(this.colorValue) : blur = false;
+  const BackgroundFill.blur() : blur = true, colorValue = 0xFF000000;
+
+  static const black = BackgroundFill.color(0xFF000000);
+
+  /// A blurred, enlarged copy of the video itself.
+  final bool blur;
+
+  /// Solid color (ARGB), used when [blur] is false.
+  final int colorValue;
+
+  bool get isPlainBlack => !blur && (colorValue & 0xFFFFFF) == 0;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BackgroundFill &&
+      other.blur == blur &&
+      (blur || other.colorValue == colorValue);
+
+  @override
+  int get hashCode => blur ? 1 : colorValue;
+
+  Map<String, Object?> toJson() =>
+      blur ? {'blur': true} : {'color': colorValue};
+
+  factory BackgroundFill.fromJson(Object? json) {
+    if (json is! Map) return black;
+    if (json['blur'] == true) return const BackgroundFill.blur();
+    return BackgroundFill.color((json['color'] as num?)?.toInt() ?? 0xFF000000);
+  }
+}
+
 /// What a track holds.
 enum TrackKind {
   /// The main video track. Clips sit end-to-end with no gaps, like YouCut.
@@ -134,6 +168,7 @@ class Project {
     required this.mainTrack,
     required this.nextId,
     this.audioTracks = const [],
+    this.background = BackgroundFill.black,
   });
 
   /// Creates an empty project.
@@ -165,6 +200,9 @@ class Project {
 
   /// Next unused id for clips and tracks.
   final int nextId;
+
+  /// What fills the canvas around (and behind) the video.
+  final BackgroundFill background;
 
   List<Track> get tracks => [mainTrack, ...audioTracks];
 
@@ -230,6 +268,7 @@ class Project {
     Track? mainTrack,
     List<Track>? audioTracks,
     int? nextId,
+    BackgroundFill? background,
   }) => Project(
     id: id,
     name: name ?? this.name,
@@ -238,6 +277,7 @@ class Project {
     mainTrack: mainTrack ?? this.mainTrack,
     audioTracks: audioTracks ?? this.audioTracks,
     nextId: nextId ?? this.nextId,
+    background: background ?? this.background,
   );
 
   Project withCanvas(CanvasRatio canvas) =>
@@ -344,14 +384,14 @@ class Project {
       return this;
     }
     final clip = p.clip;
-    final cutSourceUs =
-        clip.sourceInUs + ((timeUs - p.startUs) * clip.speed).round();
-    final left = clip.copyWith(sourceOutUs: cutSourceUs);
-    final right = clip.copyWith(
-      id: nextId,
-      sourceInUs: cutSourceUs,
-      startUs: timeUs,
-    );
+    final cutSourceUs = clip.sourceTimeAt(timeUs - p.startUs);
+    // A backwards clip shows the end of its range first.
+    final left = clip.reversed
+        ? clip.copyWith(sourceInUs: cutSourceUs)
+        : clip.copyWith(sourceOutUs: cutSourceUs);
+    final right = clip.reversed
+        ? clip.copyWith(id: nextId, sourceOutUs: cutSourceUs, startUs: timeUs)
+        : clip.copyWith(id: nextId, sourceInUs: cutSourceUs, startUs: timeUs);
     final clips = [...p.track.clips]
       ..replaceRange(p.index, p.index + 1, [left, right]);
     return _withTrack(p.track.withClips(clips)).copyWith(nextId: nextId + 1);
@@ -395,7 +435,12 @@ class Project {
     final p = placementOf(clipId);
     if (p == null) return this;
     final clip = p.clip;
-    var minDelta = -(clip.sourceInUs / clip.speed).floor();
+    // The clip's first moment on screen is the start of the used part, or
+    // its end when the clip plays backwards.
+    final room = clip.reversed
+        ? clip.sourceDurationUs - clip.sourceOutUs
+        : clip.sourceInUs;
+    var minDelta = -(room / clip.speed).floor();
     if (p.track.kind == TrackKind.audio) {
       final previousEnd = p.index > 0 ? p.track.clips[p.index - 1].endUs : 0;
       minDelta = math.max(minDelta, previousEnd - p.startUs);
@@ -405,13 +450,22 @@ class Project {
         .clamp(math.min(minDelta, 0), math.max(maxDelta, 0))
         .toInt();
     if (delta == 0) return this;
-    final trimmed = clip.copyWith(
-      sourceInUs: (clip.sourceInUs + (delta * clip.speed).round()).clamp(
-        0,
-        clip.sourceOutUs - 1,
-      ),
-      startUs: p.startUs + delta,
-    );
+    final sourceDelta = (delta * clip.speed).round();
+    final trimmed = clip.reversed
+        ? clip.copyWith(
+            sourceOutUs: (clip.sourceOutUs - sourceDelta).clamp(
+              clip.sourceInUs + 1,
+              clip.sourceDurationUs,
+            ),
+            startUs: p.startUs + delta,
+          )
+        : clip.copyWith(
+            sourceInUs: (clip.sourceInUs + sourceDelta).clamp(
+              0,
+              clip.sourceOutUs - 1,
+            ),
+            startUs: p.startUs + delta,
+          );
     final clips = [...p.track.clips]..[p.index] = trimmed;
     return _withTrack(p.track.withClips(clips));
   }
@@ -424,8 +478,10 @@ class Project {
     final p = placementOf(clipId);
     if (p == null) return this;
     final clip = p.clip;
-    var maxDelta = ((clip.sourceDurationUs - clip.sourceOutUs) / clip.speed)
-        .floor();
+    final room = clip.reversed
+        ? clip.sourceInUs
+        : clip.sourceDurationUs - clip.sourceOutUs;
+    var maxDelta = (room / clip.speed).floor();
     if (p.track.kind == TrackKind.audio && p.index < p.track.clips.length - 1) {
       maxDelta = math.min(
         maxDelta,
@@ -437,15 +493,50 @@ class Project {
         .clamp(math.min(minDelta, 0), math.max(maxDelta, 0))
         .toInt();
     if (delta == 0) return this;
-    final trimmed = clip.copyWith(
-      sourceOutUs: (clip.sourceOutUs + (delta * clip.speed).round()).clamp(
-        clip.sourceInUs + 1,
-        clip.sourceDurationUs,
-      ),
-    );
+    final sourceDelta = (delta * clip.speed).round();
+    final trimmed = clip.reversed
+        ? clip.copyWith(
+            sourceInUs: (clip.sourceInUs - sourceDelta).clamp(
+              0,
+              clip.sourceOutUs - 1,
+            ),
+          )
+        : clip.copyWith(
+            sourceOutUs: (clip.sourceOutUs + sourceDelta).clamp(
+              clip.sourceInUs + 1,
+              clip.sourceDurationUs,
+            ),
+          );
     final clips = [...p.track.clips]..[p.index] = trimmed;
     return _withTrack(p.track.withClips(clips));
   }
+
+  /// Changes one clip. [change] returns the new version of the clip.
+  Project updateClip(int clipId, Clip Function(Clip clip) change) {
+    final p = placementOf(clipId);
+    if (p == null) return this;
+    final updated = change(p.clip);
+    if (identical(updated, p.clip)) return this;
+    final clips = [...p.track.clips]..[p.index] = updated;
+    return _withTrack(p.track.withClips(clips));
+  }
+
+  /// Sets a clip's speed (0.25× to 4×). Its length on the timeline changes
+  /// accordingly; on audio tracks it can't grow into the next clip.
+  Project setSpeed(int clipId, double speed) {
+    final p = placementOf(clipId);
+    if (p == null) return this;
+    var s = speed.clamp(Clip.minSpeed, Clip.maxSpeed);
+    if ((s - p.clip.speed).abs() < 0.0001) return this;
+    if (p.track.kind == TrackKind.audio && p.index < p.track.clips.length - 1) {
+      final room = p.track.clips[p.index + 1].startUs - p.startUs;
+      s = math.max(s, p.clip.sourceLengthUs / math.max(1, room));
+    }
+    return updateClip(clipId, (c) => c.copyWith(speed: s));
+  }
+
+  Project withBackground(BackgroundFill background) =>
+      background == this.background ? this : copyWith(background: background);
 
   // ---------------------------------------------------------------------------
   // Saving and loading
@@ -460,6 +551,7 @@ class Project {
     'nextId': nextId,
     'mainTrack': mainTrack.toJson(),
     'audioTracks': [for (final t in audioTracks) t.toJson()],
+    'background': background.toJson(),
   };
 
   factory Project.fromJson(Map<String, Object?> json) {
@@ -481,6 +573,7 @@ class Project {
       mainTrack: Track.fromJson(
         (json['mainTrack'] as Map).cast<String, Object?>(),
       ),
+      background: BackgroundFill.fromJson(json['background']),
       audioTracks: List.unmodifiable([
         for (final t in json['audioTracks'] as List? ?? const [])
           Track.fromJson((t as Map).cast<String, Object?>()),
