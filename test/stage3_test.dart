@@ -72,6 +72,26 @@ void main() {
     expect(a.rotation, 0);
   });
 
+  test('clips can be rearranged; bad orders are ignored', () {
+    const info = MediaInfo(durationUs: 30 * s, width: 1920, height: 1080);
+    Clip v(String n) => Clip(
+      id: 0,
+      kind: ClipKind.video,
+      name: n,
+      sourcePath: '$n.mp4',
+      media: info,
+      sourceDurationUs: 30 * s,
+      sourceInUs: 0,
+      sourceOutUs: 5 * s,
+    );
+    final p = Project.empty(id: 'x').insertMedia([v('a'), v('b'), v('c')]);
+    final ids = [for (final c in p.mainTrack.clips) c.id];
+    final q = p.reorderMain([ids[2], ids[0], ids[1]]);
+    expect(q.mainTrack.clips.map((c) => c.name), ['c', 'a', 'b']);
+    expect(identical(p.reorderMain(ids), p), isTrue);
+    expect(identical(p.reorderMain([ids[0], ids[1]]), p), isTrue);
+  });
+
   test('volume and fades survive saving', () {
     final p = Project.empty(id: 'x').addAudio(
       sound('m', 2, 8).copyWith(volume: 1.5, fadeInUs: 500000, fadeOutUs: s),

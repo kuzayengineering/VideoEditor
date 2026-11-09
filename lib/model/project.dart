@@ -535,6 +535,28 @@ class Project {
     return updateClip(clipId, (c) => c.copyWith(speed: s));
   }
 
+  /// Puts the main-track clips in the order given by [clipIds] (which must
+  /// list every main-track clip once).
+  Project reorderMain(List<int> clipIds) {
+    final byId = {for (final c in mainTrack.clips) c.id: c};
+    if (clipIds.length != byId.length || !clipIds.every(byId.containsKey)) {
+      return this;
+    }
+    final same = [for (final c in mainTrack.clips) c.id];
+    if (listEqualsInt(same, clipIds)) return this;
+    return copyWith(
+      mainTrack: mainTrack.withClips([for (final id in clipIds) byId[id]!]),
+    );
+  }
+
+  static bool listEqualsInt(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   /// Moves an audio clip along its track. It stops at neighbouring clips
   /// and at the start of the timeline.
   Project moveAudioClip(int clipId, int newStartUs) {

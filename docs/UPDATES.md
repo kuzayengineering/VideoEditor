@@ -62,16 +62,9 @@ the first time. Click **More info → Run anyway**.
 
 ### FFmpeg (the Windows video engine)
 
-The Windows version uses **FFmpeg** to read and export video. Until it ships
-inside the download, install it once. Open **Terminal** (right-click the Start
-button → Terminal) and run:
-
-```
-winget install --id Gyan.FFmpeg -e
-```
-
-Then close and reopen Video Editor. It finds FFmpeg automatically and uses your
-PC's Intel Quick Sync (or NVIDIA/AMD graphics) for fast 4K HDR exports.
+FFmpeg, which the Windows version uses to read and export video, now comes
+inside the download (in the `ffmpeg` folder next to `video_editor.exe`). If
+you installed it separately earlier, that copy is no longer needed.
 
 Planned: the Windows app checks for new releases itself and offers a one-click
 update.

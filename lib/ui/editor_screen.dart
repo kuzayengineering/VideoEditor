@@ -17,6 +17,7 @@ import 'export_progress_screen.dart';
 import 'export_sheet.dart';
 import 'import_media.dart';
 import 'preview_view.dart';
+import 'reorder_screen.dart';
 import 'thumbnail_cache.dart';
 import 'timeline_view.dart';
 import 'tools.dart';
@@ -118,6 +119,20 @@ class _EditorScreenState extends State<EditorScreen>
     _toast(
       clips.length == 1 ? 'Added 1 video' : 'Added ${clips.length} videos',
     );
+  }
+
+  Future<void> _reorder(int clipId) async {
+    c.pause();
+    final order = await Navigator.of(context).push<List<int>>(
+      MaterialPageRoute(
+        builder: (_) => ReorderScreen(
+          project: c.project,
+          thumbnails: _thumbs,
+          highlightClipId: clipId,
+        ),
+      ),
+    );
+    if (order != null) c.apply(c.project.reorderMain(order));
   }
 
   Future<void> _addMusic() async {
@@ -579,6 +594,7 @@ class _EditorScreenState extends State<EditorScreen>
                           controller: c,
                           thumbnails: _thumbs,
                           waveforms: _waves,
+                          onLongPressClip: _reorder,
                         ),
                       ),
                     ),

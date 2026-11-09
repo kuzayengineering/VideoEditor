@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.effect.Crop
 import androidx.media3.effect.Presentation
@@ -73,7 +74,7 @@ object CompositionFactory {
                 .build()
             val b = EditedMediaItem.Builder(mediaItem)
                 .setRemoveVideo(true)
-                .setEffects(Effects(gainProcessors(clip), listOf()))
+                .setEffects(Effects(pitchKeeper(clip.speed) + gainProcessors(clip), listOf()))
             if (clip.sourceDurationUs > 0) b.setDurationUs(clip.sourceDurationUs)
             applySpeed(b, clip.speed)
             builder.addItem(b.build())
@@ -90,6 +91,16 @@ object CompositionFactory {
         return listOf(
             GainEnvelopeProcessor(s.volume.toFloat(), s.fadeInUs, s.fadeOutUs, s.timelineUs)
         )
+    }
+
+    /**
+     * Media3's speed change works like a tape machine: faster also means
+     * higher pitch. This shifts the pitch back by the same factor (without
+     * changing the length), so voices sound normal at any speed.
+     */
+    private fun pitchKeeper(speed: Double): List<AudioProcessor> {
+        if (Math.abs(speed - 1.0) < 0.0001) return listOf()
+        return listOf(SonicAudioProcessor().apply { setPitch((1.0 / speed).toFloat()) })
     }
 
     private fun applySpeed(builder: EditedMediaItem.Builder, speed: Double) {
@@ -150,7 +161,7 @@ object CompositionFactory {
         // Fit into the canvas; black bars where the shapes differ.
         video += Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
 
-        val audio = if (withGain) gainProcessors(s) else listOf()
+        val audio = pitchKeeper(s.speed) + (if (withGain) gainProcessors(s) else listOf())
         val builder = EditedMediaItem.Builder(mediaItem)
             .setEffects(Effects(audio, video))
         if (s.sourceDurationUs > 0) builder.setDurationUs(s.sourceDurationUs)

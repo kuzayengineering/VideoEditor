@@ -61,6 +61,17 @@ class MainActivity : FlutterActivity() {
         when (call.method) {
             "pickVideos" -> pickVideos(result)
             "pickAudio" -> pickAudio(result)
+            "reverse" -> {
+                val source = call.argument<String>("source")!!
+                val inUs = call.argument<Number>("inUs")!!.toLong()
+                val outUs = call.argument<Number>("outUs")!!.toLong()
+                val output = call.argument<String>("output")!!
+                background(result) {
+                    Reverser.reverse(applicationContext, source, inUs, outUs, output)
+                    output
+                }
+            }
+            "reverseProgress" -> result.success(Reverser.progress)
             "waveform" -> {
                 val source = call.argument<String>("source")!!
                 background(result) { Waveform.peaks(applicationContext, source) }

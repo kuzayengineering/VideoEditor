@@ -22,9 +22,13 @@ class TimelineView extends StatefulWidget {
     required this.controller,
     this.thumbnails,
     this.waveforms,
+    this.onLongPressClip,
   });
 
   final EditorController controller;
+
+  /// Called when a main-track clip is held down (opens the reorder screen).
+  final void Function(int clipId)? onLongPressClip;
 
   /// Loudness outlines for sound clips.
   final WaveformCache? waveforms;
@@ -187,7 +191,16 @@ class _TimelineViewState extends State<TimelineView> {
 
   void _onTapUp(TapUpDetails d, double width) {
     final hit = _hitTest(d.localPosition, width);
-    c.select(hit?.$1.clip.id);
+    final id = hit?.$1.clip.id;
+    // Tapping the selected clip again unselects it.
+    c.select(id == c.selectedClipId ? null : id);
+  }
+
+  void _onLongPress(LongPressStartDetails d, double width) {
+    final hit = _hitTest(d.localPosition, width);
+    if (hit == null || hit.$1.track.kind != TrackKind.main) return;
+    HapticFeedback.mediumImpact();
+    widget.onLongPressClip?.call(hit.$1.clip.id);
   }
 
   void _onPointerSignal(PointerSignalEvent e) {
@@ -219,6 +232,7 @@ class _TimelineViewState extends State<TimelineView> {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTapUp: (d) => _onTapUp(d, width),
+                onLongPressStart: (d) => _onLongPress(d, width),
                 onScaleStart: (d) => _onScaleStart(d, width),
                 onScaleUpdate: _onScaleUpdate,
                 onScaleEnd: _onScaleEnd,

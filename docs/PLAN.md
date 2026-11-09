@@ -118,10 +118,10 @@ Status notes:
 - **Windows:** everything below works, including reverse (a backwards copy
   is prepared in short pieces, so 4K needs little memory) and colored or
   blurred backgrounds.
-- **Android:** rotate, mirror, crop, speed and opacity work (preview and
-  export use the same Media3 effects). **Reverse** and **colored/blurred
-  backgrounds** still need custom work beyond Google's video tools and come
-  in a later update.
+- **Android:** rotate, mirror, crop, speed (sound keeps its pitch),
+  opacity and reverse work. Reverse makes a backwards copy frame by frame on
+  the phone's video chip (HDR kept), with a progress bar. **Colored/blurred
+  backgrounds** still need custom work and come in a later update.
 
 - Rotate, mirror (flip), crop
 - Aspect ratios: 16:9, 9:16, 1:1, 4:5, 4:3, 21:9 and custom, with a background

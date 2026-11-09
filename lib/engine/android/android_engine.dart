@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../model/export_settings.dart';
 import '../../model/project.dart';
@@ -77,13 +79,38 @@ class AndroidMediaEngine implements MediaEngine {
   Future<ReverseProxy> prepareReverse(
     Clip clip, {
     void Function(double fraction)? onProgress,
-  }) => Future.error(
-    Exception(
-      'Reverse isn\'t available on Android yet. Google\'s video tools '
-      'can\'t play video backwards, so it needs custom work. It\'s planned; '
-      'the Windows version can already do it.',
-    ),
-  );
+  }) async {
+    final base = await getApplicationSupportDirectory();
+    final dir = Directory('${base.path}/reversed');
+    await dir.create(recursive: true);
+    final key =
+        '${clip.sourcePath.hashCode.toUnsigned(32).toRadixString(16)}_'
+        '${clip.sourceInUs}_${clip.sourceOutUs}';
+    final out = File('${dir.path}/$key.mp4');
+    if (!await out.exists()) {
+      // Ask for progress while the phone works on it.
+      final timer = Timer.periodic(const Duration(milliseconds: 300), (
+        _,
+      ) async {
+        final p = await _channel.invokeMethod<double>('reverseProgress');
+        if (p != null) onProgress?.call(p);
+      });
+      try {
+        await _channel.invokeMethod<String>('reverse', {
+          'source': clip.sourcePath,
+          'inUs': clip.sourceInUs,
+          'outUs': clip.sourceOutUs,
+          'output': out.path,
+        });
+      } on PlatformException catch (e) {
+        throw Exception(e.message ?? 'Reversing failed.');
+      } finally {
+        timer.cancel();
+      }
+    }
+    onProgress?.call(1);
+    return ReverseProxy(out.path, clip.sourceInUs, clip.sourceOutUs);
+  }
 
   @override
   Future<String?> pickOutputFolder() =>
@@ -107,10 +134,6 @@ class AndroidMediaEngine implements MediaEngine {
         if (c.isMedia) c,
     ];
     if (clips.isEmpty) return 'Add a video first.';
-    if (clips.any((c) => c.reversed)) {
-      return 'A clip is set to play in reverse, which Android can\'t export '
-          'yet. Turn Reverse off for that clip.';
-    }
     if (!project.background.isPlainBlack) {
       return 'Colored and blurred backgrounds can\'t be exported on Android '
           'yet. Set the background back to black.';
