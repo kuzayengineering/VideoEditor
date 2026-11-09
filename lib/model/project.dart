@@ -266,6 +266,44 @@ class Project {
     );
   }
 
+  /// Adds imported videos to the main track, starting at clip position
+  /// [index] (default: the end).
+  ///
+  /// The first video added to an empty project sets the project's frame rate
+  /// and canvas shape, so a 4K 60 fps phone video "just works".
+  Project insertMedia(List<Clip> clips, {int? index}) {
+    if (clips.isEmpty) return this;
+    var project = this;
+    if (mainTrack.clips.isEmpty) {
+      final info = clips.first.media;
+      if (info != null && info.width > 0 && info.height > 0) {
+        project = project.copyWith(
+          frameRate: standardFrameRate(info.frameRate),
+          canvas: CanvasRatio.custom(info.width, info.height),
+        );
+      }
+    }
+    var id = project.nextId;
+    final placed = [for (final c in clips) c.copyWith(id: id++)];
+    final at = (index ?? mainTrack.clips.length).clamp(
+      0,
+      mainTrack.clips.length,
+    );
+    final list = [...mainTrack.clips]..insertAll(at, placed);
+    return project.copyWith(mainTrack: mainTrack.withClips(list), nextId: id);
+  }
+
+  /// Where newly imported clips go: after the clip under [timeUs], or at the
+  /// end if the playhead is past everything.
+  int insertIndexAt(int timeUs) {
+    final p = mainClipAt(timeUs);
+    if (p == null) return timeUs <= 0 ? 0 : mainTrack.clips.length;
+    return p.index + 1;
+  }
+
+  /// True if the main track holds real media (not demo placeholders).
+  bool get hasMedia => mainTrack.clips.any((c) => c.isMedia);
+
   /// Adds an audio clip at its [Clip.startUs], on the first audio track with
   /// room for it. A new track is created if none has room.
   Project addAudio(Clip clip) {

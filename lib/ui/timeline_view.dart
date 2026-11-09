@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_controller.dart';
+import 'thumbnail_cache.dart';
 
 /// The YouCut-style timeline: the playhead stays fixed in the middle and the
 /// clips slide underneath it.
@@ -15,9 +16,12 @@ import 'editor_controller.dart';
 /// - Pinch (or Ctrl + mouse wheel) to zoom.
 /// - Tap a clip to select it, then drag its white edge handles to trim.
 class TimelineView extends StatefulWidget {
-  const TimelineView({super.key, required this.controller});
+  const TimelineView({super.key, required this.controller, this.thumbnails});
 
   final EditorController controller;
+
+  /// Pictures for real video clips (null in the demo).
+  final ThumbnailCache? thumbnails;
 
   static const rulerHeight = 22.0;
   static const mainTrackTop = 30.0;
@@ -151,6 +155,7 @@ class _TimelineViewState extends State<TimelineView> {
     if (_mode == _DragMode.trimStart || _mode == _DragMode.trimEnd) {
       c.endTrim();
     }
+    if (_mode == _DragMode.pan) c.settle();
     _mode = _DragMode.none;
   }
 
@@ -167,14 +172,17 @@ class _TimelineViewState extends State<TimelineView> {
     } else {
       final delta = e.scrollDelta.dx != 0 ? e.scrollDelta.dx : e.scrollDelta.dy;
       c.pause();
-      c.seek(c.playheadUs + (delta / c.pixelsPerSecond * usPerSecond).round());
+      c.seek(
+        c.playheadUs + (delta / c.pixelsPerSecond * usPerSecond).round(),
+        exact: true,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: c,
+      listenable: Listenable.merge([c, widget.thumbnails]),
       builder: (context, _) {
         final height = TimelineView.heightFor(c.project);
         return LayoutBuilder(
@@ -200,6 +208,7 @@ class _TimelineViewState extends State<TimelineView> {
                       lanes: _lanes(c.project),
                       colors: Theme.of(context).colorScheme,
                       textStyle: Theme.of(context).textTheme.labelSmall!,
+                      thumbnails: widget.thumbnails,
                     ),
                   ),
                 ),
@@ -221,6 +230,7 @@ class _TimelinePainter extends CustomPainter {
     required this.lanes,
     required this.colors,
     required this.textStyle,
+    this.thumbnails,
   });
 
   final Project project;
@@ -230,6 +240,7 @@ class _TimelinePainter extends CustomPainter {
   final List<(Track, double, double)> lanes;
   final ColorScheme colors;
   final TextStyle textStyle;
+  final ThumbnailCache? thumbnails;
 
   double _x(int timeUs, Size size) =>
       size.width / 2 + (timeUs - playheadUs) / usPerSecond * pixelsPerSecond;
@@ -341,22 +352,32 @@ class _TimelinePainter extends CustomPainter {
     final base = Color(p.clip.colorValue);
 
     canvas.drawRRect(rrect, Paint()..color = base);
-    // Subtle stripes stand in for thumbnails / waveforms until Stage 1.
     canvas.save();
     canvas.clipRRect(rrect);
-    final stripe = Paint()..color = Colors.white.withValues(alpha: 0.07);
-    final spacing = p.clip.kind == ClipKind.video ? height * 1.2 : 6.0;
-    for (var x = left; x < right; x += spacing) {
-      if (p.clip.kind == ClipKind.video) {
-        canvas.drawRect(Rect.fromLTWH(x, top, 1.5, height), stripe);
-      } else {
-        // Fake waveform bars.
-        final h =
-            height * (0.25 + 0.5 * (0.5 + 0.5 * math.sin(x * 0.37)).abs());
-        canvas.drawRect(
-          Rect.fromLTWH(x, top + (height - h) / 2, 3, h),
-          stripe..color = Colors.white.withValues(alpha: 0.18),
-        );
+    if (p.clip.isMedia && thumbnails != null) {
+      _paintThumbnails(canvas, size, p, rect);
+      // Darken slightly behind the text so names stay readable.
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left, rect.top, rect.width, 18),
+        Paint()..color = Colors.black.withValues(alpha: 0.35),
+      );
+    }
+    // Subtle stripes stand in for waveforms (audio arrives in Stage 3).
+    if (!p.clip.isMedia) {
+      final stripe = Paint()..color = Colors.white.withValues(alpha: 0.07);
+      final spacing = p.clip.kind == ClipKind.video ? height * 1.2 : 6.0;
+      for (var x = left; x < right; x += spacing) {
+        if (p.clip.kind == ClipKind.video) {
+          canvas.drawRect(Rect.fromLTWH(x, top, 1.5, height), stripe);
+        } else {
+          // Fake waveform bars.
+          final h =
+              height * (0.25 + 0.5 * (0.5 + 0.5 * math.sin(x * 0.37)).abs());
+          canvas.drawRect(
+            Rect.fromLTWH(x, top + (height - h) / 2, 3, h),
+            stripe..color = Colors.white.withValues(alpha: 0.18),
+          );
+        }
       }
     }
 
@@ -421,6 +442,34 @@ class _TimelinePainter extends CustomPainter {
     }
   }
 
+  /// Fills a video clip with picture tiles taken from the right moments.
+  void _paintThumbnails(Canvas canvas, Size size, ClipPlacement p, Rect rect) {
+    final cache = thumbnails!;
+    final media = p.clip.media!;
+    final aspect = media.height == 0 ? 16 / 9 : media.width / media.height;
+    final tileW = (rect.height * aspect).clamp(24.0, 400.0);
+    final paint = Paint()..filterQuality = FilterQuality.low;
+    // Tiles are aligned to the clip's start so they don't shimmer while
+    // scrolling.
+    var x = rect.left;
+    if (x < -tileW) x += ((-tileW - x) / tileW).floor() * tileW;
+    for (; x < rect.right && x < size.width; x += tileW) {
+      final tile = Rect.fromLTWH(x, rect.top, tileW, rect.height);
+      final timelineUs =
+          p.startUs + ((x - rect.left) / pixelsPerSecond * usPerSecond).round();
+      final sourceUs =
+          p.clip.sourceInUs + ((timelineUs - p.startUs) * p.clip.speed).round();
+      final img = cache.imageAt(p.clip.sourcePath!, sourceUs);
+      if (img == null) continue;
+      // Cover-fit the image into the tile.
+      final iw = img.width.toDouble(), ih = img.height.toDouble();
+      final scale = math.max(tile.width / iw, tile.height / ih);
+      final sw = tile.width / scale, sh = tile.height / scale;
+      final src = Rect.fromLTWH((iw - sw) / 2, (ih - sh) / 2, sw, sh);
+      canvas.drawImageRect(img, src, tile, paint);
+    }
+  }
+
   void _paintHandle(Canvas canvas, Rect r, {required bool isLeft}) {
     final rrect = RRect.fromRectAndCorners(
       r,
@@ -466,5 +515,6 @@ class _TimelinePainter extends CustomPainter {
       old.playheadUs != playheadUs ||
       old.pixelsPerSecond != pixelsPerSecond ||
       old.selectedClipId != selectedClipId ||
-      old.colors != colors;
+      old.colors != colors ||
+      thumbnails != null; // new pictures arrive in the background
 }

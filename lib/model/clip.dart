@@ -1,5 +1,9 @@
 import 'dart:math' as math;
 
+import 'media_info.dart';
+
+export 'media_info.dart';
+
 /// What a clip holds.
 enum ClipKind { video, audio }
 
@@ -19,6 +23,7 @@ class Clip {
     this.startUs = 0,
     this.speed = 1.0,
     this.colorValue = 0xFF607D8B,
+    this.media,
   });
 
   /// Unique within a project.
@@ -28,8 +33,15 @@ class Clip {
   /// Display name shown on the timeline.
   final String name;
 
-  /// File on disk. `null` for the colored placeholder clips in the demo.
+  /// Where the media lives: a file path on Windows, a `content://` address
+  /// on Android. `null` for the colored placeholder clips in the demo.
   final String? sourcePath;
+
+  /// Facts about the source file. `null` for placeholder clips.
+  final MediaInfo? media;
+
+  /// True for real media (as opposed to demo placeholders).
+  bool get isMedia => sourcePath != null && media != null;
 
   /// Full length of the original media file.
   final int sourceDurationUs;
@@ -76,6 +88,7 @@ class Clip {
       startUs: startUs ?? this.startUs,
       speed: speed ?? this.speed,
       colorValue: colorValue ?? this.colorValue,
+      media: media,
     );
   }
 
@@ -90,6 +103,7 @@ class Clip {
     'startUs': startUs,
     'speed': speed,
     'colorValue': colorValue,
+    if (media != null) 'media': media!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -107,6 +121,9 @@ class Clip {
       startUs: (json['startUs'] as num?)?.toInt() ?? 0,
       speed: (json['speed'] as num?)?.toDouble() ?? 1.0,
       colorValue: (json['colorValue'] as num?)?.toInt() ?? 0xFF607D8B,
+      media: json['media'] == null
+          ? null
+          : MediaInfo.fromJson((json['media'] as Map).cast<String, Object?>()),
     );
   }
 }

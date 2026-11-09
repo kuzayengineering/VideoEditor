@@ -3,13 +3,15 @@ import 'package:flutter/material.dart';
 import '../model/project.dart';
 import 'editor_controller.dart';
 
-/// The video preview area. Until the video engine arrives (Stage 1) it shows
-/// the placeholder color of the clip under the playhead, inside a frame of
-/// the chosen aspect ratio.
+/// The video preview area: the chosen canvas shape on black, with the video
+/// (or, in the demo, a colored placeholder) inside it.
 class PreviewView extends StatelessWidget {
-  const PreviewView({super.key, required this.controller});
+  const PreviewView({super.key, required this.controller, this.player});
 
   final EditorController controller;
+
+  /// The real video picture, when the project has real clips.
+  final Widget? player;
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +19,46 @@ class PreviewView extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final project = controller.project;
-        final current = project.mainClipAt(controller.playheadUs);
+        final current =
+            project.mainClipAt(controller.playheadUs) ??
+            (project.mainTrack.clips.isEmpty
+                ? null
+                : project.placementsOn(project.mainTrack).last);
+        final Widget content;
+        if (player != null && project.hasMedia) {
+          // Size the picture to the current clip's own shape, centred in the
+          // canvas: exactly how it will look in the export (black bars where
+          // the shapes differ).
+          final media = current?.clip.media;
+          final aspect = media == null || media.height == 0
+              ? project.canvas.value
+              : media.width / media.height;
+          content = ColoredBox(
+            color: Colors.black,
+            child: Center(
+              child: AspectRatio(aspectRatio: aspect, child: player),
+            ),
+          );
+        } else {
+          final placeholder = project.mainClipAt(controller.playheadUs);
+          content = DecoratedBox(
+            decoration: BoxDecoration(
+              color: placeholder == null
+                  ? const Color(0xFF111111)
+                  : Color(placeholder.clip.colorValue),
+            ),
+            child: Center(
+              child: placeholder == null
+                  ? Text(
+                      project.mainTrack.clips.isEmpty
+                          ? 'Tap "Add media" to add your videos'
+                          : 'End of video',
+                      style: const TextStyle(color: Colors.white54),
+                    )
+                  : _Placeholder(clip: placeholder.clip),
+            ),
+          );
+        }
         return Container(
           color: Colors.black,
           alignment: Alignment.center,
@@ -25,22 +66,11 @@ class PreviewView extends StatelessWidget {
           child: AspectRatio(
             aspectRatio: project.canvas.value,
             child: DecoratedBox(
+              position: DecorationPosition.foreground,
               decoration: BoxDecoration(
-                color: current == null
-                    ? const Color(0xFF111111)
-                    : Color(current.clip.colorValue),
                 border: Border.all(color: Colors.white12),
               ),
-              child: Center(
-                child: current == null
-                    ? Text(
-                        project.mainTrack.clips.isEmpty
-                            ? 'Add a video to get started'
-                            : 'End of video',
-                        style: const TextStyle(color: Colors.white54),
-                      )
-                    : _Placeholder(clip: current.clip),
-              ),
+              child: ClipRect(child: content),
             ),
           ),
         );
@@ -75,7 +105,7 @@ class _Placeholder extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Placeholder · real video preview arrives in Stage 1',
+              'Demo placeholder clip',
               style: TextStyle(color: Colors.white70, fontSize: 12),
             ),
           ],

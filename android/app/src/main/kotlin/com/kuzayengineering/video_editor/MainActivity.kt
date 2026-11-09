@@ -1,5 +1,206 @@
 package com.kuzayengineering.video_editor
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
-class MainActivity : FlutterActivity()
+/**
+ * Bridge between the Flutter screens and Android's media features.
+ *
+ * All slow work (reading files, making thumbnails) happens on background
+ * threads; answers are always delivered back on the main thread.
+ */
+class MainActivity : FlutterActivity() {
+    private val io = Executors.newFixedThreadPool(3)
+    private val main = Handler(Looper.getMainLooper())
+    private val preview by lazy { PreviewManager(applicationContext) }
+
+    private var pendingPick: MethodChannel.Result? = null
+    private var pendingFolder: MethodChannel.Result? = null
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        flutterEngine.platformViewsController.registry
+            .registerViewFactory(PreviewViewFactory.VIEW_TYPE, PreviewViewFactory(preview))
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ve/engine")
+            .setMethodCallHandler(::onCall)
+    }
+
+    override fun onDestroy() {
+        // An export keeps running in its own service; only the preview goes.
+        preview.release()
+        super.onDestroy()
+    }
+
+    private fun background(result: MethodChannel.Result, work: () -> Any?) {
+        io.execute {
+            try {
+                val value = work()
+                main.post { result.success(value) }
+            } catch (e: Exception) {
+                main.post { result.error("engine", e.message ?: e.toString(), null) }
+            }
+        }
+    }
+
+    private fun onCall(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "pickVideos" -> pickVideos(result)
+            "pickFolder" -> pickFolder(result)
+            "probe" -> {
+                val source = call.argument<String>("source")!!
+                background(result) { MediaProbe.probe(applicationContext, source) }
+            }
+            "thumbnails" -> {
+                val source = call.argument<String>("source")!!
+                val times = call.argument<List<Number>>("timesUs")!!.map { it.toLong() }
+                val height = call.argument<Int>("height") ?: 120
+                background(result) {
+                    MediaProbe.thumbnails(applicationContext, source, times, height)
+                }
+            }
+            "previewSetTimeline" -> {
+                preview.setTimeline(Segment.listFrom(call.argument<List<Map<String, Any?>>>("segments")!!))
+                result.success(null)
+            }
+            "previewPlay" -> { preview.play(); result.success(null) }
+            "previewPause" -> { preview.pause(); result.success(null) }
+            "previewSeek" -> {
+                preview.seek(
+                    (call.argument<Number>("timeUs")!!).toLong(),
+                    call.argument<Boolean>("exact") ?: true,
+                )
+                result.success(null)
+            }
+            "previewPosition" -> result.success(preview.positionUs())
+            "startExport" -> {
+                @Suppress("UNCHECKED_CAST")
+                val request = ExportRequest.from(call.arguments as Map<String, Any?>)
+                askForNotifications()
+                try {
+                    ExportManager.start(this, request)
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("export", e.message ?: e.toString(), null)
+                }
+            }
+            "exportStatus" -> result.success(ExportManager.status())
+            "cancelExport" -> { ExportManager.cancel(); result.success(null) }
+            else -> result.notImplemented()
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Choosing videos and folders
+    // -------------------------------------------------------------------------
+
+    private fun pickVideos(result: MethodChannel.Result) {
+        pendingPick?.success(emptyList<Any>())
+        pendingPick = result
+        val intent = if (Build.VERSION.SDK_INT >= 33) {
+            // The modern photo/video picker (looks like the gallery).
+            Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+                type = "video/*"
+                putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, MediaStore.getPickImagesMaxLimit())
+            }
+        } else {
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "video/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQUEST_PICK_VIDEOS)
+    }
+
+    private fun pickFolder(result: MethodChannel.Result) {
+        pendingFolder?.success(null)
+        pendingFolder = result
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQUEST_PICK_FOLDER)
+    }
+
+    @Deprecated("Uses the classic activity result API, which FlutterActivity supports.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        when (requestCode) {
+            REQUEST_PICK_VIDEOS -> {
+                val result = pendingPick ?: return
+                pendingPick = null
+                if (resultCode != Activity.RESULT_OK || data == null) {
+                    result.success(emptyList<Any>())
+                    return
+                }
+                val uris = mutableListOf<Uri>()
+                data.clipData?.let { clip ->
+                    for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
+                }
+                if (uris.isEmpty()) data.data?.let { uris.add(it) }
+                result.success(uris.map { uri ->
+                    // Keep access after the app restarts, so drafts still work.
+                    try {
+                        contentResolver.takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    } catch (_: SecurityException) {
+                    }
+                    mapOf("source" to uri.toString(), "name" to displayName(uri))
+                })
+            }
+            REQUEST_PICK_FOLDER -> {
+                val result = pendingFolder ?: return
+                pendingFolder = null
+                val uri = data?.data
+                if (resultCode != Activity.RESULT_OK || uri == null) {
+                    result.success(null)
+                    return
+                }
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                } catch (_: SecurityException) {
+                }
+                result.success(uri.toString())
+            }
+        }
+    }
+
+    private fun displayName(uri: Uri): String {
+        try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) return c.getString(0) ?: "Video" }
+        } catch (_: Exception) {
+        }
+        return uri.lastPathSegment ?: "Video"
+    }
+
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFY)
+        }
+    }
+
+    companion object {
+        private const val REQUEST_PICK_VIDEOS = 41
+        private const val REQUEST_PICK_FOLDER = 42
+        private const val REQUEST_NOTIFY = 43
+    }
+}

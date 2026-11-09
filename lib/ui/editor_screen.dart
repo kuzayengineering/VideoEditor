@@ -1,20 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../app_services.dart';
+import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'canvas_sheet.dart';
 import 'editor_controller.dart';
+import 'export_progress_screen.dart';
 import 'export_sheet.dart';
+import 'import_media.dart';
 import 'preview_view.dart';
+import 'thumbnail_cache.dart';
 import 'timeline_view.dart';
 import 'tools.dart';
 
 class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key, required this.project});
+  const EditorScreen({super.key, required this.project, this.autosave = true});
 
   final Project project;
+
+  /// Save changes automatically (off for the demo project).
+  final bool autosave;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -26,18 +36,132 @@ class _EditorScreenState extends State<EditorScreen>
   late final Ticker _ticker = createTicker(_onTick);
   Duration _lastTick = Duration.zero;
 
+  late AppServices _services;
+  MediaEngine get _engine => _services.engine;
+  ThumbnailCache? _thumbs;
+  PreviewPlayer? _preview;
+  Widget? _previewWidget;
+  Timer? _saveTimer;
+  Project? _lastSaved;
+
   @override
   void initState() {
     super.initState();
     c.addListener(_syncTicker);
+    c.addListener(_onProjectMaybeChanged);
+    _lastSaved = widget.project;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_thumbs != null) return;
+    _services = AppServices.of(context);
+    _thumbs = ThumbnailCache(_engine)..ensureFor(c.project);
+    if (_engine.supportsMedia) {
+      final preview = _engine.createPreview();
+      _preview = preview;
+      _previewWidget = preview.buildView(context);
+      c.attachPreview(preview);
+      // Reconnect to an export that is still running (e.g. the app was
+      // closed and reopened during an export).
+      _engine.runningExport().then((job) {
+        if (job != null && mounted) _showProgress(job);
+      });
+    }
   }
 
   @override
   void dispose() {
+    _flushSave();
     _ticker.dispose();
     c.dispose();
+    _thumbs?.dispose();
+    _preview?.dispose();
     super.dispose();
   }
+
+  void _onProjectMaybeChanged() {
+    final project = c.project;
+    if (identical(project, _lastSaved) || c.history.inGesture) return;
+    _thumbs?.ensureFor(project);
+    if (!widget.autosave || _services.store == null) return;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 600), _flushSave);
+  }
+
+  void _flushSave() {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    final project = c.project;
+    if (!widget.autosave || identical(project, _lastSaved)) return;
+    _lastSaved = project;
+    unawaited(_services.store?.save(project));
+  }
+
+  Future<void> _addMedia() async {
+    c.pause();
+    final clips = await pickAndReadVideos(context, _engine);
+    if (clips.isEmpty || !mounted) return;
+    c.insertMedia(clips);
+    _toast(
+      clips.length == 1 ? 'Added 1 video' : 'Added ${clips.length} videos',
+    );
+  }
+
+  Future<void> _export() async {
+    c.pause();
+    if (!await showExportSheet(context, c, _engine) || !mounted) return;
+    final problem = await _engine.checkExport(c.project, c.exportSettings);
+    if (!mounted) return;
+    if (problem != null) {
+      await _alert('Can\'t export with these settings', problem);
+      return;
+    }
+    try {
+      final job = await _engine.startExport(
+        ExportRequest(
+          project: c.project,
+          settings: c.exportSettings,
+          fileName: _exportFileName(c.project.name),
+        ),
+      );
+      if (mounted) _showProgress(job);
+    } catch (e) {
+      if (mounted) await _alert('Export could not start', '$e');
+    }
+  }
+
+  void _showProgress(ExportJob job) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ExportProgressScreen(job: job),
+      ),
+    );
+  }
+
+  static String _exportFileName(String projectName) {
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final safe = projectName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    return '${safe.isEmpty ? 'Video' : safe} '
+        '${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}${two(now.minute)}.mp4';
+  }
+
+  Future<void> _alert(String title, String text) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: SingleChildScrollView(child: Text(text)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
 
   void _syncTicker() {
     if (c.playing && !_ticker.isActive) {
@@ -108,7 +232,12 @@ class _EditorScreenState extends State<EditorScreen>
     );
     if (sel == null) {
       return [
-        const EditorTool('Add media', Icons.video_library_outlined, stage: 1),
+        EditorTool(
+          'Add media',
+          Icons.video_library_outlined,
+          stage: 1,
+          onTap: _engine.supportsMedia ? _addMedia : null,
+        ),
         split,
         EditorTool(
           'Canvas',
@@ -229,7 +358,7 @@ class _EditorScreenState extends State<EditorScreen>
                   Padding(
                     padding: const EdgeInsets.only(right: 12),
                     child: FilledButton(
-                      onPressed: () => showExportSheet(context, c),
+                      onPressed: _export,
                       child: const Text('Export'),
                     ),
                   ),
@@ -238,13 +367,15 @@ class _EditorScreenState extends State<EditorScreen>
               body: SafeArea(
                 child: Column(
                   children: [
-                    Expanded(child: PreviewView(controller: c)),
+                    Expanded(
+                      child: PreviewView(controller: c, player: _previewWidget),
+                    ),
                     _TransportBar(controller: c),
                     const Divider(height: 1),
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 230),
                       child: SingleChildScrollView(
-                        child: TimelineView(controller: c),
+                        child: TimelineView(controller: c, thumbnails: _thumbs),
                       ),
                     ),
                     const Divider(height: 1),

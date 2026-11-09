@@ -1,22 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../engine/media_engine.dart';
 import '../model/export_settings.dart';
 import 'editor_controller.dart';
 
 /// Export settings: resolution, frame rate, quality, HDR/SDR, format, folder.
-Future<void> showExportSheet(BuildContext context, EditorController c) {
-  return showModalBottomSheet<void>(
+/// Returns true if the user pressed "Export video".
+Future<bool> showExportSheet(
+  BuildContext context,
+  EditorController c,
+  MediaEngine engine,
+) async {
+  final go = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) => _ExportSheet(controller: c),
+    builder: (context) => _ExportSheet(controller: c, engine: engine),
   );
+  return go ?? false;
 }
 
 class _ExportSheet extends StatefulWidget {
-  const _ExportSheet({required this.controller});
+  const _ExportSheet({required this.controller, required this.engine});
 
   final EditorController controller;
+  final MediaEngine engine;
 
   @override
   State<_ExportSheet> createState() => _ExportSheetState();
@@ -154,10 +162,27 @@ class _ExportSheetState extends State<_ExportSheet> {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.folder_outlined),
-                title: Text(s.outputFolder ?? 'Movies / Videos (default)'),
-                subtitle: const Text('Choosing a folder arrives in Stage 1'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: null,
+                title: Text(widget.engine.describeFolder(s.outputFolder)),
+                subtitle: Text(
+                  s.outputFolder == null
+                      ? 'Default folder · tap to choose another'
+                      : 'Tap to choose another folder',
+                ),
+                trailing: s.outputFolder == null
+                    ? const Icon(Icons.chevron_right)
+                    : IconButton(
+                        tooltip: 'Use the default folder',
+                        icon: const Icon(Icons.restart_alt),
+                        onPressed: () => _update(s.copyWith(resetFolder: true)),
+                      ),
+                onTap: widget.engine.supportsMedia
+                    ? () async {
+                        final folder = await widget.engine.pickOutputFolder();
+                        if (folder != null && mounted) {
+                          _update(s.copyWith(outputFolder: folder));
+                        }
+                      }
+                    : null,
               ),
             ),
             Row(
@@ -180,22 +205,28 @@ class _ExportSheetState extends State<_ExportSheet> {
               ),
               icon: const Icon(Icons.file_upload_outlined),
               label: const Text('Export video'),
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Not yet'),
-                  content: const Text(
-                    'Exporting real video arrives in Stage 1, together with '
-                    'video import. Your settings here are remembered.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('OK'),
+              onPressed: () {
+                if (!project.hasMedia) {
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Nothing to export'),
+                      content: const Text(
+                        'This project has only demo placeholder clips. '
+                        'Add your own videos with "Add media" first.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('OK'),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
+                  );
+                  return;
+                }
+                Navigator.pop(context, true);
+              },
             ),
           ],
         ),

@@ -67,6 +67,41 @@ class ExportSettings {
 
   static const frameRates = <double>[24, 25, 30, 50, 60];
 
+  /// Sensible starting choices for a project: the largest resolution the
+  /// clips actually have (no pointless upscaling), the project's frame rate,
+  /// and HDR if any clip is HDR (in the clips' own HDR format).
+  static ExportSettings suggestedFor(Project project) {
+    final media = [
+      for (final c in project.mainTrack.clips)
+        if (c.media != null) c.media!,
+    ];
+    if (media.isEmpty) return const ExportSettings();
+    final shortSide = media
+        .map((m) => m.width < m.height ? m.width : m.height)
+        .reduce((a, b) => a > b ? a : b);
+    var resolution = ExportResolution.p720;
+    for (final r in ExportResolution.values) {
+      if (r.shortSide <= shortSide + 8) resolution = r;
+    }
+    var fps = frameRates.last;
+    for (final f in frameRates) {
+      if ((f - project.frameRate).abs() < (fps - project.frameRate).abs()) {
+        fps = f;
+      }
+    }
+    final hdr = media.where((m) => m.isHdr).toList();
+    final range = hdr.isEmpty
+        ? DynamicRange.sdr
+        : (hdr.every((m) => m.transfer == ColorTransfer.pq)
+              ? DynamicRange.hdr10
+              : DynamicRange.hlg);
+    return ExportSettings(
+      resolution: resolution,
+      frameRate: fps,
+      dynamicRange: range,
+    );
+  }
+
   /// Audio is exported as AAC at this bit rate.
   static const audioBitrateBps = 256000;
 
@@ -90,6 +125,7 @@ class ExportSettings {
     DynamicRange? dynamicRange,
     VideoCodec? codec,
     String? outputFolder,
+    bool resetFolder = false,
   }) {
     final range = dynamicRange ?? this.dynamicRange;
     var chosenCodec = codec ?? this.codec;
@@ -101,7 +137,7 @@ class ExportSettings {
       quality: quality ?? this.quality,
       dynamicRange: range,
       codec: chosenCodec,
-      outputFolder: outputFolder ?? this.outputFolder,
+      outputFolder: resetFolder ? null : (outputFolder ?? this.outputFolder),
     );
   }
 

@@ -60,5 +60,18 @@ For now: open the Releases page, download the newest `.zip`, unzip it and run
 `video_editor.exe`. Windows SmartScreen may warn about an "unrecognized app"
 the first time. Click **More info → Run anyway**.
 
-Planned for Stage 1: the Windows app checks for new releases itself and offers
-a one-click update.
+### FFmpeg (the Windows video engine)
+
+The Windows version uses **FFmpeg** to read and export video. Until it ships
+inside the download, install it once. Open **Terminal** (right-click the Start
+button → Terminal) and run:
+
+```
+winget install --id Gyan.FFmpeg -e
+```
+
+Then close and reopen Video Editor. It finds FFmpeg automatically and uses your
+PC's Intel Quick Sync (or NVIDIA/AMD graphics) for fast 4K HDR exports.
+
+Planned: the Windows app checks for new releases itself and offers a one-click
+update.

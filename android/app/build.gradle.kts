@@ -25,7 +25,8 @@ android {
         applicationId = "com.kuzayengineering.video_editor"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // Android 10+: needed for saving to Movies without storage permission.
+        minSdk = 29
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -57,6 +58,20 @@ android {
             }
         }
     }
+
+    lint {
+        // Media3's newer APIs are marked "unstable" (may change between
+        // versions); we pin the version, so that's fine.
+        disable += "UnsafeOptInUsageError"
+    }
+}
+
+dependencies {
+    val media3 = "1.11.1"
+    implementation("androidx.media3:media3-common:$media3")
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-transformer:$media3")
+    implementation("androidx.media3:media3-effect:$media3")
 }
 
 kotlin {

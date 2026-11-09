@@ -90,7 +90,17 @@ export) first, so we know the foundation is solid before adding features.
   publishes a GitHub Release. **Obtainium** on your phone picks it up as an
   update (setup steps in [UPDATES.md](UPDATES.md)).
 
-### Stage 1 — Core video engine (the hard part)
+### Stage 1 — Core video engine (the hard part) *(in testing)*
+
+Status notes:
+- **Android** uses Google's Media3 (ExoPlayer preview on a native HDR
+  surface, Transformer export in a foreground service). HDR exports keep the
+  clips' own HDR format (HLG for Pixel video). Mixing HDR and SDR clips in one
+  HDR export comes in a later update.
+- **Windows** uses FFmpeg for export (hardware encoders, measured HDR↔SDR
+  conversions, exact frame counts) and mpv for preview (tone-mapped SDR
+  preview; the export keeps full HDR). Mixing HDR and SDR clips works.
+
 - Import videos from your phone/PC, with thumbnails on the timeline
 - Smooth playback/preview, including 4K60 HDR
 - Trim / split
