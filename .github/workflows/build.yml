@@ -1,0 +1,162 @@
+# Automatic builds.
+#
+# On every push:  check the code, run the tests, build the Android app and the
+#                 Windows program (downloadable from the run's "Artifacts").
+# On the main (default) branch: also publish a GitHub Release with both files
+#                 attached. Obtainium watches these releases and offers each
+#                 new one as an update on your phone.
+#
+# The version number is <major.minor from pubspec.yaml>.<build number>, e.g.
+# 0.1.7. It goes up by one with every build, which is what Obtainium and
+# Android use to recognise an update.
+
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.47.9"
+
+jobs:
+  check:
+    name: Check code and run tests
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Work out version number
+        run: |
+          base=$(grep -E '^version:' pubspec.yaml | sed -E 's/^version: *([0-9]+\.[0-9]+)\..*/\1/')
+          echo "version=${base}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: Build Android app
+    needs: check
+    runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.key.outputs.signed }}
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - id: key
+        name: Load signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### ⚠️ Android app built with a temporary key"
+              echo "The signing secrets are not set up, so no release was published."
+              echo "See docs/UPDATES.md for the one-time setup."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build APK
+        run: |
+          flutter build apk --release --split-per-abi \
+            --build-name="$VERSION" --build-number="${{ github.run_number }}" \
+            --dart-define=APP_VERSION="$VERSION"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            "dist/VideoEditor-$VERSION-android-arm64.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  windows:
+    name: Build Windows program
+    needs: check
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build
+        shell: pwsh
+        run: |
+          flutter build windows --release `
+            --build-name="$env:VERSION" --build-number="${{ github.run_number }}" `
+            --dart-define=APP_VERSION="$env:VERSION"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $folder = "VideoEditor-$env:VERSION-windows-x64"
+          Copy-Item -Recurse build/windows/x64/runner/Release "dist/$folder"
+          Compress-Archive -Path "dist/$folder" -DestinationPath "dist/$folder.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [check, android, windows]
+    # Only from the main (default) branch, and only with the real signing key,
+    # so every release can update the previous one.
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      needs.android.outputs.signed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          {
+            echo "${COMMIT_MESSAGE:-Manual build}"
+            echo
+            echo "---"
+            echo "- **Android:** \`VideoEditor-$VERSION-android-arm64.apk\` (Obtainium installs this automatically)"
+            echo "- **Windows:** download the \`.zip\`, unzip it, and run \`video_editor.exe\`"
+          } > notes.md
+          gh release create "v$VERSION" dist/* \
+            --target "${{ github.sha }}" \
+            --title "Video Editor $VERSION" \
+            --notes-file notes.md

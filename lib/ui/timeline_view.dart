@@ -1,0 +1,470 @@
+import 'dart:math' as math;
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../model/project.dart';
+import '../model/timecode.dart';
+import 'editor_controller.dart';
+
+/// The YouCut-style timeline: the playhead stays fixed in the middle and the
+/// clips slide underneath it.
+///
+/// - Drag sideways to move through the video.
+/// - Pinch (or Ctrl + mouse wheel) to zoom.
+/// - Tap a clip to select it, then drag its white edge handles to trim.
+class TimelineView extends StatefulWidget {
+  const TimelineView({super.key, required this.controller});
+
+  final EditorController controller;
+
+  static const rulerHeight = 22.0;
+  static const mainTrackTop = 30.0;
+  static const mainTrackHeight = 60.0;
+  static const audioTrackHeight = 34.0;
+  static const trackGap = 8.0;
+  static const handleWidth = 14.0;
+
+  static double heightFor(Project project) =>
+      mainTrackTop +
+      mainTrackHeight +
+      project.audioTracks.length * (audioTrackHeight + trackGap) +
+      trackGap * 2;
+
+  @override
+  State<TimelineView> createState() => _TimelineViewState();
+}
+
+enum _DragMode { none, pan, trimStart, trimEnd, zoom }
+
+class _TimelineViewState extends State<TimelineView> {
+  _DragMode _mode = _DragMode.none;
+  double _dragDx = 0;
+  double _zoomStart = 1;
+
+  EditorController get c => widget.controller;
+
+  double _xAtTime(int timeUs, double width) =>
+      width / 2 + (timeUs - c.playheadUs) / usPerSecond * c.pixelsPerSecond;
+
+  /// Vertical span of each track.
+  List<(Track, double top, double height)> _lanes(Project project) {
+    final lanes = <(Track, double, double)>[
+      (
+        project.mainTrack,
+        TimelineView.mainTrackTop,
+        TimelineView.mainTrackHeight,
+      ),
+    ];
+    var y =
+        TimelineView.mainTrackTop +
+        TimelineView.mainTrackHeight +
+        TimelineView.trackGap;
+    for (final t in project.audioTracks) {
+      lanes.add((t, y, TimelineView.audioTrackHeight));
+      y += TimelineView.audioTrackHeight + TimelineView.trackGap;
+    }
+    return lanes;
+  }
+
+  /// Which clip (and which part of it) is under a point.
+  (ClipPlacement, _DragMode)? _hitTest(Offset pos, double width) {
+    final project = c.project;
+    final lanes = _lanes(project);
+    bool inLane(double top, double height) =>
+        pos.dy >= top - 6 && pos.dy <= top + height + 6;
+
+    // The selected clip's trim handles stick out over its neighbours, so
+    // they are checked first.
+    final sel = c.selected;
+    if (sel != null) {
+      for (final (track, top, height) in lanes) {
+        if (track.id != sel.track.id || !inLane(top, height)) continue;
+        final left = _xAtTime(sel.startUs, width);
+        final right = _xAtTime(sel.endUs, width);
+        const grab = TimelineView.handleWidth + 10;
+        if (pos.dx >= left - grab && pos.dx <= left + grab / 2) {
+          return (sel, _DragMode.trimStart);
+        }
+        if (pos.dx >= right - grab / 2 && pos.dx <= right + grab) {
+          return (sel, _DragMode.trimEnd);
+        }
+      }
+    }
+
+    for (final (track, top, height) in lanes) {
+      if (!inLane(top, height)) continue;
+      for (final p in project.placementsOn(track)) {
+        final left = _xAtTime(p.startUs, width);
+        final right = _xAtTime(p.endUs, width);
+        if (pos.dx >= left && pos.dx < right) return (p, _DragMode.pan);
+      }
+    }
+    return null;
+  }
+
+  void _onScaleStart(ScaleStartDetails d, double width) {
+    _dragDx = 0;
+    if (d.pointerCount >= 2) {
+      _mode = _DragMode.zoom;
+      _zoomStart = c.pixelsPerSecond;
+      return;
+    }
+    final hit = _hitTest(d.localFocalPoint, width);
+    if (hit != null &&
+        (hit.$2 == _DragMode.trimStart || hit.$2 == _DragMode.trimEnd)) {
+      _mode = hit.$2;
+      c.beginTrim(hit.$1.clip.id, start: hit.$2 == _DragMode.trimStart);
+      HapticFeedback.selectionClick();
+    } else {
+      _mode = _DragMode.pan;
+      c.pause();
+    }
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    switch (_mode) {
+      case _DragMode.zoom:
+        c.setZoom(_zoomStart * d.scale);
+      case _DragMode.pan:
+        if (d.pointerCount >= 2) {
+          // A second finger landed mid-drag: switch to zooming.
+          _mode = _DragMode.zoom;
+          _zoomStart = c.pixelsPerSecond / d.scale;
+          return;
+        }
+        c.seek(
+          c.playheadUs -
+              (d.focalPointDelta.dx / c.pixelsPerSecond * usPerSecond).round(),
+        );
+      case _DragMode.trimStart:
+      case _DragMode.trimEnd:
+        _dragDx += d.focalPointDelta.dx;
+        c.updateTrim((_dragDx / c.pixelsPerSecond * usPerSecond).round());
+      case _DragMode.none:
+        break;
+    }
+  }
+
+  void _onScaleEnd(ScaleEndDetails d) {
+    if (_mode == _DragMode.trimStart || _mode == _DragMode.trimEnd) {
+      c.endTrim();
+    }
+    _mode = _DragMode.none;
+  }
+
+  void _onTapUp(TapUpDetails d, double width) {
+    final hit = _hitTest(d.localPosition, width);
+    c.select(hit?.$1.clip.id);
+  }
+
+  void _onPointerSignal(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    final zoomKey = HardwareKeyboard.instance.isControlPressed;
+    if (zoomKey) {
+      c.setZoom(c.pixelsPerSecond * math.pow(0.998, e.scrollDelta.dy));
+    } else {
+      final delta = e.scrollDelta.dx != 0 ? e.scrollDelta.dx : e.scrollDelta.dy;
+      c.pause();
+      c.seek(c.playheadUs + (delta / c.pixelsPerSecond * usPerSecond).round());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, _) {
+        final height = TimelineView.heightFor(c.project);
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            return Listener(
+              onPointerSignal: _onPointerSignal,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapUp: (d) => _onTapUp(d, width),
+                onScaleStart: (d) => _onScaleStart(d, width),
+                onScaleUpdate: _onScaleUpdate,
+                onScaleEnd: _onScaleEnd,
+                child: SizedBox(
+                  width: width,
+                  height: height,
+                  child: CustomPaint(
+                    painter: _TimelinePainter(
+                      project: c.project,
+                      playheadUs: c.playheadUs,
+                      pixelsPerSecond: c.pixelsPerSecond,
+                      selectedClipId: c.selectedClipId,
+                      lanes: _lanes(c.project),
+                      colors: Theme.of(context).colorScheme,
+                      textStyle: Theme.of(context).textTheme.labelSmall!,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _TimelinePainter extends CustomPainter {
+  _TimelinePainter({
+    required this.project,
+    required this.playheadUs,
+    required this.pixelsPerSecond,
+    required this.selectedClipId,
+    required this.lanes,
+    required this.colors,
+    required this.textStyle,
+  });
+
+  final Project project;
+  final int playheadUs;
+  final double pixelsPerSecond;
+  final int? selectedClipId;
+  final List<(Track, double, double)> lanes;
+  final ColorScheme colors;
+  final TextStyle textStyle;
+
+  double _x(int timeUs, Size size) =>
+      size.width / 2 + (timeUs - playheadUs) / usPerSecond * pixelsPerSecond;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.clipRect(Offset.zero & size);
+    _paintRuler(canvas, size);
+    for (final (track, top, height) in lanes) {
+      for (final p in project.placementsOn(track)) {
+        _paintClip(canvas, size, p, top, height);
+      }
+    }
+    _paintPlayhead(canvas, size);
+  }
+
+  void _paintRuler(Canvas canvas, Size size) {
+    // Pick a label spacing that leaves room for the text.
+    const steps = [
+      0.1,
+      0.25,
+      0.5,
+      1.0,
+      2.0,
+      5.0,
+      10.0,
+      15.0,
+      30.0,
+      60.0,
+      120.0,
+      300.0,
+      600.0,
+    ];
+    final frameSeconds = 1 / project.frameRate;
+    var step = steps.last;
+    for (final s in steps) {
+      if (s * pixelsPerSecond >= 70) {
+        step = s;
+        break;
+      }
+    }
+    final tick = Paint()
+      ..color = colors.onSurface.withValues(alpha: 0.35)
+      ..strokeWidth = 1;
+    final startSeconds = math.max(
+      0.0,
+      (playheadUs / usPerSecond) - size.width / 2 / pixelsPerSecond,
+    );
+    final endSeconds =
+        (playheadUs / usPerSecond) + size.width / 2 / pixelsPerSecond;
+
+    // Frame ticks when zoomed in far enough to see individual frames.
+    if (frameSeconds * pixelsPerSecond >= 6) {
+      final firstFrame = (startSeconds / frameSeconds).floor();
+      final lastFrame = (endSeconds / frameSeconds).ceil();
+      for (var f = firstFrame; f <= lastFrame; f++) {
+        final x = _x((f * frameSeconds * usPerSecond).round(), size);
+        canvas.drawLine(
+          Offset(x, TimelineView.rulerHeight - 4),
+          Offset(x, TimelineView.rulerHeight),
+          tick,
+        );
+      }
+    }
+
+    final first = (startSeconds / step).floor();
+    final last = (endSeconds / step).ceil();
+    for (var i = first; i <= last; i++) {
+      final seconds = i * step;
+      if (seconds < 0) continue;
+      final x = _x((seconds * usPerSecond).round(), size);
+      canvas.drawLine(
+        Offset(x, TimelineView.rulerHeight - 9),
+        Offset(x, TimelineView.rulerHeight),
+        tick,
+      );
+      final label = step < 1
+          ? '${seconds.toStringAsFixed(seconds == seconds.roundToDouble() ? 0 : 2)}s'
+          : formatShortDuration((seconds * usPerSecond).round())
+                .replaceAll('.0s', 's');
+      final tp = TextPainter(
+        text: TextSpan(
+          text: label,
+          style: textStyle.copyWith(
+            color: colors.onSurface.withValues(alpha: 0.6),
+            fontSize: 10,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(x + 3, 2));
+    }
+  }
+
+  void _paintClip(
+    Canvas canvas,
+    Size size,
+    ClipPlacement p,
+    double top,
+    double height,
+  ) {
+    final left = _x(p.startUs, size);
+    final right = _x(p.endUs, size);
+    if (right < -40 || left > size.width + 40) return;
+
+    final selected = p.clip.id == selectedClipId;
+    final rect = Rect.fromLTRB(left + 1, top, right - 1, top + height);
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(6));
+    final base = Color(p.clip.colorValue);
+
+    canvas.drawRRect(rrect, Paint()..color = base);
+    // Subtle stripes stand in for thumbnails / waveforms until Stage 1.
+    canvas.save();
+    canvas.clipRRect(rrect);
+    final stripe = Paint()..color = Colors.white.withValues(alpha: 0.07);
+    final spacing = p.clip.kind == ClipKind.video ? height * 1.2 : 6.0;
+    for (var x = left; x < right; x += spacing) {
+      if (p.clip.kind == ClipKind.video) {
+        canvas.drawRect(Rect.fromLTWH(x, top, 1.5, height), stripe);
+      } else {
+        // Fake waveform bars.
+        final h =
+            height * (0.25 + 0.5 * (0.5 + 0.5 * math.sin(x * 0.37)).abs());
+        canvas.drawRect(
+          Rect.fromLTWH(x, top + (height - h) / 2, 3, h),
+          stripe..color = Colors.white.withValues(alpha: 0.18),
+        );
+      }
+    }
+
+    final name = TextPainter(
+      text: TextSpan(
+        text: p.clip.name,
+        style: textStyle.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+          fontSize: 11,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: math.max(0, rect.width - 12));
+    name.paint(canvas, Offset(rect.left + 6, rect.top + 4));
+
+    if (height >= 40) {
+      final dur = TextPainter(
+        text: TextSpan(
+          text: formatShortDuration(p.clip.durationUs),
+          style: textStyle.copyWith(
+            color: Colors.white.withValues(alpha: 0.85),
+            fontSize: 10,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      if (dur.width + 12 < rect.width) {
+        dur.paint(
+          canvas,
+          Offset(rect.right - dur.width - 6, rect.bottom - dur.height - 4),
+        );
+      }
+    }
+    canvas.restore();
+
+    if (selected) {
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white,
+      );
+      _paintHandle(
+        canvas,
+        Rect.fromLTWH(
+          rect.left - TimelineView.handleWidth,
+          top,
+          TimelineView.handleWidth,
+          height,
+        ),
+        isLeft: true,
+      );
+      _paintHandle(
+        canvas,
+        Rect.fromLTWH(rect.right, top, TimelineView.handleWidth, height),
+        isLeft: false,
+      );
+    }
+  }
+
+  void _paintHandle(Canvas canvas, Rect r, {required bool isLeft}) {
+    final rrect = RRect.fromRectAndCorners(
+      r,
+      topLeft: isLeft ? const Radius.circular(6) : Radius.zero,
+      bottomLeft: isLeft ? const Radius.circular(6) : Radius.zero,
+      topRight: isLeft ? Radius.zero : const Radius.circular(6),
+      bottomRight: isLeft ? Radius.zero : const Radius.circular(6),
+    );
+    canvas.drawRRect(rrect, Paint()..color = Colors.white);
+    final grip = Paint()
+      ..color = Colors.black54
+      ..strokeWidth = 1.5;
+    final cx = r.center.dx;
+    canvas.drawLine(
+      Offset(cx - 2, r.center.dy - 7),
+      Offset(cx - 2, r.center.dy + 7),
+      grip,
+    );
+    canvas.drawLine(
+      Offset(cx + 2, r.center.dy - 7),
+      Offset(cx + 2, r.center.dy + 7),
+      grip,
+    );
+  }
+
+  void _paintPlayhead(Canvas canvas, Size size) {
+    final x = size.width / 2;
+    final paint = Paint()
+      ..color = colors.primary
+      ..strokeWidth = 2;
+    canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    final head = Path()
+      ..moveTo(x - 6, 0)
+      ..lineTo(x + 6, 0)
+      ..lineTo(x, 8)
+      ..close();
+    canvas.drawPath(head, Paint()..color = colors.primary);
+  }
+
+  @override
+  bool shouldRepaint(_TimelinePainter old) =>
+      old.project != project ||
+      old.playheadUs != playheadUs ||
+      old.pixelsPerSecond != pixelsPerSecond ||
+      old.selectedClipId != selectedClipId ||
+      old.colors != colors;
+}
