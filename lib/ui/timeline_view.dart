@@ -8,6 +8,7 @@ import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_controller.dart';
 import 'audio_preview.dart';
+import 'reverse_jobs.dart';
 import 'thumbnail_cache.dart';
 
 /// The YouCut-style timeline: the playhead stays fixed in the middle and the
@@ -23,7 +24,11 @@ class TimelineView extends StatefulWidget {
     this.thumbnails,
     this.waveforms,
     this.onLongPressClip,
+    this.reverseJobs,
   });
+
+  /// Background reversals (their progress is shown on the clips).
+  final ReverseJobs? reverseJobs;
 
   final EditorController controller;
 
@@ -221,7 +226,12 @@ class _TimelineViewState extends State<TimelineView> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([c, widget.thumbnails, widget.waveforms]),
+      listenable: Listenable.merge([
+        c,
+        widget.thumbnails,
+        widget.waveforms,
+        widget.reverseJobs,
+      ]),
       builder: (context, _) {
         final height = TimelineView.heightFor(c.project);
         return LayoutBuilder(
@@ -250,6 +260,7 @@ class _TimelineViewState extends State<TimelineView> {
                       textStyle: Theme.of(context).textTheme.labelSmall!,
                       thumbnails: widget.thumbnails,
                       waveforms: widget.waveforms,
+                      reverseJobs: widget.reverseJobs,
                     ),
                   ),
                 ),
@@ -273,9 +284,11 @@ class _TimelinePainter extends CustomPainter {
     required this.textStyle,
     this.thumbnails,
     this.waveforms,
+    this.reverseJobs,
   });
 
   final Project project;
+  final ReverseJobs? reverseJobs;
   final int playheadUs;
   final double pixelsPerSecond;
   final int? selectedClipId;
@@ -433,7 +446,7 @@ class _TimelinePainter extends CustomPainter {
           p.clip.name,
           if ((p.clip.speed - 1).abs() > 0.001)
             '${p.clip.speed.toStringAsFixed(p.clip.speed == p.clip.speed.roundToDouble() ? 0 : 2)}×',
-          if (p.clip.reversed) '◀ reversed',
+          if (p.clip.reversed) _reverseLabel(p.clip),
         ].join('  ·  '),
         style: textStyle.copyWith(
           color: Colors.white,
@@ -491,6 +504,11 @@ class _TimelinePainter extends CustomPainter {
         isLeft: false,
       );
     }
+  }
+
+  String _reverseLabel(Clip clip) {
+    final f = reverseJobs?.progressFor(clip);
+    return f == null ? '◀ reversed' : '◀ reversing ${(f * 100).floor()}%';
   }
 
   /// Draws the loudness outline of a sound clip, scaled by its volume.

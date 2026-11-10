@@ -35,6 +35,15 @@ class EditHistory {
     _redo.clear();
   }
 
+  /// Swaps in a corrected version of the current project without making a
+  /// new undo step (used when background work, like a reversed copy,
+  /// finishes).
+  void replaceCurrent(Project next) {
+    if (identical(next, _current)) return;
+    _current = next;
+    if (_gestureStart != null) _gestureStart = next;
+  }
+
   void undo() {
     if (!canUndo) return;
     _redo.add(_current);

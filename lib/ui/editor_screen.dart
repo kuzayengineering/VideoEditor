@@ -18,6 +18,7 @@ import 'export_sheet.dart';
 import 'import_media.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
+import 'reverse_jobs.dart';
 import 'thumbnail_cache.dart';
 import 'timeline_view.dart';
 import 'tools.dart';
@@ -46,6 +47,7 @@ class _EditorScreenState extends State<EditorScreen>
   ThumbnailCache? _thumbs;
   WaveformCache? _waves;
   AudioPreviewMixer? _mixer;
+  ReverseJobs? _reverses;
   PreviewPlayer? _preview;
   Widget? _previewWidget;
   Timer? _saveTimer;
@@ -66,6 +68,12 @@ class _EditorScreenState extends State<EditorScreen>
     _services = AppServices.of(context);
     _thumbs = ThumbnailCache(_engine)..ensureFor(c.project);
     _waves = WaveformCache(_engine)..ensureFor(c.project);
+    _reverses = ReverseJobs(_engine);
+    // A saved project may have reversed clips whose copies were never
+    // finished (e.g. the app was closed): pick those back up.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _resumeReverses(c.project);
+    });
     if (_engine.supportsMedia) {
       final preview = _engine.createPreview();
       _preview = preview;
@@ -88,6 +96,7 @@ class _EditorScreenState extends State<EditorScreen>
     _thumbs?.dispose();
     _waves?.dispose();
     _mixer?.dispose();
+    _reverses?.dispose();
     _preview?.dispose();
     super.dispose();
   }
@@ -97,6 +106,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (identical(project, _lastSaved) || c.history.inGesture) return;
     _thumbs?.ensureFor(project);
     _waves?.ensureFor(project);
+    _resumeReverses(project);
     if (!widget.autosave || _services.store == null) return;
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 600), _flushSave);
@@ -185,18 +195,63 @@ class _EditorScreenState extends State<EditorScreen>
       c.updateSelected((x) => x.copyWith(reversed: false));
       return;
     }
-    final proxy = await _prepareReverse(sel.clip);
-    if (proxy == null || !mounted) return;
-    c.updateSelected((x) => x.copyWith(reversed: true, reverseProxy: proxy));
+    c.updateSelected((x) => x.copyWith(reversed: true));
+    final clip = c.project.placementOf(sel.clip.id)?.clip;
+    if (clip != null && !clip.reverseReady) {
+      _toast(
+        'Making the reversed copy in the background. You can keep editing; '
+        'the clip plays forwards until it\'s ready.',
+      );
+      _startReverse(clip);
+    }
   }
 
-  /// Makes the backwards copy, with a progress dialog. Null if it failed
-  /// (the reason is shown).
-  Future<ReverseProxy?> _prepareReverse(Clip clip) async {
-    if (clip.reverseProxy?.covers(clip.sourceInUs, clip.sourceOutUs) ?? false) {
-      return clip.reverseProxy;
+  /// Starts (or joins) the background reversal for [clip].
+  void _startReverse(Clip clip) {
+    final jobs = _reverses;
+    if (jobs == null) return;
+    jobs
+        .start(clip)
+        .then(
+          (proxy) {
+            if (!mounted) return;
+            c.attachReverseProxy(clip.id, proxy);
+          },
+          onError: (Object e) {
+            if (!mounted) return;
+            // Give up on reversing this clip so it isn't retried endlessly.
+            c.apply(
+              c.project.updateClip(clip.id, (x) => x.copyWith(reversed: false)),
+            );
+            _alert('Can\'t reverse "${clip.name}"', '$e');
+          },
+        );
+  }
+
+  /// Reversed clips whose copy is missing (e.g. after trimming) get one made
+  /// in the background automatically.
+  void _resumeReverses(Project project) {
+    final jobs = _reverses;
+    if (jobs == null || !_engine.supportsMedia) return;
+    for (final clip in project.mainTrack.clips) {
+      if (clip.isMedia &&
+          clip.reversed &&
+          !clip.reverseReady &&
+          jobs.progressFor(clip) == null) {
+        _startReverse(clip);
+      }
     }
-    final progress = ValueNotifier<double>(0);
+  }
+
+  /// Before exporting: wait for any reversed copies still being made, with a
+  /// progress bar.
+  Future<bool> _ensureReversesReady() async {
+    final jobs = _reverses;
+    final pending = [
+      for (final clip in c.project.mainTrack.clips)
+        if (clip.isMedia && clip.reversed && !clip.reverseReady) clip,
+    ];
+    if (pending.isEmpty || jobs == null) return true;
     final navigator = Navigator.of(context, rootNavigator: true);
     showDialog<void>(
       context: context,
@@ -204,52 +259,44 @@ class _EditorScreenState extends State<EditorScreen>
       builder: (context) => PopScope(
         canPop: false,
         child: AlertDialog(
-          title: const Text('Preparing reverse'),
-          content: ValueListenableBuilder<double>(
-            valueListenable: progress,
-            builder: (context, v, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LinearProgressIndicator(value: v > 0 ? v : null),
-                const SizedBox(height: 12),
-                Text(
-                  'Making a backwards copy of "${clip.name}" '
-                  '(${formatShortDuration(clip.sourceLengthUs)}). '
-                  'Longer 4K clips take a while.',
-                ),
-              ],
-            ),
+          title: const Text('Finishing reversed clips'),
+          content: ListenableBuilder(
+            listenable: jobs,
+            builder: (context, _) {
+              final values = [
+                for (final p in pending) jobs.progressFor(p) ?? 1.0,
+              ];
+              final avg = values.reduce((a, b) => a + b) / values.length;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LinearProgressIndicator(value: avg > 0 ? avg : null),
+                  const SizedBox(height: 12),
+                  Text(
+                    pending.length == 1
+                        ? 'Making the backwards copy of "${pending.single.name}"…'
+                        : 'Making backwards copies of ${pending.length} clips…',
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
     try {
-      final proxy = await _engine.prepareReverse(
-        clip,
-        onProgress: (f) => progress.value = f,
-      );
+      for (final clip in pending) {
+        final proxy = await jobs.start(clip);
+        if (!mounted) return false;
+        c.attachReverseProxy(clip.id, proxy);
+      }
       navigator.pop();
-      return proxy;
+      return true;
     } catch (e) {
       navigator.pop();
       if (mounted) await _alert('Can\'t reverse', '$e');
-      return null;
-    } finally {
-      progress.dispose();
+      return false;
     }
-  }
-
-  /// Reversed clips whose in/out points moved need a fresh backwards copy.
-  Future<bool> _ensureReversesReady() async {
-    for (final clip in c.project.mainTrack.clips) {
-      if (!clip.reversed || clip.reverseReady) continue;
-      final proxy = await _prepareReverse(clip);
-      if (proxy == null || !mounted) return false;
-      c.apply(
-        c.project.updateClip(clip.id, (x) => x.copyWith(reverseProxy: proxy)),
-      );
-    }
-    return true;
   }
 
   Future<void> _export() async {
@@ -595,6 +642,7 @@ class _EditorScreenState extends State<EditorScreen>
                           thumbnails: _thumbs,
                           waveforms: _waves,
                           onLongPressClip: _reorder,
+                          reverseJobs: _reverses,
                         ),
                       ),
                     ),

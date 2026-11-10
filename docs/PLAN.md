@@ -119,8 +119,10 @@ Status notes:
   is prepared in short pieces, so 4K needs little memory) and colored or
   blurred backgrounds.
 - **Android:** rotate, mirror, crop, speed (sound keeps its pitch),
-  opacity and reverse work. Reverse makes a backwards copy frame by frame on
-  the phone's video chip (HDR kept), with a progress bar. **Colored/blurred
+  opacity and reverse work. Reverse makes a backwards copy on the phone's
+  video chip (HDR kept): frames are decoded in batches and handed to the
+  encoder newest-first, falling back to a slower frame-by-frame method on
+  phones that can't. It runs in the background while you keep editing. **Colored/blurred
   backgrounds** still need custom work and come in a later update.
 
 - Rotate, mirror (flip), crop

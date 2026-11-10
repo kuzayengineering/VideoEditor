@@ -1,6 +1,17 @@
 package com.kuzayengineering.video_editor
 
 import android.content.Context
+import android.graphics.ImageFormat
+import android.hardware.DataSpace
+import android.hardware.HardwareBuffer
+import android.media.Image
+import android.media.ImageReader
+import android.media.ImageWriter
+import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import android.media.AudioFormat as PlatformAudioFormat
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -54,18 +65,65 @@ object Reverser {
         }
         progress = 0.1
 
+        // Fast way first (frames kept in batches and handed over in reverse
+        // order); if this phone can't do that, the slower frame-by-frame way.
+        var expected = 0
+        val fastOk = try {
+            expected = writeReversed(context, uri, inUs, outUs, part, rotation, audio, fast = true)
+            countVideoFrames(part) == expected
+        } catch (e: Exception) {
+            false
+        }
+        if (!fastOk) {
+            part.delete()
+            progress = 0.1
+            writeReversed(context, uri, inUs, outUs, part, rotation, audio, fast = false)
+        }
+        if (!part.renameTo(File(output))) throw IllegalStateException("Could not save the reversed copy.")
+        progress = 1.0
+    }
+
+    private fun writeReversed(
+        context: Context,
+        uri: Uri,
+        inUs: Long,
+        outUs: Long,
+        part: File,
+        rotation: Int,
+        audio: EncodedAudio?,
+        fast: Boolean,
+    ): Int {
         val muxer = MediaMuxer(part.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         muxer.setOrientationHint(rotation)
         try {
-            reverseVideo(context, uri, inUs, outUs, muxer, audio)
+            return reverseVideo(context, uri, inUs, outUs, muxer, audio, fast)
         } finally {
             try {
                 muxer.release()
             } catch (_: Exception) {
             }
         }
-        if (!part.renameTo(File(output))) throw IllegalStateException("Could not save the reversed copy.")
-        progress = 1.0
+    }
+
+    private fun countVideoFrames(file: File): Int {
+        val ex = MediaExtractor()
+        try {
+            ex.setDataSource(file.absolutePath)
+            for (i in 0 until ex.trackCount) {
+                if (ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true) {
+                    ex.selectTrack(i)
+                    var n = 0
+                    while (ex.sampleTime >= 0) {
+                        n++
+                        ex.advance()
+                    }
+                    return n
+                }
+            }
+            return 0
+        } finally {
+            ex.release()
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -246,7 +304,8 @@ object Reverser {
         outUs: Long,
         muxer: MediaMuxer,
         audio: EncodedAudio?,
-    ) {
+        fast: Boolean,
+    ): Int {
         val ex = MediaExtractor()
         ex.setDataSource(context, uri, null)
         var track = -1
@@ -308,8 +367,40 @@ object Reverser {
         val surface = encoder.createInputSurface()
         encoder.start()
 
+        // Fast way: the decoder draws into an image queue we control, so a
+        // batch of frames can be held and passed to the encoder backwards.
+        val bytesPerFrame = width.toLong() * height * (if (hdr) 3 else 2)
+        val batch = if (fast) (300L * 1024 * 1024 / bytesPerFrame).toInt().coerceIn(4, 60) else 0
+        var reader: ImageReader? = null
+        var writer: ImageWriter? = null
+        var readerThread: HandlerThread? = null
+        val images = LinkedBlockingQueue<Image>()
+        if (fast) {
+            readerThread = HandlerThread("reverse-frames").apply { start() }
+            reader = ImageReader.newInstance(
+                width, height, ImageFormat.PRIVATE, batch + 4,
+                HardwareBuffer.USAGE_VIDEO_ENCODE or HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE,
+            ).apply {
+                setOnImageAvailableListener({ r -> r.acquireNextImage()?.let { images.put(it) } }, Handler(readerThread.looper))
+            }
+            writer = if (Build.VERSION.SDK_INT >= 33) {
+                val dataSpace = when (transfer) {
+                    MediaFormat.COLOR_TRANSFER_HLG -> DataSpace.DATASPACE_BT2020_HLG
+                    MediaFormat.COLOR_TRANSFER_ST2084 -> DataSpace.DATASPACE_BT2020_PQ
+                    else -> DataSpace.DATASPACE_BT709
+                }
+                ImageWriter.Builder(surface)
+                    .setMaxImages(batch + 4)
+                    .setImageFormat(ImageFormat.PRIVATE)
+                    .setDataSpace(dataSpace)
+                    .build()
+            } else {
+                ImageWriter.newInstance(surface, batch + 4, ImageFormat.PRIVATE)
+            }
+        }
+
         val decoder = MediaCodec.createDecoderByType(srcMime)
-        decoder.configure(src, surface, null, 0)
+        decoder.configure(src, if (fast) reader!!.surface else surface, null, 0)
         decoder.start()
 
         var muxerStarted = false
@@ -349,13 +440,74 @@ object Reverser {
         }
 
         val decInfo = MediaCodec.BufferInfo()
+        val n = frameTimes.size
+        /** When frame [i] (source order) appears in the reversed copy. */
+        fun outPtsOf(i: Int): Long = max(0L, outUs - (if (i + 1 < n) frameTimes[i + 1] else outUs))
         try {
-            val n = frameTimes.size
-            for (k in 0 until n) {
+            if (fast) {
+                var end = n // frames [start, end) form the next batch, last batch first
+                var done = 0
+                while (end > 0) {
+                    val start = max(0, end - batch)
+                    val first = frameTimes[start]
+                    val last = frameTimes[end - 1]
+                    val key = keyFrames.lastOrNull { it <= first } ?: keyFrames.first()
+                    ex.seekTo(key, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                    decoder.flush()
+                    val held = HashMap<Int, Image>()
+                    var inputDone = false
+                    var outputDone = false
+                    while (held.size < end - start && !outputDone) {
+                        if (!inputDone) {
+                            val i = decoder.dequeueInputBuffer(TIMEOUT_US)
+                            if (i >= 0) {
+                                val size = ex.readSampleData(decoder.getInputBuffer(i)!!, 0)
+                                if (size < 0) {
+                                    decoder.queueInputBuffer(i, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                    inputDone = true
+                                } else {
+                                    decoder.queueInputBuffer(i, 0, size, ex.sampleTime, 0)
+                                    ex.advance()
+                                }
+                            }
+                        }
+                        val o = decoder.dequeueOutputBuffer(decInfo, TIMEOUT_US)
+                        if (o >= 0) {
+                            val t = decInfo.presentationTimeUs
+                            if (decInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                            if (t in first..last && decInfo.size >= 0 && !outputDone) {
+                                decoder.releaseOutputBuffer(o, t * 1000)
+                                val img = images.poll(2, TimeUnit.SECONDS)
+                                    ?: throw IllegalStateException("frame did not arrive")
+                                val idx = frameTimes.binarySearch(img.timestamp / 1000).let {
+                                    if (it >= 0) it else -(it + 1)
+                                }.coerceIn(start, end - 1)
+                                held.put(idx, img)?.close()
+                            } else {
+                                decoder.releaseOutputBuffer(o, false)
+                                if (t > last) outputDone = true
+                            }
+                        }
+                    }
+                    if (held.size < end - start) {
+                        held.values.forEach { it.close() }
+                        throw IllegalStateException("missing frames")
+                    }
+                    // Hand the batch to the encoder newest-first.
+                    for (idx in end - 1 downTo start) {
+                        val img = held.getValue(idx)
+                        img.timestamp = outPtsOf(idx) * 1000
+                        writer!!.queueInputImage(img)
+                        drainEncoder(false)
+                    }
+                    done += end - start
+                    progress = 0.1 + 0.88 * done / n
+                    end = start
+                }
+            } else for (k in 0 until n) {
                 val target = frameTimes[n - 1 - k]
                 // How long this frame was shown, so the reversed timing matches.
-                val next = if (n - k < n) frameTimes[n - k] else outUs
-                val outPts = max(0L, outUs - next)
+                val outPts = outPtsOf(n - 1 - k)
 
                 val key = keyFrames.lastOrNull { it <= target } ?: keyFrames.first()
                 ex.seekTo(key, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
@@ -396,6 +548,10 @@ object Reverser {
         } finally {
             decoder.stop()
             decoder.release()
+            writer?.close()
+            reader?.close()
+            readerThread?.quitSafely()
+            images.forEach { it.close() }
             encoder.stop()
             encoder.release()
             surface.release()
@@ -403,5 +559,6 @@ object Reverser {
         }
         if (!muxerStarted) throw IllegalStateException("The encoder produced no video.")
         muxer.stop()
+        return n
     }
 }

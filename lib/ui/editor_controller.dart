@@ -341,6 +341,19 @@ class EditorController extends ChangeNotifier {
     _apply(project.extractAudio(id));
   }
 
+  /// A reversed copy finished: give it to the clip (if it still wants it).
+  void attachReverseProxy(int clipId, ReverseProxy proxy) {
+    final next = project.updateClip(
+      clipId,
+      (x) => x.reversed && proxy.covers(x.sourceInUs, x.sourceOutUs)
+          ? x.copyWith(reverseProxy: proxy)
+          : x,
+    );
+    if (identical(next, project)) return;
+    history.replaceCurrent(next);
+    _afterChange();
+  }
+
   void setBackground(BackgroundFill fill) =>
       _apply(project.withBackground(fill));
 
