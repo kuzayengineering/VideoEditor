@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../model/project.dart';
 import 'editor_controller.dart';
@@ -34,6 +35,13 @@ class _TextOverlayViewState extends State<TextOverlayView> {
   double _startRotation = 0;
   Offset _startPos = Offset.zero;
   Offset _focalStart = Offset.zero;
+
+  /// Centre-line guides currently snapped to (shown while dragging).
+  bool _snapX = false;
+  bool _snapY = false;
+
+  /// Snap distance on screen, in pixels.
+  static const _snapPx = 10.0;
 
   /// The text under [pos] (top-most first), if any.
   ClipPlacement? _hit(Offset pos, Size box) {
@@ -77,6 +85,8 @@ class _TextOverlayViewState extends State<TextOverlayView> {
                     ? selected!.clip.id
                     : null,
                 accent: Theme.of(context).colorScheme.primary,
+                guideX: _dragId != null && _snapX,
+                guideY: _dragId != null && _snapY,
               ),
             );
             if (c.project.textTracks.isEmpty) {
@@ -116,15 +126,34 @@ class _TextOverlayViewState extends State<TextOverlayView> {
                 final id = _dragId;
                 if (id == null) return;
                 final move = d.localFocalPoint - _focalStart;
+                var nx = _startPos.dx + move.dx / box.width;
+                var ny = _startPos.dy + move.dy / box.height;
+                // Snap to the vertical and horizontal centre lines.
+                final snapX = ((nx - 0.5) * box.width).abs() < _snapPx;
+                final snapY = ((ny - 0.5) * box.height).abs() < _snapPx;
+                if (snapX) nx = 0.5;
+                if (snapY) ny = 0.5;
+                if ((snapX && !_snapX) || (snapY && !_snapY)) {
+                  HapticFeedback.selectionClick();
+                }
+                if (snapX != _snapX || snapY != _snapY) {
+                  setState(() {
+                    _snapX = snapX;
+                    _snapY = snapY;
+                  });
+                }
+                // Straight text snaps level too (within 3°).
+                var rot = _startRotation + d.rotation * 180 / math.pi;
+                if (rot.abs() < 3) rot = 0;
                 c.liveEdit(
                   (base) => base.updateClip(
                     id,
                     (x) => x.copyWith(
                       text: x.text!.copyWith(
-                        x: _startPos.dx + move.dx / box.width,
-                        y: _startPos.dy + move.dy / box.height,
+                        x: nx,
+                        y: ny,
                         scale: _startScale * d.scale,
-                        rotation: _startRotation + d.rotation * 180 / math.pi,
+                        rotation: rot,
                       ),
                     ),
                   ),
@@ -133,6 +162,12 @@ class _TextOverlayViewState extends State<TextOverlayView> {
               onScaleEnd: (_) {
                 if (_dragId != null) c.endLiveEdit();
                 _dragId = null;
+                if (_snapX || _snapY) {
+                  setState(() {
+                    _snapX = false;
+                    _snapY = false;
+                  });
+                }
               },
               // A transparent layer so empty areas can still be tapped to
               // unselect a text.
@@ -151,7 +186,13 @@ class _TextsPainter extends CustomPainter {
     required this.playheadUs,
     required this.selectedId,
     required this.accent,
+    this.guideX = false,
+    this.guideY = false,
   });
+
+  /// Draw the vertical / horizontal centre line (text is snapped to it).
+  final bool guideX;
+  final bool guideY;
 
   final List<ClipPlacement> texts;
   final int playheadUs;
@@ -160,6 +201,23 @@ class _TextsPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final guide = Paint()
+      ..color = accent
+      ..strokeWidth = 1.5;
+    if (guideX) {
+      canvas.drawLine(
+        Offset(size.width / 2, 0),
+        Offset(size.width / 2, size.height),
+        guide,
+      );
+    }
+    if (guideY) {
+      canvas.drawLine(
+        Offset(0, size.height / 2),
+        Offset(size.width, size.height / 2),
+        guide,
+      );
+    }
     for (final p in texts) {
       final s = p.clip.text!;
       final f = textFrameAt(s, playheadUs - p.startUs, p.clip.durationUs);

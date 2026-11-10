@@ -623,16 +623,44 @@ FfmpegExportPlan buildExportPlan({
 
   final inputs = <String>[];
   final filters = <String>[];
-  final concatInputs = StringBuffer();
+  final clipFrames = <int>[];
   var totalFrames = 0;
 
   final workFmt = tenBit ? 'yuv420p10le' : 'yuv420p';
   final bg = project.background;
 
+  // Transitions, in frames. "Fade through black" trims half its length off
+  // each clip and fades to and from black (exactly what Android does); the
+  // others overlap the clips and blend them (xfade).
+  final n = clips.length;
+  final dipHead = List.filled(n, 0), dipTail = List.filled(n, 0);
+  final xfadeAfter = List.filled(n, 0);
+  for (var i = 0; i + 1 < n; i++) {
+    final mainIndex = project.mainTrack.clips.indexOf(clips[i]);
+    final linked =
+        mainIndex >= 0 &&
+        mainIndex + 1 < project.mainTrack.clips.length &&
+        identical(project.mainTrack.clips[mainIndex + 1], clips[i + 1]);
+    if (!linked) continue;
+    final dFrames = (project.transitionUsAfter(mainIndex) * fps / usPerSecond)
+        .round();
+    if (dFrames <= 0) continue;
+    if (clips[i].transition!.kind == TransitionKind.fadeBlack) {
+      dipTail[i] = dFrames ~/ 2;
+      dipHead[i + 1] = dFrames - dFrames ~/ 2;
+    } else {
+      xfadeAfter[i] = dFrames;
+    }
+  }
+
   for (var i = 0; i < clips.length; i++) {
     final c = clips[i];
     final info = c.media!;
-    final frames = math.max(1, (c.durationUs * fps / usPerSecond).round());
+    final frames = math.max(
+      1,
+      (c.durationUs * fps / usPerSecond).round() - dipHead[i] - dipTail[i],
+    );
+    clipFrames.add(frames);
     totalFrames += frames;
     final segSeconds = frames / fps;
 
@@ -653,8 +681,10 @@ FfmpegExportPlan buildExportPlan({
       path = c.sourcePath!;
       startUs = c.sourceInUs;
     }
+    // Skip the part a fade-through-black trims off the start.
+    final headSkipUs = (dipHead[i] / fps * usPerSecond * c.speed).round();
     inputs.addAll([
-      '-ss', _seconds(startUs),
+      '-ss', _seconds(startUs + headSkipUs),
       // A little extra is read so the exact frame count can be cut below.
       '-t', _seconds(c.sourceLengthUs + 200000),
       '-i', path,
@@ -668,13 +698,19 @@ FfmpegExportPlan buildExportPlan({
     ].join(',');
     // Every clip ends the same way: exact pixel format and exact frame count
     // (repeat the last frame if the file runs short, then cut).
-    final tail = [
+    final tailSteps = [
       'setsar=1',
-      'format=$pixFmt',
+      // Joined (and cross-faded) in a plain planar format; converted for
+      // the encoder at the very end.
+      'format=$workFmt',
       'tpad=stop_mode=clone:stop_duration=1',
       'trim=end_frame=$frames',
-      'setpts=N/($fpsText)/TB[v$i]',
-    ].join(',');
+      'setpts=N/($fpsText)/TB',
+      if (dipHead[i] > 0) 'fade=t=in:st=0:d=${_f(dipHead[i] / fps)}',
+      if (dipTail[i] > 0)
+        'fade=t=out:st=${_f((frames - dipTail[i]) / fps)}:d=${_f(dipTail[i] / fps)}',
+    ];
+    final tail = "${tailSteps.join(',')}[v$i]";
     final fit =
         'scale=$w:$h:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic';
 
@@ -746,7 +782,10 @@ FfmpegExportPlan buildExportPlan({
       filters.add(
         '[$i:a]asetpts=PTS-STARTPTS,${atempoChain(c.speed)}aresample=48000,'
         'aformat=sample_fmts=fltp:channel_layouts=stereo,'
-        'apad,atrim=0:$audioLen,asetpts=N/SR/TB${gainFilters(c, segSeconds)}[a$i]',
+        'apad,atrim=0:$audioLen,asetpts=N/SR/TB${gainFilters(c, segSeconds)}'
+        '${dipHead[i] > 0 ? ',afade=t=in:st=0:d=${_f(dipHead[i] / fps)}' : ''}'
+        '${dipTail[i] > 0 ? ',afade=t=out:st=${_f((frames - dipTail[i]) / fps)}:d=${_f(dipTail[i] / fps)}' : ''}'
+        '[a$i]',
       );
     } else {
       filters.add(
@@ -754,9 +793,34 @@ FfmpegExportPlan buildExportPlan({
         'aformat=sample_fmts=fltp:channel_layouts=stereo[a$i]',
       );
     }
-    concatInputs.write('[v$i][a$i]');
   }
-  filters.add('${concatInputs}concat=n=${clips.length}:v=1:a=1[vout][amain]');
+  // Join the clips: plain cuts are joined end to end; transitions overlap
+  // the clips (xfade for the picture, a crossfade for the sound), which
+  // makes the video shorter by each transition's length.
+  var curV = '[v0]', curA = '[a0]';
+  var curFrames = clipFrames.first;
+  for (var i = 1; i < clips.length; i++) {
+    final dFrames = xfadeAfter[i - 1];
+    final nextV = '[jv$i]', nextA = '[ja$i]';
+    if (dFrames <= 0) {
+      filters.add('$curV$curA[v$i][a$i]concat=n=2:v=1:a=1$nextV$nextA');
+    } else {
+      final kind = clips[i - 1].transition!.kind;
+      final dSec = dFrames / fps;
+      final offset = (curFrames - dFrames) / fps;
+      filters.add(
+        '$curV[v$i]xfade=transition=${kind.ffmpegName}:'
+        'duration=${_f(dSec)}:offset=${_f(offset)}$nextV',
+      );
+      filters.add('$curA[a$i]acrossfade=d=${_f(dSec)}:c1=tri:c2=tri$nextA');
+      totalFrames -= dFrames;
+    }
+    curFrames += clipFrames[i] - dFrames;
+    curV = nextV;
+    curA = nextA;
+  }
+  filters.add('${curV}format=$pixFmt[vout]');
+  filters.add('${curA}anull[amain]');
 
   // Audio tracks (music, voice-over, extracted sound): each clip is cut,
   // sped up or slowed, given its volume and fades, delayed to its place on

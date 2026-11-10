@@ -118,7 +118,55 @@ private class AnimatedTextOverlay(private val t: TextLayer) : BitmapOverlay() {
     }
 }
 
+/** Where a fade-through-black transition happens on the timeline. */
+data class Dip(val startUs: Long, val durationUs: Long) {
+    companion object {
+        fun from(m: Map<String, Any?>) = Dip(
+            (m["startUs"] as Number).toLong(),
+            (m["durationUs"] as Number).toLong(),
+        )
+    }
+}
+
+/**
+ * Fade-through-black transitions: a black layer over the whole picture that
+ * darkens to fully black at the middle of each transition and clears again
+ * (the clips themselves were already trimmed to meet in the middle).
+ */
+private class DipOverlay(private val dips: List<Dip>) : BitmapOverlay() {
+    private var black: Bitmap? = null
+
+    override fun configure(videoSize: androidx.media3.common.util.Size) {
+        super.configure(videoSize)
+        black = Bitmap.createBitmap(
+            maxOf(2, videoSize.width), maxOf(2, videoSize.height), Bitmap.Config.ARGB_8888,
+        ).apply { eraseColor(android.graphics.Color.BLACK) }
+    }
+
+    override fun getBitmap(presentationTimeUs: Long): Bitmap =
+        black ?: Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).also {
+            it.eraseColor(android.graphics.Color.BLACK)
+            black = it
+        }
+
+    override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
+        var alpha = 0f
+        for (d in dips) {
+            if (presentationTimeUs >= d.startUs && presentationTimeUs < d.startUs + d.durationUs) {
+                val p = (presentationTimeUs - d.startUs).toFloat() / d.durationUs
+                alpha = 1f - kotlin.math.abs(2f * p - 1f)
+            }
+        }
+        return StaticOverlaySettings.Builder().setAlphaScale(alpha).build()
+    }
+}
+
 object TextOverlays {
-    fun create(layers: List<TextLayer>): List<TextureOverlay> =
-        layers.map { AnimatedTextOverlay(it) }
+    fun create(layers: List<TextLayer>, dips: List<Dip> = emptyList()): List<TextureOverlay> {
+        val overlays = mutableListOf<TextureOverlay>()
+        // The dip goes under the text, so titles stay visible through it.
+        if (dips.isNotEmpty()) overlays += DipOverlay(dips)
+        overlays += layers.map { AnimatedTextOverlay(it) }
+        return overlays
+    }
 }

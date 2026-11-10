@@ -23,18 +23,28 @@ class PreviewSegment {
     this.outUs, {
     this.speed = 1.0,
     this.clip,
+    this.dipInUs = 0,
+    this.dipOutUs = 0,
   });
 
+  /// Fade-through-black at the start / end (sound fades with it).
+  final int dipInUs;
+  final int dipOutUs;
+
   /// From a clip: backwards clips use their reversed copy.
-  factory PreviewSegment.of(Clip c) {
+  factory PreviewSegment.of(Clip c, {int dipInUs = 0, int dipOutUs = 0}) {
     final proxy = c.reverseProxy;
-    if (c.reverseReady && proxy != null) {
+    if (c.reversed &&
+        proxy != null &&
+        proxy.covers(c.sourceInUs, c.sourceOutUs)) {
       return PreviewSegment(
         proxy.path,
         proxy.proxyTimeOf(c.sourceOutUs),
         proxy.proxyTimeOf(c.sourceInUs),
         speed: c.speed,
         clip: c,
+        dipInUs: dipInUs,
+        dipOutUs: dipOutUs,
       );
     }
     return PreviewSegment(
@@ -43,6 +53,8 @@ class PreviewSegment {
       c.sourceOutUs,
       speed: c.speed,
       clip: c,
+      dipInUs: dipInUs,
+      dipOutUs: dipOutUs,
     );
   }
 
@@ -81,8 +93,12 @@ class PreviewSegment {
         'crop': c.crop.toJson(),
         'opacity': c.opacity,
         'volume': c.volume,
-        'fadeInUs': c.effectiveFades.fadeIn,
-        'fadeOutUs': c.effectiveFades.fadeOut,
+        'fadeInUs': c.effectiveFades.fadeIn > dipInUs
+            ? c.effectiveFades.fadeIn
+            : dipInUs,
+        'fadeOutUs': c.effectiveFades.fadeOut > dipOutUs
+            ? c.effectiveFades.fadeOut
+            : dipOutUs,
       },
     };
   }
@@ -105,10 +121,66 @@ class PreviewSegment {
 }
 
 /// Main-track clips that can be previewed / exported, in order.
-List<PreviewSegment> segmentsOf(Project project) => [
-  for (final c in project.mainTrack.clips)
-    if (c.isMedia) PreviewSegment.of(c),
-];
+///
+/// Transitions overlap neighbouring clips. With a pre-rendered transition
+/// (in [transitionFiles], by [Project.transitionKey]) the clips are cut
+/// short by its full length and the rendered piece plays in between.
+/// Otherwise each clip loses half the transition and they dip through black
+/// (which is exactly how Android exports every transition for now).
+List<PreviewSegment> segmentsOf(
+  Project project, {
+  Map<String, String> transitionFiles = const {},
+}) {
+  final clips = project.mainTrack.clips;
+  final n = clips.length;
+  final head = List.filled(n, 0), tail = List.filled(n, 0);
+  final rendered = <int, (String, int)>{};
+  for (var i = 0; i + 1 < n; i++) {
+    final d = project.transitionUsAfter(i);
+    if (d <= 0) continue;
+    final file = transitionFiles[project.transitionKey(i)];
+    if (file != null) {
+      tail[i] = d;
+      head[i + 1] = d;
+      rendered[i] = (file, d);
+    } else {
+      tail[i] = d ~/ 2;
+      head[i + 1] = d - d ~/ 2;
+    }
+  }
+  final out = <PreviewSegment>[];
+  for (var i = 0; i < n; i++) {
+    final c = clips[i];
+    if (!c.isMedia) continue;
+    final dipIn = i > 0 && !rendered.containsKey(i - 1) ? head[i] : 0;
+    final dipOut = !rendered.containsKey(i) ? tail[i] : 0;
+    out.add(
+      PreviewSegment.of(
+        c.trimmedBy(headUs: head[i], tailUs: tail[i]),
+        dipInUs: dipIn,
+        dipOutUs: dipOut,
+      ),
+    );
+    final r = rendered[i];
+    if (r != null) out.add(PreviewSegment(r.$1, r.$2, 2 * r.$2));
+  }
+  return out;
+}
+
+/// Where the fade-through-black dips happen on the timeline (every
+/// transition without a pre-rendered copy).
+List<({int startUs, int durationUs})> dipsOf(
+  Project project, {
+  Map<String, String> transitionFiles = const {},
+}) {
+  final ps = project.placementsOn(project.mainTrack);
+  return [
+    for (var i = 0; i + 1 < ps.length; i++)
+      if (project.transitionUsAfter(i) > 0 &&
+          transitionFiles[project.transitionKey(i)] == null)
+        (startUs: ps[i + 1].startUs, durationUs: project.transitionUsAfter(i)),
+  ];
+}
 
 /// Plays one audio-track clip during preview.
 abstract class ClipAudioPlayer {
@@ -319,6 +391,14 @@ abstract class MediaEngine {
   /// Whether colored or blurred backgrounds can be exported here.
   bool get supportsBackgrounds;
 
+  /// Whether every transition type can be exported here (Android shows them
+  /// all as fade-through-black for now).
+  bool get supportsAllTransitions;
+
+  /// Renders a small project (a transition with a little either side) to a
+  /// preview-quality video file, or returns null if this platform doesn't.
+  Future<String?> renderPreviewClip(Project project, String key);
+
   /// Asks the user to choose a folder to save exports to.
   /// Returns an opaque folder reference, or null if cancelled.
   Future<String?> pickOutputFolder();
@@ -383,6 +463,12 @@ class NoMediaEngine implements MediaEngine {
   bool get supportsBackgrounds => true;
 
   @override
+  bool get supportsAllTransitions => true;
+
+  @override
+  Future<String?> renderPreviewClip(Project project, String key) async => null;
+
+  @override
   String describeFolder(String? folder) => folder ?? 'Default folder';
 
   @override
@@ -407,10 +493,9 @@ List<Map<String, Object?>> textLayersFor(
   Project project,
   Map<int, TextImages> images,
 ) {
-  var videoUs = 0;
-  for (final c in project.mainTrack.clips) {
-    if (c.isMedia) videoUs += c.durationUs;
-  }
+  // The video's length (transitions make it shorter than the clips added up).
+  final ps = project.placementsOn(project.mainTrack);
+  final videoUs = ps.isEmpty ? 0 : ps.last.endUs;
   return [
     for (final t in project.textTracks)
       for (final c in t.clips)

@@ -179,6 +179,44 @@ class FfmpegEngine implements MediaEngine {
   bool get supportsBackgrounds => true;
 
   @override
+  bool get supportsAllTransitions => true;
+
+  @override
+  Future<String?> renderPreviewClip(Project project, String key) async {
+    final dir = await Directory(
+      '${(await getApplicationCacheDirectory()).path}/transitions',
+    ).create(recursive: true);
+    final out = File('${dir.path}/$key.mp4');
+    if (await out.exists()) return out.path;
+    final encoder = await encoderFor(VideoCodec.h264, tenBit: false);
+    if (encoder == null) return null;
+    final fps = ExportSettings.frameRates.reduce(
+      (a, b) => (a - project.frameRate).abs() <= (b - project.frameRate).abs()
+          ? a
+          : b,
+    );
+    final plan = buildExportPlan(
+      project: project,
+      // Preview quality: 720p SDR is quick to make and plenty for the screen.
+      settings:
+          const ExportSettings(
+            resolution: ExportResolution.p720,
+            quality: ExportQuality.standard,
+          ).copyWith(
+            dynamicRange: DynamicRange.sdr,
+            codec: VideoCodec.h264,
+            frameRate: fps,
+          ),
+      encoder: encoder,
+      outputPath: '${out.path}.part.mp4',
+    );
+    final r = await Process.run(ffmpeg, plan.args);
+    if (r.exitCode != 0) return null;
+    await File('${out.path}.part.mp4').rename(out.path);
+    return out.path;
+  }
+
+  @override
   Future<ReverseProxy> prepareReverse(
     Clip clip, {
     void Function(double fraction)? onProgress,

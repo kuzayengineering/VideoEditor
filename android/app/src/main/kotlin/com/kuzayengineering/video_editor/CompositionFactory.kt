@@ -38,6 +38,7 @@ object CompositionFactory {
         audioTracks: List<List<Segment>> = emptyList(),
         withGain: Boolean = false,
         texts: List<TextLayer> = emptyList(),
+        dips: List<Dip> = emptyList(),
     ): Composition {
         val items = segments.map { item(it, width, height, maxFrameRate, withGain) }
         val videoLengthUs = segments.sumOf { it.timelineUs }
@@ -46,12 +47,12 @@ object CompositionFactory {
             audioSequence(track, videoLengthUs)?.let { sequences += it }
         }
         val builder = Composition.Builder(sequences)
-        if (texts.isNotEmpty()) {
+        if (texts.isNotEmpty() || dips.isNotEmpty()) {
             // Text goes on top of the finished picture, in timeline time.
             builder.setEffects(
                 Effects(
                     listOf<AudioProcessor>(),
-                    listOf<Effect>(OverlayEffect(ImmutableList.copyOf(TextOverlays.create(texts)))),
+                    listOf<Effect>(OverlayEffect(ImmutableList.copyOf(TextOverlays.create(texts, dips)))),
                 )
             )
         }

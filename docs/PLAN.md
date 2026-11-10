@@ -150,14 +150,21 @@ Status notes:
 - Volume per clip, **fade in / fade out with custom durations**
 - **Record a voice-over** in the app
 
-### Stage 4 — Layers and text *(text in testing; transitions and PiP next)*
+### Stage 4 — Layers and text *(text and transitions in testing; PiP next)*
 
 Status notes:
 - **Text** works on both platforms: 10 bundled fonts, size, colour, bold,
   italic, shadow, alignment, outline, background box, drag/pinch/twist on
   the preview, and appear/disappear animations (fade, four slides, pop,
   typewriter). The app draws the text itself, so preview and export match;
-  white text sits at HDR reference white in HDR exports.
+  white text sits at HDR reference white in HDR exports. Dragging text
+  snaps to the centre lines of the video.
+- **Transitions** work: fade, fade through black, four slides and zoom, with
+  a length slider and "Use for all cuts". The two clips overlap while it
+  plays. Windows does every type (the preview shows it after a short
+  background render). Android shows them all as fade through black for now,
+  because Android's own tools can't blend two videos in HDR yet; a custom
+  HDR blender is planned together with picture in picture.
 - **Picture in picture** (video on top of video: move, resize, opacity)
 - **Text overlays** with fonts, colors and outlines, plus in/out **animations**
   (fade, slide, pop, typewriter, and so on)

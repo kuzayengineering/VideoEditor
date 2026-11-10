@@ -24,6 +24,7 @@ import 'text_sheet.dart';
 import 'thumbnail_cache.dart';
 import 'timeline_view.dart';
 import 'tools.dart';
+import 'transition_sheet.dart';
 import 'voiceover_sheet.dart';
 
 class EditorScreen extends StatefulWidget {
@@ -109,6 +110,7 @@ class _EditorScreenState extends State<EditorScreen>
     _thumbs?.ensureFor(project);
     _waves?.ensureFor(project);
     _resumeReverses(project);
+    _renderTransitions(project);
     if (!widget.autosave || _services.store == null) return;
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 600), _flushSave);
@@ -250,6 +252,35 @@ class _EditorScreenState extends State<EditorScreen>
             _alert('Can\'t reverse "${clip.name}"', '$e');
           },
         );
+  }
+
+  final Set<String> _transitionsInFlight = {};
+  Future<void> _transitionQueue = Future.value();
+
+  /// Pre-renders each transition for the preview (Windows), one at a time,
+  /// in the background. Until one is ready the preview dips through black.
+  void _renderTransitions(Project project) {
+    if (!_engine.supportsAllTransitions || !_engine.supportsMedia) return;
+    for (var i = 0; i + 1 < project.mainTrack.clips.length; i++) {
+      if (project.transitionUsAfter(i) <= 0) continue;
+      final key = project.transitionKey(i);
+      if (c.transitionFiles.containsKey(key) ||
+          !_transitionsInFlight.add(key)) {
+        continue;
+      }
+      final mini = project.transitionPreviewProject(i);
+      if (mini == null || !mini.mainTrack.clips.every((x) => x.isMedia)) {
+        continue;
+      }
+      _transitionQueue = _transitionQueue.then((_) async {
+        try {
+          final path = await _engine.renderPreviewClip(mini, key);
+          if (path != null && mounted) c.addTransitionFile(key, path);
+        } catch (_) {
+          // The preview keeps the dip-through-black stand-in.
+        }
+      });
+    }
   }
 
   /// Reversed clips whose copy is missing (e.g. after trimming) get one made
@@ -609,7 +640,24 @@ class _EditorScreenState extends State<EditorScreen>
         onTap: sel.clip.isMedia ? () => showOpacitySheet(context, c) : null,
       ),
       const EditorTool('Filter', Icons.photo_filter_outlined, stage: 5),
-      const EditorTool('Transition', Icons.compare_arrows, stage: 4),
+      EditorTool(
+        'Transition',
+        Icons.compare_arrows,
+        stage: 4,
+        onTap: () {
+          final i = c.project.mainTrack.clips.indexWhere(
+            (x) => x.id == sel.clip.id,
+          );
+          if (i >= 0 && i + 1 < c.project.mainTrack.clips.length) {
+            showTransitionSheet(context, c, _engine, i);
+          } else {
+            _toast(
+              'Transitions go between two clips: pick a clip that has '
+              'another one after it.',
+            );
+          }
+        },
+      ),
       EditorTool(
         'Extract audio',
         Icons.music_video_outlined,
@@ -711,6 +759,8 @@ class _EditorScreenState extends State<EditorScreen>
                           waveforms: _waves,
                           onLongPressClip: _reorder,
                           reverseJobs: _reverses,
+                          onTransitionTap: (i) =>
+                              showTransitionSheet(context, c, _engine, i),
                         ),
                       ),
                     ),

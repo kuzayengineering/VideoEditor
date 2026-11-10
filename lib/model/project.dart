@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'clip.dart';
@@ -230,8 +231,98 @@ class Project {
       final start = track.kind == TrackKind.main ? cursor : clip.startUs;
       result.add(ClipPlacement(clip, track, i, start));
       cursor = start + clip.durationUs;
+      // A transition makes the next clip start that much earlier.
+      if (track.kind == TrackKind.main) cursor -= transitionUsAfter(i);
     }
     return result;
+  }
+
+  /// How long the transition after main-track clip [index] really lasts: at
+  /// most half of either neighbouring clip, rounded to whole frames (0 if
+  /// there's no transition or no next clip).
+  int transitionUsAfter(int index) {
+    final clips = mainTrack.clips;
+    if (index < 0 || index >= clips.length - 1) return 0;
+    final t = clips[index].transition;
+    if (t == null) return 0;
+    final a = clips[index].durationUs, b = clips[index + 1].durationUs;
+    final limit = math.min(t.durationUs, math.min(a, b) ~/ 2);
+    final frames = (limit * frameRate / usPerSecond).floor();
+    return frames <= 0 ? 0 : frameStartUs(frames, frameRate);
+  }
+
+  /// The transition playing at [timeUs], if any: which clip it follows,
+  /// when it starts, and how long it lasts.
+  ({int index, int startUs, int durationUs, TransitionKind kind})? transitionAt(
+    int timeUs,
+  ) {
+    final ps = placementsOn(mainTrack);
+    for (var i = 0; i < ps.length - 1; i++) {
+      final d = transitionUsAfter(i);
+      if (d == 0) continue;
+      final start = ps[i + 1].startUs;
+      if (timeUs >= start && timeUs < start + d) {
+        return (
+          index: i,
+          startUs: start,
+          durationUs: d,
+          kind: ps[i].clip.transition!.kind,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// A tiny project holding just the transition after main clip [index]
+  /// with a little of each clip around it: the last 2×d of the first clip
+  /// and the first 2×d of the next, so the transition itself is the part
+  /// from d to 2×d. Used to pre-render transitions for the preview.
+  Project? transitionPreviewProject(int index) {
+    final d = transitionUsAfter(index);
+    if (d <= 0) return null;
+    final a = mainTrack.clips[index], b = mainTrack.clips[index + 1];
+    final a2 = a
+        .trimmedBy(headUs: a.durationUs - 2 * d)
+        .copyWith(transition: a.transition!.copyWith(durationUs: d), id: 1);
+    final b2 = b
+        .trimmedBy(tailUs: b.durationUs - 2 * d)
+        .copyWith(clearTransition: true, id: 2);
+    return Project(
+      id: '$id-transition-$index',
+      name: name,
+      frameRate: frameRate,
+      canvas: canvas,
+      background: background,
+      mainTrack: Track(
+        id: 3,
+        kind: TrackKind.main,
+        clips: List.unmodifiable([a2, b2]),
+      ),
+      nextId: 4,
+    );
+  }
+
+  /// Identifies a transition's look (its clips, settings and the canvas), so
+  /// a pre-rendered copy is reused only while nothing about it changed.
+  String transitionKey(int index) {
+    final mini = transitionPreviewProject(index);
+    if (mini == null) return '';
+    final j = mini.toJson()
+      ..remove('id')
+      ..remove('name');
+    return jsonEncode(j).hashCode.toUnsigned(32).toRadixString(16);
+  }
+
+  /// Sets (or removes, with null) the transition after main clip [index].
+  Project setTransition(int index, TransitionSpec? spec) {
+    if (index < 0 || index >= mainTrack.clips.length - 1) return this;
+    final clip = mainTrack.clips[index];
+    if (clip.transition == spec) return this;
+    final updated = spec == null
+        ? clip.copyWith(clearTransition: true)
+        : clip.copyWith(transition: spec);
+    final clips = [...mainTrack.clips]..[index] = updated;
+    return copyWith(mainTrack: mainTrack.withClips(clips));
   }
 
   Iterable<ClipPlacement> get allPlacements sync* {
@@ -258,7 +349,8 @@ class Project {
 
   /// The main-track clip that is showing at [timeUs], if any.
   ClipPlacement? mainClipAt(int timeUs) {
-    for (final p in placementsOn(mainTrack)) {
+    // During a transition two clips overlap; the incoming one counts.
+    for (final p in placementsOn(mainTrack).reversed) {
       if (p.contains(timeUs)) return p;
     }
     return null;
@@ -419,8 +511,8 @@ class Project {
     final cutSourceUs = clip.sourceTimeAt(timeUs - p.startUs);
     // A backwards clip shows the end of its range first.
     final left = clip.reversed
-        ? clip.copyWith(sourceInUs: cutSourceUs)
-        : clip.copyWith(sourceOutUs: cutSourceUs);
+        ? clip.copyWith(sourceInUs: cutSourceUs, clearTransition: true)
+        : clip.copyWith(sourceOutUs: cutSourceUs, clearTransition: true);
     final right = clip.reversed
         ? clip.copyWith(id: nextId, sourceOutUs: cutSourceUs, startUs: timeUs)
         : clip.copyWith(id: nextId, sourceInUs: cutSourceUs, startUs: timeUs);

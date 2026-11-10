@@ -89,6 +89,68 @@ class ReverseProxy {
   }
 }
 
+/// How one clip changes into the next.
+enum TransitionKind {
+  fade('Fade', 'fade'),
+  fadeBlack('Fade through black', 'fadeblack'),
+  slideLeft('Slide left', 'slideleft'),
+  slideRight('Slide right', 'slideright'),
+  slideUp('Slide up', 'slideup'),
+  slideDown('Slide down', 'slidedown'),
+  zoom('Zoom', 'zoomin');
+
+  const TransitionKind(this.label, this.ffmpegName);
+  final String label;
+
+  /// FFmpeg's name for it (the xfade filter).
+  final String ffmpegName;
+
+  /// Android can show this one exactly in HDR (others appear as fade
+  /// through black there for now).
+  bool get worksOnAndroidHdr => this == TransitionKind.fadeBlack;
+}
+
+/// A transition into the next clip. Clips overlap by [durationUs] while it
+/// plays, so the video gets that much shorter (as in most phone editors).
+class TransitionSpec {
+  const TransitionSpec(this.kind, {this.durationUs = 500000});
+
+  final TransitionKind kind;
+  final int durationUs;
+
+  static const maxUs = 3000000;
+
+  TransitionSpec copyWith({TransitionKind? kind, int? durationUs}) =>
+      TransitionSpec(
+        kind ?? this.kind,
+        durationUs: durationUs ?? this.durationUs,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is TransitionSpec &&
+      other.kind == kind &&
+      other.durationUs == durationUs;
+
+  @override
+  int get hashCode => Object.hash(kind, durationUs);
+
+  Map<String, Object?> toJson() => {
+    'kind': kind.name,
+    'durationUs': durationUs,
+  };
+
+  static TransitionSpec? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final kind = TransitionKind.values.asNameMap()[json['kind']];
+    if (kind == null) return null;
+    return TransitionSpec(
+      kind,
+      durationUs: (json['durationUs'] as num?)?.toInt() ?? 500000,
+    );
+  }
+}
+
 /// One piece of media placed on the timeline.
 ///
 /// A clip never changes the original file. It just says "use this part of
@@ -118,6 +180,7 @@ class Clip {
     this.fadeInUs = 0,
     this.fadeOutUs = 0,
     this.text,
+    this.transition,
   });
 
   static const minSpeed = 0.25;
@@ -210,6 +273,10 @@ class Clip {
   /// For text clips: what it says and how it looks.
   final TextSpec? text;
 
+  /// Main-track clips: how this clip changes into the next one (null = a
+  /// plain cut).
+  final TransitionSpec? transition;
+
   /// Length of the used part of the original file.
   int get sourceLengthUs => sourceOutUs - sourceInUs;
 
@@ -259,6 +326,16 @@ class Clip {
     return g.clamp(0.0, maxVolume);
   }
 
+  /// The same clip with [headUs] cut off its start and [tailUs] off its end
+  /// (timeline time; speed and reverse are taken into account).
+  Clip trimmedBy({int headUs = 0, int tailUs = 0}) {
+    final h = (headUs * speed).round(), t = (tailUs * speed).round();
+    if (h == 0 && t == 0) return this;
+    return reversed
+        ? copyWith(sourceOutUs: sourceOutUs - h, sourceInUs: sourceInUs + t)
+        : copyWith(sourceInUs: sourceInUs + h, sourceOutUs: sourceOutUs - t);
+  }
+
   /// Which moment of the original file is showing [offsetUs] into the clip
   /// (accounts for speed and reverse).
   int sourceTimeAt(int offsetUs) {
@@ -288,6 +365,8 @@ class Clip {
     ClipKind? kind,
     String? sourcePath,
     TextSpec? text,
+    TransitionSpec? transition,
+    bool clearTransition = false,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -314,6 +393,7 @@ class Clip {
       fadeInUs: fadeInUs ?? this.fadeInUs,
       fadeOutUs: fadeOutUs ?? this.fadeOutUs,
       text: text ?? this.text,
+      transition: clearTransition ? null : (transition ?? this.transition),
     );
   }
 
@@ -340,6 +420,7 @@ class Clip {
     if (fadeInUs > 0) 'fadeInUs': fadeInUs,
     if (fadeOutUs > 0) 'fadeOutUs': fadeOutUs,
     if (text != null) 'text': text!.toJson(),
+    if (transition != null) 'transition': transition!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -379,6 +460,7 @@ class Clip {
       text: json['text'] is Map
           ? TextSpec.fromJson((json['text'] as Map).cast<String, Object?>())
           : null,
+      transition: TransitionSpec.fromJson(json['transition']),
     );
   }
 }

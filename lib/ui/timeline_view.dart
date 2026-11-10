@@ -10,6 +10,7 @@ import 'editor_controller.dart';
 import 'audio_preview.dart';
 import 'reverse_jobs.dart';
 import 'thumbnail_cache.dart';
+import 'transition_sheet.dart';
 
 /// The YouCut-style timeline: the playhead stays fixed in the middle and the
 /// clips slide underneath it.
@@ -25,7 +26,24 @@ class TimelineView extends StatefulWidget {
     this.waveforms,
     this.onLongPressClip,
     this.reverseJobs,
+    this.onTransitionTap,
   });
+
+  /// Called when the button between main clip [index] and the next is
+  /// tapped (opens the transition picker).
+  final void Function(int index)? onTransitionTap;
+
+  /// Where the transition button for the cut after main clip [index] sits.
+  static double transitionButtonTime(
+    Project p,
+    List<ClipPlacement> main,
+    int i,
+  ) {
+    final d = p.transitionUsAfter(i);
+    return main[i + 1].startUs + d / 2;
+  }
+
+  static const transitionButtonSize = 24.0;
 
   /// Background reversals (their progress is shown on the clips).
   final ReverseJobs? reverseJobs;
@@ -196,6 +214,23 @@ class _TimelineViewState extends State<TimelineView> {
   }
 
   void _onTapUp(TapUpDetails d, double width) {
+    // The small buttons between clips come first.
+    final project = c.project;
+    if (widget.onTransitionTap != null && project.mainTrack.clips.length > 1) {
+      final main = project.placementsOn(project.mainTrack);
+      final y = TimelineView.mainTrackTop + TimelineView.mainTrackHeight / 2;
+      for (var i = 0; i + 1 < main.length; i++) {
+        final x = _xAtTime(
+          TimelineView.transitionButtonTime(project, main, i).round(),
+          width,
+        );
+        if ((d.localPosition - Offset(x, y)).distance <=
+            TimelineView.transitionButtonSize * 0.8) {
+          widget.onTransitionTap!(i);
+          return;
+        }
+      }
+    }
     final hit = _hitTest(d.localPosition, width);
     final id = hit?.$1.clip.id;
     // Tapping the selected clip again unselects it.
@@ -311,7 +346,58 @@ class _TimelinePainter extends CustomPainter {
         _paintClip(canvas, size, p, top, height);
       }
     }
+    _paintTransitionButtons(canvas, size);
     _paintPlayhead(canvas, size);
+  }
+
+  /// A small square between clips: "+" to add a transition, or the
+  /// transition's symbol (on a highlighted band showing the overlap).
+  void _paintTransitionButtons(Canvas canvas, Size size) {
+    final main = project.placementsOn(project.mainTrack);
+    if (main.length < 2) return;
+    final top = TimelineView.mainTrackTop;
+    final height = TimelineView.mainTrackHeight;
+    final cy = top + height / 2;
+    const s = TimelineView.transitionButtonSize;
+    for (var i = 0; i + 1 < main.length; i++) {
+      final kind = main[i].clip.transition?.kind;
+      final d = project.transitionUsAfter(i);
+      if (d > 0) {
+        final x0 = _x(main[i + 1].startUs, size);
+        final x1 = _x(main[i + 1].startUs + d, size);
+        canvas.drawRect(
+          Rect.fromLTRB(x0, top, x1, top + height),
+          Paint()..color = colors.primary.withValues(alpha: 0.25),
+        );
+      }
+      final x = _x(
+        TimelineView.transitionButtonTime(project, main, i).round(),
+        size,
+      );
+      if (x < -s || x > size.width + s) continue;
+      final r = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(x, cy), width: s, height: s),
+        const Radius.circular(5),
+      );
+      canvas.drawRRect(
+        r,
+        Paint()..color = kind == null ? Colors.white : colors.primary,
+      );
+      final icon = kind == null ? Icons.add : transitionIcon(kind);
+      final tp = TextPainter(
+        text: TextSpan(
+          text: String.fromCharCode(icon.codePoint),
+          style: TextStyle(
+            fontFamily: icon.fontFamily,
+            package: icon.fontPackage,
+            fontSize: s * 0.7,
+            color: kind == null ? Colors.black87 : colors.onPrimary,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(x - tp.width / 2, cy - tp.height / 2));
+    }
   }
 
   void _paintRuler(Canvas canvas, Size size) {

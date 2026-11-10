@@ -76,6 +76,12 @@ class AndroidMediaEngine implements MediaEngine {
   bool get supportsBackgrounds => false;
 
   @override
+  bool get supportsAllTransitions => false;
+
+  @override
+  Future<String?> renderPreviewClip(Project project, String key) async => null;
+
+  @override
   Future<ReverseProxy> prepareReverse(
     Clip clip, {
     void Function(double fraction)? onProgress,
@@ -179,19 +185,25 @@ class AndroidMediaEngine implements MediaEngine {
         if (c.isMedia) c,
     ];
     final dims = s.dimensionsFor(project.canvas);
+    // Transitions: clips are trimmed and dip through black (see segmentsOf).
+    final segments = segmentsOf(project);
     // Media3 keeps the source frame rate when it is lower than the target
     // (it never invents frames), so the expected count follows suit.
     var frames = 0;
     var durationUs = 0;
-    for (final c in clips) {
-      final fps = c.media!.frameRate < s.frameRate
-          ? c.media!.frameRate
+    for (final seg in segments) {
+      final fps = seg.clip!.media!.frameRate < s.frameRate
+          ? seg.clip!.media!.frameRate
           : s.frameRate;
-      frames += (c.durationUs * fps / 1000000).round();
-      durationUs += c.durationUs;
+      frames += (seg.timelineUs * fps / 1000000).round();
+      durationUs += seg.timelineUs;
     }
     await _channel.invokeMethod('startExport', {
-      'segments': [for (final c in clips) PreviewSegment.of(c).toMap()],
+      'segments': [for (final seg in segments) seg.toMap()],
+      'dips': [
+        for (final d in dipsOf(project))
+          {'startUs': d.startUs, 'durationUs': d.durationUs},
+      ],
       'texts': textLayersFor(project, request.textImages),
       'audioTracks': [
         for (final t in project.audioTracks)

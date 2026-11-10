@@ -884,6 +884,182 @@ void main() {
         );
       });
 
+      test(
+        'transitions overlap clips, blend, and keep sound in step',
+        () async {
+          Future<String> solid(
+            String name,
+            String color, {
+            int tone = 440,
+          }) async {
+            final path = '${dir.path}/$name.mp4';
+            await _run([
+              '-f',
+              'lavfi',
+              '-i',
+              'color=c=$color:s=640x360:r=30:d=2',
+              '-f',
+              'lavfi',
+              '-i',
+              'sine=f=$tone:d=2:r=48000',
+              '-pix_fmt',
+              'yuv420p',
+              '-c:v',
+              'libx264',
+              '-preset',
+              'ultrafast',
+              '-color_primaries',
+              'bt709',
+              '-color_trc',
+              'bt709',
+              '-colorspace',
+              'bt709',
+              '-c:a',
+              'aac',
+              '-shortest',
+              path,
+            ]);
+            return path;
+          }
+
+          final red = await solid('red', 'red');
+          final blue = await solid('blue', 'blue', tone: 880);
+          final ri = await _probe(red), bi = await _probe(blue);
+
+          Future<(String, ExportVerification)> run(
+            TransitionKind kind,
+            String name,
+          ) async {
+            var project = Project.empty(
+              id: 't',
+              frameRate: 30,
+            ).insertMedia([clipFor(red, ri), clipFor(blue, bi)]);
+            project = project.setTransition(
+              0,
+              TransitionSpec(kind, durationUs: 1000000),
+            );
+            expect(project.durationUs, 3000000); // 2 s + 2 s - 1 s overlap
+            final out = '${dir.path}/$name.mp4';
+            final plan = buildExportPlan(
+              project: project,
+              settings: const ExportSettings(resolution: ExportResolution.p720)
+                  .copyWith(
+                    dynamicRange: DynamicRange.sdr,
+                    codec: VideoCodec.h264,
+                    frameRate: 30,
+                  ),
+              encoder: VideoEncoder.h264Candidates.firstWhere(
+                (e) => e.name == 'libx264',
+              ),
+              outputPath: out,
+            );
+            final r = await Process.run('ffmpeg', plan.args);
+            expect(r.exitCode, 0, reason: '${r.stderr}');
+            final v = await Process.run('ffprobe', verifyArgs(out));
+            return (
+              out,
+              parseVerification(
+                '${v.stdout}',
+                plan.expectedFrames,
+                plan.durationUs,
+              ),
+            );
+          }
+
+          Future<List<double>> rgbAt(String path, double t) async {
+            final r = await Process.run('ffmpeg', [
+              '-hide_banner',
+              '-v',
+              'error',
+              '-ss',
+              '$t',
+              '-i',
+              path,
+              '-frames:v',
+              '1',
+              '-vf',
+              'scale=1:1,format=rgb24',
+              '-f',
+              'rawvideo',
+              '-',
+            ], stdoutEncoding: null);
+            return [
+              for (final b in (r.stdout as List<int>).take(3)) b.toDouble(),
+            ];
+          }
+
+          final (fade, check) = await run(TransitionKind.fade, 'tr_fade');
+          expect(check.actualFrames, 90);
+          expect(check.ok, isTrue);
+          final start = await rgbAt(fade, 0.3);
+          final middle = await rgbAt(fade, 1.5);
+          final end = await rgbAt(fade, 2.7);
+          expect(start[0], greaterThan(200)); // red
+          expect(end[2], greaterThan(200)); // blue
+          expect(middle[0], inInclusiveRange(70, 190)); // a mix of both
+          expect(middle[2], inInclusiveRange(70, 190));
+
+          // Sound lasts exactly as long as the picture.
+          final a = await Process.run('ffprobe', [
+            '-v',
+            'error',
+            '-select_streams',
+            'a:0',
+            '-show_entries',
+            'stream=duration',
+            '-of',
+            'csv=p=0',
+            fade,
+          ]);
+          expect(double.parse('${a.stdout}'.trim()), closeTo(3.0, 0.03));
+
+          final (black, _) = await run(TransitionKind.fadeBlack, 'tr_black');
+          final dip = await rgbAt(black, 1.5);
+          expect(
+            dip.reduce((x, y) => x + y),
+            lessThan(40),
+          ); // black in the middle
+
+          // The preview copy of a transition: last 2d of A + first 2d of B.
+          final both = Project.empty(id: 't', frameRate: 30)
+              .insertMedia([clipFor(red, ri), clipFor(blue, bi)])
+              .setTransition(
+                0,
+                const TransitionSpec(
+                  TransitionKind.slideLeft,
+                  durationUs: 500000,
+                ),
+              );
+          final mini = both.transitionPreviewProject(0)!;
+          final miniOut = '${dir.path}/tr_preview.mp4';
+          final miniPlan = buildExportPlan(
+            project: mini,
+            settings: const ExportSettings(resolution: ExportResolution.p720)
+                .copyWith(
+                  dynamicRange: DynamicRange.sdr,
+                  codec: VideoCodec.h264,
+                  frameRate: 30,
+                ),
+            encoder: VideoEncoder.h264Candidates.firstWhere(
+              (e) => e.name == 'libx264',
+            ),
+            outputPath: miniOut,
+          );
+          final mr = await Process.run('ffmpeg', miniPlan.args);
+          expect(mr.exitCode, 0, reason: '${mr.stderr}');
+          expect(miniPlan.expectedFrames, 45); // 1.5 s at 30 fps
+
+          for (final k in [
+            TransitionKind.slideLeft,
+            TransitionKind.slideUp,
+            TransitionKind.zoom,
+          ]) {
+            final (_, c) = await run(k, 'tr_${k.name}');
+            expect(c.actualFrames, 90, reason: k.name);
+          }
+        },
+      );
+
       test('typewriter picture list', () {
         const spec = TextSpec(
           text: 'abc',

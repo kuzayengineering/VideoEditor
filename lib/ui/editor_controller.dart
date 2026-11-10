@@ -71,10 +71,21 @@ class EditorController extends ChangeNotifier {
 
   List<PreviewSegment> _previewSegments = const [];
 
+  /// Pre-rendered transitions for the preview, by [Project.transitionKey].
+  final Map<String, String> transitionFiles = {};
+
+  /// A pre-rendered transition finished: play it in the preview.
+  void addTransitionFile(String key, String path) {
+    if (transitionFiles[key] == path) return;
+    transitionFiles[key] = path;
+    _syncPreviewTimeline();
+    notifyListeners();
+  }
+
   void _syncPreviewTimeline() {
     final p = _preview;
     if (p == null) return;
-    final segments = segmentsOf(project);
+    final segments = segmentsOf(project, transitionFiles: transitionFiles);
     if (listEquals(segments, _previewSegments)) return;
     _previewSegments = segments;
     final canvas = project.canvas;
@@ -352,6 +363,19 @@ class EditorController extends ChangeNotifier {
     if (identical(next, project)) return;
     history.replaceCurrent(next);
     _afterChange();
+  }
+
+  /// Sets (or removes) the transition after main clip [index].
+  void setTransition(int index, TransitionSpec? spec) =>
+      _apply(project.setTransition(index, spec));
+
+  /// The same transition between every pair of clips.
+  void setAllTransitions(TransitionSpec? spec) {
+    var p = project;
+    for (var i = 0; i + 1 < p.mainTrack.clips.length; i++) {
+      p = p.setTransition(i, spec);
+    }
+    _apply(p);
   }
 
   void setBackground(BackgroundFill fill) =>

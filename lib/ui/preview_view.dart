@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../engine/media_engine.dart';
 import '../model/project.dart';
 import 'editor_controller.dart';
 import 'text_overlay_view.dart';
@@ -35,11 +36,35 @@ class PreviewView extends StatelessWidget {
       listenable: Listenable.merge([controller, thumbnails]),
       builder: (context, _) {
         final project = controller.project;
-        final current =
-            project.mainClipAt(controller.playheadUs) ??
+        final t = controller.playheadUs;
+        var current =
+            project.mainClipAt(t) ??
             (project.mainTrack.clips.isEmpty
                 ? null
                 : project.placementsOn(project.mainTrack).last);
+        // During a transition: a pre-rendered one already has the looks and
+        // bars baked in; otherwise the outgoing clip shows until halfway.
+        final tr = project.transitionAt(t);
+        final renderedTransition =
+            tr != null &&
+            controller.transitionFiles.containsKey(
+              project.transitionKey(tr.index),
+            );
+        if (tr != null &&
+            !renderedTransition &&
+            t < tr.startUs + tr.durationUs ~/ 2) {
+          current = project.placementsOn(project.mainTrack)[tr.index];
+        }
+        // Fade-through-black stand-in (and Android's real transition).
+        var dip = 0.0;
+        for (final d in dipsOf(
+          project,
+          transitionFiles: controller.transitionFiles,
+        )) {
+          if (t >= d.startUs && t < d.startUs + d.durationUs) {
+            dip = 1 - ((t - d.startUs) / d.durationUs * 2 - 1).abs();
+          }
+        }
         final Widget content;
         if (player != null && project.hasMedia) {
           if (controller.previewDrawsEffects) {
@@ -48,9 +73,10 @@ class PreviewView extends StatelessWidget {
           } else {
             content = _LookPreview(
               project: project,
-              placement: current,
+              placement: renderedTransition ? null : current,
               player: player!,
               thumbnails: thumbnails,
+              plainCanvas: renderedTransition,
             );
           }
         } else {
@@ -89,6 +115,14 @@ class PreviewView extends StatelessWidget {
                   fit: StackFit.expand,
                   children: [
                     content,
+                    if (dip > 0.001)
+                      IgnorePointer(
+                        child: ColoredBox(
+                          color: Colors.black.withValues(
+                            alpha: dip.clamp(0.0, 1.0),
+                          ),
+                        ),
+                      ),
                     TextOverlayView(
                       controller: controller,
                       onEditText: onEditText ?? (_) {},
@@ -114,7 +148,11 @@ class _LookPreview extends StatelessWidget {
     required this.placement,
     required this.player,
     required this.thumbnails,
+    this.plainCanvas = false,
   });
+
+  /// The player shows a finished frame (bars and all): fill the canvas.
+  final bool plainCanvas;
 
   final Project project;
   final ClipPlacement? placement;
@@ -124,7 +162,12 @@ class _LookPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final clip = placement?.clip;
-    final display = clip?.displaySize ?? (width: 16.0, height: 9.0);
+    final display = plainCanvas || clip == null
+        ? (
+            width: project.canvas.width.toDouble(),
+            height: project.canvas.height.toDouble(),
+          )
+        : clip.displaySize;
     final crop = clip?.crop ?? CropRect.full;
     final bg = project.background;
 
