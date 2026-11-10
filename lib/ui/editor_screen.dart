@@ -19,6 +19,8 @@ import 'import_media.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
 import 'reverse_jobs.dart';
+import 'text_render.dart';
+import 'text_sheet.dart';
 import 'thumbnail_cache.dart';
 import 'timeline_view.dart';
 import 'tools.dart';
@@ -129,6 +131,28 @@ class _EditorScreenState extends State<EditorScreen>
     _toast(
       clips.length == 1 ? 'Added 1 video' : 'Added ${clips.length} videos',
     );
+  }
+
+  /// Adds a text at the playhead (3 seconds, or to the end of the video)
+  /// and opens the text editor.
+  void _addText() {
+    c.pause();
+    final start =
+        c.playheadUs >= c.project.durationUs && c.project.durationUs > 0
+        ? 0
+        : c.playheadUs;
+    final room = c.project.durationUs - start;
+    final length = room >= 1000000 ? room.clamp(1000000, 3000000) : 3000000;
+    final project = c.project.addText(
+      Clip.text(const TextSpec(), startUs: start, durationUs: length),
+    );
+    c.apply(project);
+    final id = c.project.textTracks
+        .expand((t) => t.clips)
+        .reduce((a, b) => a.id > b.id ? a : b)
+        .id;
+    c.select(id);
+    showTextSheet(context, c, id);
   }
 
   Future<void> _reorder(int clipId) async {
@@ -310,11 +334,25 @@ class _EditorScreenState extends State<EditorScreen>
       return;
     }
     try {
+      // Draw the texts at the export size (the same drawing as the preview).
+      final dims = c.exportSettings.dimensionsFor(c.project.canvas);
+      final textDir = Directory(
+        '${Directory.systemTemp.path}/video_editor_texts_${c.project.id}',
+      );
+      if (await textDir.exists()) await textDir.delete(recursive: true);
+      final textImages = await renderTextImages(
+        c.project,
+        dims.width,
+        dims.height,
+        textDir,
+      );
+      if (!mounted) return;
       final job = await _engine.startExport(
         ExportRequest(
           project: c.project,
           settings: c.exportSettings,
           fileName: _exportFileName(c.project.name),
+          textImages: textImages,
         ),
       );
       if (mounted) _showProgress(job);
@@ -450,7 +488,7 @@ class _EditorScreenState extends State<EditorScreen>
               ? () => showVoiceOverSheet(context, c, _engine)
               : null,
         ),
-        const EditorTool('Text', Icons.text_fields, stage: 4),
+        EditorTool('Text', Icons.text_fields, stage: 4, onTap: _addText),
         const EditorTool(
           'PiP',
           Icons.picture_in_picture_alt_outlined,
@@ -500,6 +538,35 @@ class _EditorScreenState extends State<EditorScreen>
       ),
       const EditorTool('Pitch', Icons.multitrack_audio, stage: 6),
     ];
+    if (sel.clip.kind == ClipKind.text) {
+      return [
+        EditorTool(
+          'Edit',
+          Icons.edit_outlined,
+          stage: 4,
+          onTap: () => showTextSheet(context, c, sel.clip.id),
+        ),
+        EditorTool(
+          'Animation',
+          Icons.animation,
+          stage: 4,
+          onTap: () => showTextSheet(context, c, sel.clip.id, initialTab: 3),
+        ),
+        split,
+        EditorTool(
+          'Copy',
+          Icons.copy_outlined,
+          stage: 0,
+          onTap: c.duplicateSelected,
+        ),
+        EditorTool(
+          'Delete',
+          Icons.delete_outline,
+          stage: 0,
+          onTap: c.deleteSelected,
+        ),
+      ];
+    }
     if (sel.clip.kind == ClipKind.audio) {
       return [
         ...common,
@@ -630,6 +697,7 @@ class _EditorScreenState extends State<EditorScreen>
                         controller: c,
                         player: _previewWidget,
                         thumbnails: _thumbs,
+                        onEditText: (id) => showTextSheet(context, c, id),
                       ),
                     ),
                     _TransportBar(controller: c),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../model/project.dart';
 import 'editor_controller.dart';
+import 'text_overlay_view.dart';
 import 'thumbnail_cache.dart';
 
 /// The video preview area: the chosen canvas shape, with the video (or, in
@@ -14,7 +15,11 @@ class PreviewView extends StatelessWidget {
     required this.controller,
     this.player,
     this.thumbnails,
+    this.onEditText,
   });
+
+  /// Opens the text editor (double-tapping a text in the preview).
+  final void Function(int clipId)? onEditText;
 
   final EditorController controller;
 
@@ -79,7 +84,18 @@ class PreviewView extends StatelessWidget {
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.white12),
               ),
-              child: ClipRect(child: content),
+              child: ClipRect(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    content,
+                    TextOverlayView(
+                      controller: controller,
+                      onEditText: onEditText ?? (_) {},
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         );

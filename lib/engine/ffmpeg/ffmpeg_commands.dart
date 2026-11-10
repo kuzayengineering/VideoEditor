@@ -429,14 +429,159 @@ List<String> lookFilters(Clip c) {
   return f;
 }
 
+// -----------------------------------------------------------------------------
+// Text overlays
+//
+// These mirror textFrameAt() in lib/model/text_spec.dart exactly, written as
+// FFmpeg formulas, so the export animates like the preview.
+// -----------------------------------------------------------------------------
+
+String _f(double v) => v.toStringAsFixed(6);
+
+/// Lengths of the arrive / leave animations (each at most half the text).
+({double inSec, double outSec}) _animLengths(TextSpec s, double d) => (
+  inSec: s.animIn == TextAnim.none
+      ? 0
+      : math.min(s.animInUs / usPerSecond, d / 2),
+  outSec: s.animOut == TextAnim.none
+      ? 0
+      : math.min(s.animOutUs / usPerSecond, d / 2),
+);
+
+/// The pictures to show and for how long: the whole text, or for typewriter
+/// animations one picture per letter count.
+String textPictureList(TextSpec s, TextImages images, double d) {
+  final l = _animLengths(s, d);
+  final n = images.typewriterPaths.length - 1;
+  final entries = <(String, double)>[];
+  var middle = d;
+  if (s.animIn == TextAnim.typewriter && n > 0 && l.inSec > 0) {
+    for (var k = 1; k <= n; k++) {
+      entries.add((images.typewriterPaths[k], l.inSec / n));
+    }
+    middle -= l.inSec;
+  }
+  final outEntries = <(String, double)>[];
+  if (s.animOut == TextAnim.typewriter && n > 0 && l.outSec > 0) {
+    for (var k = n; k >= 1; k--) {
+      outEntries.add((images.typewriterPaths[k], l.outSec / n));
+    }
+    middle -= l.outSec;
+  }
+  if (middle > 0.0005) entries.add((images.fullPath, middle));
+  entries.addAll(outEntries);
+  String q(String p) => p.replaceAll("'", r"'\''");
+  final b = StringBuffer('ffconcat version 1.0\n');
+  for (final (path, dur) in entries) {
+    b.writeln("file '${q(path)}'");
+    b.writeln('duration ${_f(dur)}');
+  }
+  // The last picture is listed again so its duration counts.
+  b.writeln("file '${q(entries.last.$1)}'");
+  return b.toString();
+}
+
+const _alphaAnims = {
+  TextAnim.fade,
+  TextAnim.slideUp,
+  TextAnim.slideDown,
+  TextAnim.slideLeft,
+  TextAnim.slideRight,
+  TextAnim.pop,
+};
+
+/// Ease-out curve E(p) = 1 - (1 - p)^3 as an FFmpeg formula.
+String _ease(String p) => '(1-pow(1-clip($p,0,1),3))';
+
+/// Fades, pop scaling and colour conversion for one text (local time).
+String textOverlayChain(TextSpec s, double d, String fps, DynamicRange range) {
+  final l = _animLengths(s, d);
+  final parts = <String>['fps=$fps', 'format=rgba'];
+  if (_alphaAnims.contains(s.animIn) && l.inSec > 0) {
+    parts.add('fade=t=in:st=0:d=${_f(l.inSec)}:alpha=1');
+  }
+  if (_alphaAnims.contains(s.animOut) && l.outSec > 0) {
+    parts.add('fade=t=out:st=${_f(d - l.outSec)}:d=${_f(l.outSec)}:alpha=1');
+  }
+  final scales = <String>[
+    if (s.animIn == TextAnim.pop && l.inSec > 0)
+      '(0.5+0.5*${_ease('t/${_f(l.inSec)}')})',
+    if (s.animOut == TextAnim.pop && l.outSec > 0)
+      '(0.5+0.5*${_ease('(${_f(d)}-t)/${_f(l.outSec)}')})',
+  ];
+  if (scales.isNotEmpty) {
+    final k = scales.join('*');
+    parts.add(
+      "scale=w='max(2,trunc(iw*$k/2)*2)':h='max(2,trunc(ih*$k/2)*2)':eval=frame",
+    );
+  }
+  // Text is drawn in ordinary (SDR) colours; convert it so white text sits at
+  // the HDR "reference white" instead of glaring at full brightness.
+  final target = switch (range) {
+    DynamicRange.hlg => 't=arib-std-b67:p=2020:m=2020_ncl:npl=203',
+    DynamicRange.hdr10 => 't=smpte2084:p=2020:m=2020_ncl:npl=203',
+    DynamicRange.sdr => 't=709:p=709:m=709',
+  };
+  parts.addAll([
+    'format=gbrap',
+    'zscale=tin=iec61966-2-1:pin=709:min=gbr:$target:r=tv',
+    'format=${range.isHdr ? 'yuva420p10le' : 'yuva420p'}',
+  ]);
+  return parts.join(',');
+}
+
+/// Where the text's top-left corner goes, as overlay formulas (t is the
+/// timeline time; w/h the text picture's current size).
+({String x, String y}) textPositionExprs(
+  TextSpec s,
+  double startSec,
+  double d,
+  int frameW,
+  int frameH,
+) {
+  final l = _animLengths(s, d);
+  final pin = '(t-${_f(startSec)})/${_f(math.max(l.inSec, 1e-6))}';
+  final pout = '(${_f(startSec + d)}-t)/${_f(math.max(l.outSec, 1e-6))}';
+  // Each term: (+1 or -1, formula); written out with explicit signs.
+  final dx = <(int, String)>[], dy = <(int, String)>[];
+  void slide(TextAnim a, String p, int leaving) {
+    final amount = '(1-${_ease(p)})';
+    switch (a) {
+      case TextAnim.slideUp:
+        dy.add((leaving, '$amount*${_f(slideDistance * frameH)}'));
+      case TextAnim.slideDown:
+        dy.add((-leaving, '$amount*${_f(slideDistance * frameH)}'));
+      case TextAnim.slideLeft:
+        dx.add((leaving, '$amount*${_f(slideDistance * frameW)}'));
+      case TextAnim.slideRight:
+        dx.add((-leaving, '$amount*${_f(slideDistance * frameW)}'));
+      default:
+        break;
+    }
+  }
+
+  if (l.inSec > 0) slide(s.animIn, pin, 1);
+  if (l.outSec > 0) slide(s.animOut, pout, -1);
+  String sum(List<(int, String)> xs) =>
+      xs.map((t) => '${t.$1 > 0 ? '+' : '-'}${t.$2}').join();
+  return (
+    x: '${_f(s.x * frameW)}${sum(dx)}-w/2',
+    y: '${_f(s.y * frameH)}${sum(dy)}-h/2',
+  );
+}
+
 class FfmpegExportPlan {
   const FfmpegExportPlan({
     required this.args,
     required this.expectedFrames,
     required this.durationUs,
+    this.sideFiles = const {},
   });
 
   final List<String> args;
+
+  /// Small text files (lists of pictures) to write before running.
+  final Map<String, String> sideFiles;
   final int expectedFrames;
   final int durationUs;
 }
@@ -455,6 +600,8 @@ FfmpegExportPlan buildExportPlan({
   required ExportSettings settings,
   required VideoEncoder encoder,
   required String outputPath,
+  Map<int, TextImages> textImages = const {},
+  String? workDir,
 }) {
   final clips = [
     for (final c in project.mainTrack.clips)
@@ -667,6 +814,41 @@ FfmpegExportPlan buildExportPlan({
     );
   }
 
+  // Text overlays, drawn on top of the finished picture.
+  final sideFiles = <String, String>{};
+  var videoLabel = 'vout';
+  final textWork = workDir ?? '.';
+  var textNo = 0;
+  for (final track in project.textTracks) {
+    for (final c in track.clips) {
+      final spec = c.text;
+      final images = textImages[c.id];
+      if (spec == null || images == null) continue;
+      final startSec = c.startUs / usPerSecond;
+      if (startSec >= videoSeconds) continue;
+      final d = math.min(c.durationUs / usPerSecond, videoSeconds - startSec);
+      final listPath = '$textWork/text_${c.id}.ffconcat';
+      sideFiles[listPath] = textPictureList(spec, images, d);
+      inputs.addAll(['-f', 'concat', '-safe', '0', '-i', listPath]);
+      final j = inputIndex++;
+      filters.add(
+        '[$j:v]${textOverlayChain(spec, d, fpsText, range)},'
+        'setpts=PTS-STARTPTS+${startSec.toStringAsFixed(6)}/TB[tx$j]',
+      );
+      final pos = textPositionExprs(spec, startSec, d, w, h);
+      final next = 'vt${textNo++}';
+      filters.add(
+        '[$videoLabel][tx$j]overlay=x=\'${pos.x}\':y=\'${pos.y}\':'
+        'eval=frame:eof_action=pass[$next]',
+      );
+      videoLabel = next;
+    }
+  }
+  if (videoLabel != 'vout') {
+    filters.add('[$videoLabel]format=$pixFmt[vfinal]');
+    videoLabel = 'vfinal';
+  }
+
   final tags = colorTags(range);
   final args = [
     '-hide_banner',
@@ -678,7 +860,7 @@ FfmpegExportPlan buildExportPlan({
     '-filter_complex',
     filters.join(';'),
     '-map',
-    '[vout]',
+    '[$videoLabel]',
     '-map',
     '[aout]',
     ...encoder.args(
@@ -713,6 +895,7 @@ FfmpegExportPlan buildExportPlan({
     args: args,
     expectedFrames: totalFrames,
     durationUs: (totalFrames * usPerSecond / fps).round(),
+    sideFiles: sideFiles,
   );
 }
 

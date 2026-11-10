@@ -666,6 +666,252 @@ void main() {
         expect(await rmsDb('${dir.path}/muted.mp4', 0.5, 1), lessThan(-60));
       });
 
+      test('text overlays: timing, fade, position, HDR white', () async {
+        // A plain dark video and a white 200x100 "text" picture.
+        final dark = '${dir.path}/dark.mp4';
+        await _run([
+          '-f',
+          'lavfi',
+          '-i',
+          'color=c=0x101010:s=1280x720:r=30:d=4',
+          '-pix_fmt',
+          'yuv420p',
+          '-c:v',
+          'libx264',
+          '-preset',
+          'ultrafast',
+          '-color_primaries',
+          'bt709',
+          '-color_trc',
+          'bt709',
+          '-colorspace',
+          'bt709',
+          dark,
+        ]);
+        final png = '${dir.path}/text.png';
+        await _run([
+          '-f',
+          'lavfi',
+          '-i',
+          'color=c=white:s=200x100,format=rgba',
+          '-frames:v',
+          '1',
+          png,
+        ]);
+        final info = await _probe(dark);
+        const spec = TextSpec(
+          text: 'Hi',
+          x: 0.25,
+          y: 0.5,
+          animIn: TextAnim.fade,
+          animInUs: 1000000,
+          animOut: TextAnim.none,
+        );
+        final project = Project.empty(id: 't')
+            .insertMedia([clipFor(dark, info)])
+            .addText(Clip.text(spec, startUs: 1000000, durationUs: 2000000));
+        final textId = project.textTracks.single.clips.single.id;
+        final images = {
+          textId: TextImages(fullPath: png, width: 200, height: 100),
+        };
+
+        Future<double> lumaAt(String video, double t) async {
+          // The text should be centred at (320, 360): sample its middle.
+          final r = await Process.run('ffmpeg', [
+            '-hide_banner',
+            '-v',
+            'error',
+            '-ss',
+            '$t',
+            '-i',
+            video,
+            '-vf',
+            'crop=80:40:280:340,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-',
+            '-frames:v',
+            '1',
+            '-f',
+            'null',
+            '-',
+          ]);
+          return double.parse(
+            RegExp(r'YAVG=([0-9.]+)').firstMatch('${r.stdout}')!.group(1)!,
+          );
+        }
+
+        Future<String> export(ExportSettings settings, String name) async {
+          final out = '${dir.path}/$name.mp4';
+          final plan = buildExportPlan(
+            project: project,
+            settings: settings,
+            encoder:
+                [
+                  ...VideoEncoder.hevcCandidates,
+                  ...VideoEncoder.h264Candidates,
+                ].firstWhere(
+                  (e) =>
+                      e.name ==
+                      (settings.dynamicRange.isHdr ? 'libx265' : 'libx264'),
+                ),
+            outputPath: out,
+            textImages: images,
+            workDir: dir.path,
+          );
+          for (final f in plan.sideFiles.entries) {
+            await File(f.key).writeAsString(f.value);
+          }
+          final r = await Process.run('ffmpeg', plan.args);
+          expect(r.exitCode, 0, reason: '${r.stderr}');
+          final v = await Process.run('ffprobe', verifyArgs(out));
+          expect(
+            parseVerification(
+              '${v.stdout}',
+              plan.expectedFrames,
+              plan.durationUs,
+            ).ok,
+            isTrue,
+          );
+          return out;
+        }
+
+        final sdr = await export(
+          const ExportSettings(resolution: ExportResolution.p720).copyWith(
+            dynamicRange: DynamicRange.sdr,
+            codec: VideoCodec.h264,
+            frameRate: 30,
+          ),
+          'text_sdr',
+        );
+        final before = await lumaAt(sdr, 0.5);
+        final fadingIn = await lumaAt(sdr, 1.5);
+        final full = await lumaAt(sdr, 2.5);
+        final after = await lumaAt(sdr, 3.5);
+        expect(before, lessThan(40)); // not there yet
+        expect(full, greaterThan(225)); // solid white text
+        expect(
+          fadingIn,
+          inInclusiveRange(before + 40, full - 40),
+        ); // half faded
+        expect(after, lessThan(40)); // gone after 3 s
+
+        final hlg = await export(
+          const ExportSettings(
+            resolution: ExportResolution.p720,
+            frameRate: 30,
+          ),
+          'text_hlg',
+        );
+        // White text sits at HDR reference white (~721 of 1023), not 940.
+        expect(await lumaAt(hlg, 2.5), closeTo(721, 12));
+      });
+
+      test('slide, pop and typewriter animations export', () async {
+        final dark = '${dir.path}/dark2.mp4';
+        await _run([
+          '-f',
+          'lavfi',
+          '-i',
+          'color=c=black:s=640x360:r=30:d=3',
+          '-pix_fmt',
+          'yuv420p',
+          '-c:v',
+          'libx264',
+          '-preset',
+          'ultrafast',
+          dark,
+        ]);
+        final png = '${dir.path}/t2.png';
+        await _run([
+          '-f',
+          'lavfi',
+          '-i',
+          'color=c=yellow:s=120x40,format=rgba',
+          '-frames:v',
+          '1',
+          png,
+        ]);
+        final info = await _probe(dark);
+        var project = Project.empty(id: 't').insertMedia([clipFor(dark, info)]);
+        final images = <int, TextImages>{};
+        for (final (anIn, anOut) in [
+          (TextAnim.slideLeft, TextAnim.pop),
+          (TextAnim.pop, TextAnim.slideDown),
+          (TextAnim.typewriter, TextAnim.typewriter),
+        ]) {
+          project = project.addText(
+            Clip.text(
+              TextSpec(text: 'ab', animIn: anIn, animOut: anOut),
+              startUs: 200000,
+              durationUs: 2000000,
+            ),
+          );
+          final id = project.textTracks.expand((t) => t.clips).last.id;
+          images[id] = TextImages(
+            fullPath: png,
+            width: 120,
+            height: 40,
+            typewriterPaths: [png, png, png],
+          );
+        }
+        final out = '${dir.path}/anim.mp4';
+        final plan = buildExportPlan(
+          project: project,
+          settings: const ExportSettings(resolution: ExportResolution.p720)
+              .copyWith(
+                dynamicRange: DynamicRange.sdr,
+                codec: VideoCodec.h264,
+                frameRate: 30,
+              ),
+          encoder: VideoEncoder.h264Candidates.firstWhere(
+            (e) => e.name == 'libx264',
+          ),
+          outputPath: out,
+          textImages: images,
+          workDir: dir.path,
+        );
+        for (final f in plan.sideFiles.entries) {
+          await File(f.key).writeAsString(f.value);
+        }
+        final r = await Process.run('ffmpeg', plan.args);
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+        final v = await Process.run('ffprobe', verifyArgs(out));
+        expect(
+          parseVerification(
+            '${v.stdout}',
+            plan.expectedFrames,
+            plan.durationUs,
+          ).actualFrames,
+          90,
+        );
+      });
+
+      test('typewriter picture list', () {
+        const spec = TextSpec(
+          text: 'abc',
+          animIn: TextAnim.typewriter,
+          animInUs: 600000,
+          animOut: TextAnim.none,
+        );
+        const images = TextImages(
+          fullPath: '/f.png',
+          width: 10,
+          height: 10,
+          typewriterPaths: ['/0.png', '/1.png', '/2.png', '/3.png'],
+        );
+        final list = textPictureList(spec, images, 2.0);
+        expect(list.trim().split('\n'), [
+          'ffconcat version 1.0',
+          "file '/1.png'",
+          'duration 0.200000',
+          "file '/2.png'",
+          'duration 0.200000',
+          "file '/3.png'",
+          'duration 0.200000',
+          "file '/f.png'",
+          'duration 1.400000',
+          "file '/f.png'",
+        ]);
+      });
+
       test('thumbnail of an HDR clip', () async {
         final info = await _probe(hlg);
         final out = '${dir.path}/thumb.jpg';

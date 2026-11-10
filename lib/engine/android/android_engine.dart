@@ -192,6 +192,7 @@ class AndroidMediaEngine implements MediaEngine {
     }
     await _channel.invokeMethod('startExport', {
       'segments': [for (final c in clips) PreviewSegment.of(c).toMap()],
+      'texts': textLayersFor(project, request.textImages),
       'audioTracks': [
         for (final t in project.audioTracks)
           [

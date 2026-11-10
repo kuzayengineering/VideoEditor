@@ -324,12 +324,20 @@ class FfmpegEngine implements MediaEngine {
     final folder = Directory(describeFolder(settings.outputFolder));
     await folder.create(recursive: true);
     final output = await _uniquePath(folder, request.fileName);
+    final work = await Directory(
+      '${(await getApplicationCacheDirectory()).path}/export_work',
+    ).create(recursive: true);
     final plan = buildExportPlan(
       project: request.project,
       settings: settings,
       encoder: encoder,
       outputPath: output,
+      textImages: request.textImages,
+      workDir: work.path,
     );
+    for (final f in plan.sideFiles.entries) {
+      await File(f.key).writeAsString(f.value);
+    }
     final job = FfmpegExportJob._(this, plan, output, encoder);
     _running = job;
     await job._start();

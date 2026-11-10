@@ -36,6 +36,7 @@ import java.util.concurrent.Executors
 data class ExportRequest(
     val segments: List<Segment>,
     val audioTracks: List<List<Segment>>,
+    val texts: List<TextLayer>,
     val width: Int,
     val height: Int,
     val frameRate: Double,
@@ -52,6 +53,8 @@ data class ExportRequest(
             segments = @Suppress("UNCHECKED_CAST") Segment.listFrom(m["segments"] as List<Map<String, Any?>>),
             audioTracks = @Suppress("UNCHECKED_CAST") (m["audioTracks"] as List<List<Map<String, Any?>>>?)
                 ?.map { Segment.listFrom(it) } ?: emptyList(),
+            texts = @Suppress("UNCHECKED_CAST") (m["texts"] as List<Map<String, Any?>>?)
+                ?.map { TextLayer.from(it) } ?: emptyList(),
             width = (m["width"] as Number).toInt(),
             height = (m["height"] as Number).toInt(),
             frameRate = (m["frameRate"] as Number).toDouble(),
@@ -134,6 +137,7 @@ object ExportManager {
                 Math.round(req.frameRate).toInt(), hdrMode,
                 audioTracks = req.audioTracks,
                 withGain = true,
+                texts = req.texts,
             )
 
             val encoders = DefaultEncoderFactory.Builder(ctx)

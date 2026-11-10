@@ -109,6 +109,9 @@ enum TrackKind {
 
   /// An audio track. Clips can be placed anywhere, with gaps between them.
   audio,
+
+  /// A text track: titles and captions, placed freely like audio.
+  text,
 }
 
 class Track {
@@ -169,6 +172,7 @@ class Project {
     required this.nextId,
     this.audioTracks = const [],
     this.background = BackgroundFill.black,
+    this.textTracks = const [],
   });
 
   /// Creates an empty project.
@@ -204,7 +208,10 @@ class Project {
   /// What fills the canvas around (and behind) the video.
   final BackgroundFill background;
 
-  List<Track> get tracks => [mainTrack, ...audioTracks];
+  /// Text overlays. Later tracks draw on top of earlier ones.
+  final List<Track> textTracks;
+
+  List<Track> get tracks => [mainTrack, ...audioTracks, ...textTracks];
 
   /// The shortest a clip is allowed to be: one frame.
   int get minClipUs => frameDurationUs(frameRate);
@@ -269,6 +276,7 @@ class Project {
     List<Track>? audioTracks,
     int? nextId,
     BackgroundFill? background,
+    List<Track>? textTracks,
   }) => Project(
     id: id,
     name: name ?? this.name,
@@ -278,6 +286,7 @@ class Project {
     audioTracks: audioTracks ?? this.audioTracks,
     nextId: nextId ?? this.nextId,
     background: background ?? this.background,
+    textTracks: textTracks ?? this.textTracks,
   );
 
   Project withCanvas(CanvasRatio canvas) =>
@@ -292,6 +301,11 @@ class Project {
 
   Project _withTrack(Track track) {
     if (track.id == mainTrack.id) return copyWith(mainTrack: track);
+    if (track.kind == TrackKind.text) {
+      return copyWith(
+        textTracks: [for (final t in textTracks) t.id == track.id ? track : t],
+      );
+    }
     return copyWith(
       audioTracks: [for (final t in audioTracks) t.id == track.id ? track : t],
     );
@@ -350,11 +364,27 @@ class Project {
     var project = this;
     final placed = clip.copyWith(id: project.nextId);
     project = project.copyWith(nextId: project.nextId + 1);
-    return project._placeOnFreeAudioTrack(placed);
+    return project._placeOnFreeTrack(placed);
   }
 
-  Project _placeOnFreeAudioTrack(Clip clip) {
-    for (final track in audioTracks) {
+  /// Adds a text clip at its [Clip.startUs], on the first text track with
+  /// room (a new track is created if needed).
+  Project addText(Clip clip) {
+    final placed = clip.copyWith(id: nextId);
+    return copyWith(nextId: nextId + 1)._placeOnFreeTrack(placed);
+  }
+
+  /// All text clips showing at [timeUs], bottom layer first.
+  List<ClipPlacement> textsAt(int timeUs) => [
+    for (final t in textTracks)
+      for (final p in placementsOn(t))
+        if (p.contains(timeUs)) p,
+  ];
+
+  Project _placeOnFreeTrack(Clip clip) {
+    final kind = clip.kind == ClipKind.text ? TrackKind.text : TrackKind.audio;
+    final existing = kind == TrackKind.text ? textTracks : audioTracks;
+    for (final track in existing) {
       final fits = track.clips.every(
         (c) => clip.endUs <= c.startUs || clip.startUs >= c.endUs,
       );
@@ -366,10 +396,12 @@ class Project {
     }
     final track = Track(
       id: nextId,
-      kind: TrackKind.audio,
+      kind: kind,
       clips: List.unmodifiable([clip]),
     );
-    return copyWith(audioTracks: [...audioTracks, track], nextId: nextId + 1);
+    return kind == TrackKind.text
+        ? copyWith(textTracks: [...textTracks, track], nextId: nextId + 1)
+        : copyWith(audioTracks: [...audioTracks, track], nextId: nextId + 1);
   }
 
   /// Cuts a clip in two at [timeUs].
@@ -406,7 +438,7 @@ class Project {
       final clips = [...p.track.clips]..insert(p.index + 1, copy);
       return _withTrack(p.track.withClips(clips)).copyWith(nextId: nextId + 1);
     }
-    return copyWith(nextId: nextId + 1)._placeOnFreeAudioTrack(copy);
+    return copyWith(nextId: nextId + 1)._placeOnFreeTrack(copy);
   }
 
   /// Removes a clip. Empty audio tracks are removed too.
@@ -418,6 +450,14 @@ class Project {
       return copyWith(
         audioTracks: [
           for (final t in audioTracks)
+            if (t.id != p.track.id) t,
+        ],
+      );
+    }
+    if (p.track.kind == TrackKind.text && clips.isEmpty) {
+      return copyWith(
+        textTracks: [
+          for (final t in textTracks)
             if (t.id != p.track.id) t,
         ],
       );
@@ -441,7 +481,7 @@ class Project {
         ? clip.sourceDurationUs - clip.sourceOutUs
         : clip.sourceInUs;
     var minDelta = -(room / clip.speed).floor();
-    if (p.track.kind == TrackKind.audio) {
+    if (p.track.kind != TrackKind.main) {
       final previousEnd = p.index > 0 ? p.track.clips[p.index - 1].endUs : 0;
       minDelta = math.max(minDelta, previousEnd - p.startUs);
     }
@@ -482,7 +522,7 @@ class Project {
         ? clip.sourceInUs
         : clip.sourceDurationUs - clip.sourceOutUs;
     var maxDelta = (room / clip.speed).floor();
-    if (p.track.kind == TrackKind.audio && p.index < p.track.clips.length - 1) {
+    if (p.track.kind != TrackKind.main && p.index < p.track.clips.length - 1) {
       maxDelta = math.min(
         maxDelta,
         p.track.clips[p.index + 1].startUs - p.endUs,
@@ -528,7 +568,7 @@ class Project {
     if (p == null) return this;
     var s = speed.clamp(Clip.minSpeed, Clip.maxSpeed);
     if ((s - p.clip.speed).abs() < 0.0001) return this;
-    if (p.track.kind == TrackKind.audio && p.index < p.track.clips.length - 1) {
+    if (p.track.kind != TrackKind.main && p.index < p.track.clips.length - 1) {
       final room = p.track.clips[p.index + 1].startUs - p.startUs;
       s = math.max(s, p.clip.sourceLengthUs / math.max(1, room));
     }
@@ -561,7 +601,7 @@ class Project {
   /// and at the start of the timeline.
   Project moveAudioClip(int clipId, int newStartUs) {
     final p = placementOf(clipId);
-    if (p == null || p.track.kind != TrackKind.audio) return this;
+    if (p == null || p.track.kind == TrackKind.main) return this;
     final prevEnd = p.index > 0 ? p.track.clips[p.index - 1].endUs : 0;
     final nextStart = p.index < p.track.clips.length - 1
         ? p.track.clips[p.index + 1].startUs
@@ -613,6 +653,7 @@ class Project {
     'mainTrack': mainTrack.toJson(),
     'audioTracks': [for (final t in audioTracks) t.toJson()],
     'background': background.toJson(),
+    'textTracks': [for (final t in textTracks) t.toJson()],
   };
 
   factory Project.fromJson(Map<String, Object?> json) {
@@ -635,6 +676,10 @@ class Project {
         (json['mainTrack'] as Map).cast<String, Object?>(),
       ),
       background: BackgroundFill.fromJson(json['background']),
+      textTracks: List.unmodifiable([
+        for (final t in json['textTracks'] as List? ?? const [])
+          Track.fromJson((t as Map).cast<String, Object?>()),
+      ]),
       audioTracks: List.unmodifiable([
         for (final t in json['audioTracks'] as List? ?? const [])
           Track.fromJson((t as Map).cast<String, Object?>()),

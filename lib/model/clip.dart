@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 
 import 'media_info.dart';
+import 'text_spec.dart';
 
 export 'media_info.dart';
+export 'text_spec.dart';
 
 /// What a clip holds.
-enum ClipKind { video, audio }
+enum ClipKind { video, audio, text }
 
 /// Part of the picture to keep, as fractions of the (rotated) frame:
 /// 0,0 is the top-left corner and 1,1 the bottom-right.
@@ -115,6 +117,7 @@ class Clip {
     this.volume = 1.0,
     this.fadeInUs = 0,
     this.fadeOutUs = 0,
+    this.text,
   });
 
   static const minSpeed = 0.25;
@@ -170,6 +173,26 @@ class Clip {
   /// 1.0 is fully visible; lower lets the background show through.
   final double opacity;
 
+  /// Text clips can be any length (up to an hour).
+  static const textSourceUs = 3600 * 1000000;
+
+  /// A new text clip.
+  factory Clip.text(
+    TextSpec spec, {
+    required int startUs,
+    int durationUs = 3000000,
+  }) => Clip(
+    id: 0,
+    kind: ClipKind.text,
+    name: spec.text,
+    sourceDurationUs: textSourceUs,
+    sourceInUs: 0,
+    sourceOutUs: durationUs,
+    startUs: startUs,
+    colorValue: 0xFF7B1FA2,
+    text: spec,
+  );
+
   /// Plays backwards.
   final bool reversed;
 
@@ -183,6 +206,9 @@ class Clip {
   /// silence at the end (timeline time).
   final int fadeInUs;
   final int fadeOutUs;
+
+  /// For text clips: what it says and how it looks.
+  final TextSpec? text;
 
   /// Length of the used part of the original file.
   int get sourceLengthUs => sourceOutUs - sourceInUs;
@@ -261,6 +287,7 @@ class Clip {
     int? fadeOutUs,
     ClipKind? kind,
     String? sourcePath,
+    TextSpec? text,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -286,6 +313,7 @@ class Clip {
       volume: volume ?? this.volume,
       fadeInUs: fadeInUs ?? this.fadeInUs,
       fadeOutUs: fadeOutUs ?? this.fadeOutUs,
+      text: text ?? this.text,
     );
   }
 
@@ -311,6 +339,7 @@ class Clip {
     if (volume != 1) 'volume': volume,
     if (fadeInUs > 0) 'fadeInUs': fadeInUs,
     if (fadeOutUs > 0) 'fadeOutUs': fadeOutUs,
+    if (text != null) 'text': text!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -347,6 +376,9 @@ class Clip {
       ),
       fadeInUs: (json['fadeInUs'] as num?)?.toInt() ?? 0,
       fadeOutUs: (json['fadeOutUs'] as num?)?.toInt() ?? 0,
+      text: json['text'] is Map
+          ? TextSpec.fromJson((json['text'] as Map).cast<String, Object?>())
+          : null,
     );
   }
 }

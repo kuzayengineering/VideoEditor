@@ -51,7 +51,8 @@ class TimelineView extends StatefulWidget {
   static double heightFor(Project project) =>
       mainTrackTop +
       mainTrackHeight +
-      project.audioTracks.length * (audioTrackHeight + trackGap) +
+      (project.audioTracks.length + project.textTracks.length) *
+          (audioTrackHeight + trackGap) +
       trackGap * 2;
 
   @override
@@ -85,7 +86,7 @@ class _TimelineViewState extends State<TimelineView> {
         TimelineView.mainTrackTop +
         TimelineView.mainTrackHeight +
         TimelineView.trackGap;
-    for (final t in project.audioTracks) {
+    for (final t in [...project.audioTracks, ...project.textTracks]) {
       lanes.add((t, y, TimelineView.audioTrackHeight));
       y += TimelineView.audioTrackHeight + TimelineView.trackGap;
     }
@@ -143,7 +144,7 @@ class _TimelineViewState extends State<TimelineView> {
       HapticFeedback.selectionClick();
     } else if (hit != null &&
         hit.$1.clip.id == c.selectedClipId &&
-        hit.$1.track.kind == TrackKind.audio) {
+        hit.$1.track.kind != TrackKind.main) {
       // Dragging a selected sound clip moves it along its track.
       _mode = _DragMode.move;
       _moveClipId = hit.$1.clip.id;
@@ -422,7 +423,7 @@ class _TimelinePainter extends CustomPainter {
       _paintWaveform(canvas, size, p, rect);
     }
     // Subtle stripes stand in for pictures and sound in the demo clips.
-    if (!p.clip.isMedia) {
+    if (!p.clip.isMedia && p.clip.kind != ClipKind.text) {
       final stripe = Paint()..color = Colors.white.withValues(alpha: 0.07);
       final spacing = p.clip.kind == ClipKind.video ? height * 1.2 : 6.0;
       for (var x = left; x < right; x += spacing) {

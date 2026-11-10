@@ -227,12 +227,42 @@ class ExportVerification {
             '$actualFrames. Please check the video before sharing it.';
 }
 
+/// The pictures of one text overlay, drawn by the app for the exporters.
+class TextImages {
+  const TextImages({
+    required this.fullPath,
+    required this.width,
+    required this.height,
+    this.typewriterPaths = const [],
+  });
+
+  /// The whole text (transparent PNG).
+  final String fullPath;
+  final int width;
+  final int height;
+
+  /// For typewriter animations: the picture with i letters at index i (all
+  /// the same size as the full one). Empty otherwise.
+  final List<String> typewriterPaths;
+
+  Map<String, Object?> toMap() => {
+    'full': fullPath,
+    'width': width,
+    'height': height,
+    'typewriter': typewriterPaths,
+  };
+}
+
 class ExportRequest {
   const ExportRequest({
     required this.project,
     required this.settings,
     required this.fileName,
+    this.textImages = const {},
   });
+
+  /// Pictures of the text overlays, by clip id.
+  final Map<int, TextImages> textImages;
 
   final Project project;
   final ExportSettings settings;
@@ -369,4 +399,35 @@ class NoMediaEngine implements MediaEngine {
 
   @override
   Future<ExportJob?> runningExport() async => null;
+}
+
+/// Text overlays as the Android exporter needs them: timing (cut to the
+/// video's length), position, animations and pictures.
+List<Map<String, Object?>> textLayersFor(
+  Project project,
+  Map<int, TextImages> images,
+) {
+  var videoUs = 0;
+  for (final c in project.mainTrack.clips) {
+    if (c.isMedia) videoUs += c.durationUs;
+  }
+  return [
+    for (final t in project.textTracks)
+      for (final c in t.clips)
+        if (c.text != null && images[c.id] != null && c.startUs < videoUs)
+          {
+            ...images[c.id]!.toMap(),
+            'startUs': c.startUs,
+            'durationUs': (c.durationUs < videoUs - c.startUs)
+                ? c.durationUs
+                : videoUs - c.startUs,
+            'x': c.text!.x,
+            'y': c.text!.y,
+            'animIn': c.text!.animIn.name,
+            'animInUs': c.text!.animInUs,
+            'animOut': c.text!.animOut.name,
+            'animOutUs': c.text!.animOutUs,
+            'charCount': c.text!.text.runes.length,
+          },
+  ];
 }

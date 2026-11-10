@@ -1,6 +1,7 @@
 package com.kuzayengineering.video_editor
 
 import android.net.Uri
+import com.google.common.collect.ImmutableList
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -8,6 +9,7 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.effect.Crop
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.RgbAdjustment
 import androidx.media3.effect.ScaleAndRotateTransformation
@@ -35,6 +37,7 @@ object CompositionFactory {
         hdrMode: Int,
         audioTracks: List<List<Segment>> = emptyList(),
         withGain: Boolean = false,
+        texts: List<TextLayer> = emptyList(),
     ): Composition {
         val items = segments.map { item(it, width, height, maxFrameRate, withGain) }
         val videoLengthUs = segments.sumOf { it.timelineUs }
@@ -42,7 +45,17 @@ object CompositionFactory {
         for (track in audioTracks) {
             audioSequence(track, videoLengthUs)?.let { sequences += it }
         }
-        return Composition.Builder(sequences)
+        val builder = Composition.Builder(sequences)
+        if (texts.isNotEmpty()) {
+            // Text goes on top of the finished picture, in timeline time.
+            builder.setEffects(
+                Effects(
+                    listOf<AudioProcessor>(),
+                    listOf<Effect>(OverlayEffect(ImmutableList.copyOf(TextOverlays.create(texts)))),
+                )
+            )
+        }
+        return builder
             .setHdrMode(hdrMode)
             // Clips without sound get silence, so sound stays in sync.
             .experimentalSetForceAudioTrack(true)
