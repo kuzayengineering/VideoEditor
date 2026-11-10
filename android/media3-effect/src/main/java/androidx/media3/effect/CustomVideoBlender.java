@@ -4,7 +4,6 @@
  */
 package androidx.media3.effect;
 
-import androidx.annotation.Nullable;
 import androidx.media3.common.GlTextureInfo;
 import androidx.media3.common.VideoCompositorSettings;
 import androidx.media3.common.util.GlUtil;
@@ -21,13 +20,13 @@ public interface CustomVideoBlender {
    * Draws one frame. Called on the GL thread, with the output framebuffer bound, sized and
    * cleared.
    *
-   * @param inputs The current frame of each input, by input index (an entry is null if that input
-   *     has no frame).
+   * @param inputs The current frame of each input, by input index (an input without a frame gets
+   *     the primary input's frame).
    * @param presentationTimeUs The frame's time from the start of the composition.
    * @param hdr Whether the pictures are HDR (high-precision textures).
    */
   void draw(
-      @Nullable GlTextureInfo[] inputs,
+      GlTextureInfo[] inputs,
       long presentationTimeUs,
       int outputWidth,
       int outputHeight,

@@ -385,6 +385,11 @@ public final class DefaultVideoCompositor implements VideoCompositor {
       }
       byIndex[index] = framesToComposite.get(next++).timedGlTextureInfo.glTextureInfo;
     }
+    for (int i = 0; i < byIndex.length; i++) {
+      if (byIndex[i] == null) {
+        byIndex[i] = byIndex[primaryInputIndex];
+      }
+    }
     GlUtil.focusFramebufferUsingCurrentContext(
         outputTexture.fboId, outputTexture.width, outputTexture.height);
     GlUtil.clearFocusedBuffers();

@@ -47,14 +47,13 @@ class TransitionBlender(private val blends: List<Blend>) : CustomVideoBlender {
     private var program: GlProgram? = null
 
     override fun draw(
-        inputs: Array<out GlTextureInfo?>?,
+        inputs: Array<out GlTextureInfo>,
         presentationTimeUs: Long,
         outputWidth: Int,
         outputHeight: Int,
         hdr: Boolean,
     ) {
-        if (inputs == null) return
-        val a = inputs.getOrNull(0) ?: inputs.firstOrNull { it != null } ?: return
+        val a = inputs.getOrNull(0) ?: return
         var b = inputs.getOrNull(1)
         var code = 0
         var t = 0f
