@@ -183,8 +183,9 @@ object ExportManager {
                             // Mixing the clips didn't work on this phone: try
                             // again with simple dips through black.
                             transformer = null
-                            fallbackNote = " (transitions shown as fades through black: " +
-                                "${TransitionRenderer.describe(exportException)})"
+                            fallbackNote = "\n\nTransitions are shown as fades " +
+                                "through black, because mixing the clips failed:\n" +
+                                TransitionRenderer.describe(exportException)
                             main.post {
                                 run(svc, req.copy(
                                     segments = fallback,
@@ -195,7 +196,14 @@ object ExportManager {
                             }
                             return
                         }
-                        fail("Export failed: ${exportException.message ?: exportException.errorCodeName}")
+                        fail(
+                            "Export failed:\n" + TransitionRenderer.describe(exportException) +
+                                if (fallbackNote.isNotEmpty()) {
+                                    "\n\n(This was the second try.)$fallbackNote"
+                                } else {
+                                    ""
+                                }
+                        )
                     }
                 })
                 .build()

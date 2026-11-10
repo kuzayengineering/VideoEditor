@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../engine/media_engine.dart';
 import '../model/project.dart';
@@ -284,12 +285,32 @@ extension on _TransitionPanelState {
     final key = c.project.transitionKey(widget.index);
     final error = c.transitionErrors[key];
     if (error != null) {
-      return Text(
-        'The preview couldn\'t be made, so it shows a fade through black '
-        'here (the export is not affected). Reason: $error',
-        style: small?.copyWith(color: theme.colorScheme.error),
-        maxLines: 4,
-        overflow: TextOverflow.ellipsis,
+      return InkWell(
+        onTap: () => showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Why the preview failed'),
+            content: SingleChildScrollView(child: SelectableText(error)),
+            actions: [
+              TextButton(
+                onPressed: () => Clipboard.setData(ClipboardData(text: error)),
+                child: const Text('Copy'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        ),
+        child: Text(
+          'The preview couldn\'t be made, so it shows a fade through black '
+          'here. Tap for details.',
+          style: small?.copyWith(
+            color: theme.colorScheme.error,
+            decoration: TextDecoration.underline,
+          ),
+        ),
       );
     }
     if (c.transitionsPreparing.contains(key)) {

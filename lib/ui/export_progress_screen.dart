@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../engine/media_engine.dart';
 
@@ -146,6 +147,17 @@ class ExportProgressScreen extends StatelessWidget {
                         SelectableText(
                           p.message ?? '',
                           style: theme.textTheme.bodyMedium,
+                        ),
+                      if (p.state == ExportState.failed)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.copy, size: 18),
+                            label: const Text('Copy the details'),
+                            onPressed: () => Clipboard.setData(
+                              ClipboardData(text: p.message ?? ''),
+                            ),
+                          ),
                         ),
                       if (!busy) ...[
                         const SizedBox(height: 24),

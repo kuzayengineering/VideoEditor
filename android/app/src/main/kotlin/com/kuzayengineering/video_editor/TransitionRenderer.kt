@@ -80,11 +80,22 @@ object TransitionRenderer {
     fun describe(e: Throwable): String {
         val parts = mutableListOf<String>()
         var t: Throwable? = e
-        while (t != null && parts.size < 4) {
+        var root: Throwable = e
+        while (t != null && parts.size < 8) {
             val code = (t as? ExportException)?.errorCodeName
-            parts += listOfNotNull(code, t.message ?: t.javaClass.simpleName).joinToString(": ")
+            parts += listOfNotNull(
+                code?.takeIf { !it.startsWith("invalid") },
+                t.javaClass.simpleName,
+                t.message,
+            ).joinToString(": ")
+            root = t
             t = t.cause
         }
-        return parts.joinToString(" ← ")
+        // Where the deepest problem happened (the first lines of the app's
+        // or Media3's code), so it can be found in the source.
+        val where = root.stackTrace.take(6).joinToString("\n") {
+            "  at ${it.className.substringAfterLast('.')}.${it.methodName}(${it.fileName}:${it.lineNumber})"
+        }
+        return parts.joinToString("\n← ") + "\n" + where
     }
 }
