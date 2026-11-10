@@ -211,7 +211,10 @@ class FfmpegEngine implements MediaEngine {
       outputPath: '${out.path}.part.mp4',
     );
     final r = await Process.run(ffmpeg, plan.args);
-    if (r.exitCode != 0) return null;
+    if (r.exitCode != 0) {
+      final lines = '${r.stderr}'.trim().split('\n');
+      throw Exception(lines.isEmpty ? 'FFmpeg failed' : lines.last);
+    }
     await File('${out.path}.part.mp4').rename(out.path);
     return out.path;
   }

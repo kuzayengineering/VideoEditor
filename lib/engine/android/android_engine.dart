@@ -92,7 +92,7 @@ class AndroidMediaEngine implements MediaEngine {
     final ratio = project.canvas.value;
     final w = ratio >= 1 ? 1920.0 : 1920 * ratio;
     final h = ratio >= 1 ? 1920 / ratio : 1920.0;
-    final ok = await _channel.invokeMethod<bool>('renderTransition', {
+    final result = await _channel.invokeMethod<Map>('renderTransition', {
       'segments': [
         for (final seg in segmentsOf(project, blend: true)) seg.toMap(),
       ],
@@ -106,7 +106,9 @@ class AndroidMediaEngine implements MediaEngine {
       'frameRate': project.frameRate.round(),
       'path': '${out.path}.part.mp4',
     });
-    if (ok != true) return null;
+    if (result?['ok'] != true) {
+      throw Exception(result?['error'] ?? 'unknown problem');
+    }
     await File('${out.path}.part.mp4').rename(out.path);
     return out.path;
   }

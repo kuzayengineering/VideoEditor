@@ -83,8 +83,28 @@ class EditorController extends ChangeNotifier {
   /// Pre-rendered transitions for the preview, by [Project.transitionKey].
   final Map<String, String> transitionFiles = {};
 
+  /// Transitions being prepared for the preview right now (by key).
+  final Set<String> transitionsPreparing = {};
+
+  /// Why a transition's preview couldn't be prepared (by key).
+  final Map<String, String> transitionErrors = {};
+
+  void setTransitionPreparing(String key, bool preparing) {
+    final changed = preparing
+        ? transitionsPreparing.add(key)
+        : transitionsPreparing.remove(key);
+    if (changed) notifyListeners();
+  }
+
+  void setTransitionError(String key, String message) {
+    transitionErrors[key] = message;
+    transitionsPreparing.remove(key);
+    notifyListeners();
+  }
+
   /// A pre-rendered transition finished: play it in the preview.
   void addTransitionFile(String key, String path) {
+    transitionsPreparing.remove(key);
     if (transitionFiles[key] == path) return;
     transitionFiles[key] = path;
     _syncPreviewTimeline();

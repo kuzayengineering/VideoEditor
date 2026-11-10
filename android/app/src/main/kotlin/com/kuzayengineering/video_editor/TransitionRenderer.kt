@@ -19,19 +19,20 @@ import java.io.File
 object TransitionRenderer {
     private val main = Handler(Looper.getMainLooper())
 
-    /** Calls [done] with true when the file at `path` is ready. */
-    fun render(context: Context, args: Map<*, *>, done: (Boolean) -> Unit) {
+    /** Calls [done] with null when the file at `path` is ready, or the
+     * reason it failed. */
+    fun render(context: Context, args: Map<*, *>, done: (String?) -> Unit) {
         @Suppress("UNCHECKED_CAST")
         val segments = Segment.listFrom(args["segments"] as List<Map<String, Any?>>)
         val dips = (args["dips"] as List<*>?)?.map { Dip.from(it as Map<*, *>) } ?: emptyList()
         val path = args["path"] as String
         val out = File(path).apply { delete() }
         var finished = false
-        fun finish(ok: Boolean) {
+        fun finish(error: String?) {
             if (finished) return
             finished = true
-            if (!ok) out.delete()
-            done(ok)
+            if (error != null) out.delete()
+            done(error)
         }
         try {
             val composition = CompositionFactory.build(
@@ -49,7 +50,7 @@ object TransitionRenderer {
                 .setAudioMimeType(MimeTypes.AUDIO_AAC)
                 .addListener(object : Transformer.Listener {
                     override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        finish(true)
+                        finish(null)
                     }
 
                     override fun onError(
@@ -57,7 +58,7 @@ object TransitionRenderer {
                         exportResult: ExportResult,
                         exportException: ExportException,
                     ) {
-                        finish(false)
+                        finish(describe(exportException))
                     }
                 })
                 .build()
@@ -66,11 +67,24 @@ object TransitionRenderer {
             main.postDelayed({
                 if (!finished) {
                     transformer.cancel()
-                    finish(false)
+                    finish("it took longer than a minute")
                 }
             }, 60_000)
         } catch (e: Exception) {
-            finish(false)
+            finish(describe(e))
         }
+    }
+
+    /** The error and its causes, for the screen (so problems can be told
+     * apart from a distance). */
+    fun describe(e: Throwable): String {
+        val parts = mutableListOf<String>()
+        var t: Throwable? = e
+        while (t != null && parts.size < 4) {
+            val code = (t as? ExportException)?.errorCodeName
+            parts += listOfNotNull(code, t.message ?: t.javaClass.simpleName).joinToString(": ")
+            t = t.cause
+        }
+        return parts.joinToString(" ← ")
     }
 }

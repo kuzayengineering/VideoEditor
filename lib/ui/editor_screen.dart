@@ -286,8 +286,14 @@ class _EditorScreenState extends State<_Editor>
   final Set<String> _transitionsInFlight = {};
   Future<void> _transitionQueue = Future.value();
 
-  /// Pre-renders each transition for the preview (Windows), one at a time,
-  /// in the background. Until one is ready the preview dips through black.
+  static String _reason(Object e) {
+    if (e is PlatformException) return e.message ?? e.code;
+    final text = '$e';
+    return text.startsWith('Exception: ') ? text.substring(11) : text;
+  }
+
+  /// Pre-renders each transition for the preview, one at a time, in the
+  /// background. Until one is ready the preview dips through black.
   void _renderTransitions(Project project) {
     if (!_engine.supportsAllTransitions || !_engine.supportsMedia) return;
     for (var i = 0; i + 1 < project.mainTrack.clips.length; i++) {
@@ -301,12 +307,19 @@ class _EditorScreenState extends State<_Editor>
       if (mini == null || !mini.mainTrack.clips.every((x) => x.isMedia)) {
         continue;
       }
+      c.setTransitionPreparing(key, true);
       _transitionQueue = _transitionQueue.then((_) async {
         try {
           final path = await _engine.renderPreviewClip(mini, key);
-          if (path != null && mounted) c.addTransitionFile(key, path);
-        } catch (_) {
+          if (!mounted) return;
+          if (path != null) {
+            c.addTransitionFile(key, path);
+          } else {
+            c.setTransitionPreparing(key, false);
+          }
+        } catch (e) {
           // The preview keeps the dip-through-black stand-in.
+          if (mounted) c.setTransitionError(key, _reason(e));
         }
       });
     }

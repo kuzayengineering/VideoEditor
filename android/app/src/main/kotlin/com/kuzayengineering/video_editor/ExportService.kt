@@ -184,7 +184,7 @@ object ExportManager {
                             // again with simple dips through black.
                             transformer = null
                             fallbackNote = " (transitions shown as fades through black: " +
-                                "${exportException.errorCodeName})"
+                                "${TransitionRenderer.describe(exportException)})"
                             main.post {
                                 run(svc, req.copy(
                                     segments = fallback,

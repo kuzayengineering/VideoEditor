@@ -132,6 +132,12 @@ class PreviewView extends StatelessWidget {
                       controller: controller,
                       onEditText: onEditText ?? (_) {},
                     ),
+                    if (controller.transitionsPreparing.isNotEmpty)
+                      const Positioned(
+                        left: 8,
+                        top: 8,
+                        child: IgnorePointer(child: _PreparingBadge()),
+                      ),
                   ],
                 ),
               ),
@@ -246,6 +252,42 @@ class _LookPreview extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Shown while transitions are being prepared in the background.
+class _PreparingBadge extends StatelessWidget {
+  const _PreparingBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Preparing transition…',
+              style: TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

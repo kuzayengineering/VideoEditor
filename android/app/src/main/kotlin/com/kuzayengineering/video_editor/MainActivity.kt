@@ -132,8 +132,8 @@ class MainActivity : FlutterActivity() {
             }
             "previewPosition" -> result.success(preview.positionUs())
             "renderTransition" -> {
-                TransitionRenderer.render(this, call.arguments as Map<*, *>) { ok ->
-                    result.success(ok)
+                TransitionRenderer.render(this, call.arguments as Map<*, *>) { error ->
+                    result.success(mapOf("ok" to (error == null), "error" to error))
                 }
             }
             "startExport" -> {

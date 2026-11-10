@@ -227,15 +227,7 @@ class _TransitionPanelState extends State<_TransitionPanel>
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      current == null
-                          ? 'Pick how this clip changes into the next.'
-                          : 'The clips overlap while it plays, so the video '
-                                'gets that much shorter.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ),
+                  Expanded(child: _status(context, current)),
                   TextButton.icon(
                     icon: const Icon(Icons.done_all, size: 18),
                     label: const Text('Use for all'),
@@ -277,6 +269,58 @@ class _TransitionPanelState extends State<_TransitionPanel>
           ],
         );
       },
+    );
+  }
+}
+
+extension on _TransitionPanelState {
+  /// Whether the preview of this transition is ready, being made, or failed.
+  Widget _status(BuildContext context, TransitionSpec? current) {
+    final theme = Theme.of(context);
+    final small = theme.textTheme.bodySmall;
+    if (current == null) {
+      return Text('Pick how this clip changes into the next.', style: small);
+    }
+    final key = c.project.transitionKey(widget.index);
+    final error = c.transitionErrors[key];
+    if (error != null) {
+      return Text(
+        'The preview couldn\'t be made, so it shows a fade through black '
+        'here (the export is not affected). Reason: $error',
+        style: small?.copyWith(color: theme.colorScheme.error),
+        maxLines: 4,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+    if (c.transitionsPreparing.contains(key)) {
+      return Row(
+        children: [
+          const SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Preparing the preview… it shows a fade through black until '
+              'it\'s ready.',
+              style: small,
+            ),
+          ),
+        ],
+      );
+    }
+    if (c.transitionFiles.containsKey(key)) {
+      return Text(
+        'Preview ready. The clips overlap while it plays, so the video '
+        'gets that much shorter.',
+        style: small,
+      );
+    }
+    return Text(
+      'The clips overlap while it plays, so the video gets that much shorter.',
+      style: small,
     );
   }
 }

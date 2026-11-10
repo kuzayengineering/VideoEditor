@@ -535,12 +535,12 @@ abstract class MediaEngine {
   /// Whether colored or blurred backgrounds can be exported here.
   bool get supportsBackgrounds;
 
-  /// Whether every transition type can be exported here (Android shows them
-  /// all as fade-through-black for now).
+  /// Whether transitions are pre-rendered for the preview here.
   bool get supportsAllTransitions;
 
   /// Renders a small project (a transition with a little either side) to a
   /// preview-quality video file, or returns null if this platform doesn't.
+  /// Throws (with a readable reason) if it fails.
   Future<String?> renderPreviewClip(Project project, String key);
 
   /// Asks the user to choose a folder to save exports to.
