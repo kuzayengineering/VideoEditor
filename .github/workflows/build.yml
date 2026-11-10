@@ -177,10 +177,12 @@ jobs:
     name: Publish release
     needs: [check, android, windows]
     # Only from the main (default) branch, and only with the real signing key,
-    # so every release can update the previous one.
+    # so every release can update the previous one. A commit message with
+    # "[no release]" builds and tests without publishing (work in progress).
     if: >-
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
-      needs.android.outputs.signed == 'true'
+      needs.android.outputs.signed == 'true' &&
+      !contains(github.event.head_commit.message, '[no release]')
     runs-on: ubuntu-latest
     permissions:
       contents: write

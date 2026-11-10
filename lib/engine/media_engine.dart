@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../model/export_settings.dart';
@@ -25,14 +25,24 @@ class PreviewSegment {
     this.clip,
     this.dipInUs = 0,
     this.dipOutUs = 0,
+    this.blendOutUs = 0,
   });
 
   /// Fade-through-black at the start / end (sound fades with it).
   final int dipInUs;
   final int dipOutUs;
 
+  /// The end overlaps a mixing transition: the sound fades out over this
+  /// long while the next clip's fades in.
+  final int blendOutUs;
+
   /// From a clip: backwards clips use their reversed copy.
-  factory PreviewSegment.of(Clip c, {int dipInUs = 0, int dipOutUs = 0}) {
+  factory PreviewSegment.of(
+    Clip c, {
+    int dipInUs = 0,
+    int dipOutUs = 0,
+    int blendOutUs = 0,
+  }) {
     final proxy = c.reverseProxy;
     if (c.reversed &&
         proxy != null &&
@@ -45,6 +55,7 @@ class PreviewSegment {
         clip: c,
         dipInUs: dipInUs,
         dipOutUs: dipOutUs,
+        blendOutUs: blendOutUs,
       );
     }
     return PreviewSegment(
@@ -55,6 +66,7 @@ class PreviewSegment {
       clip: c,
       dipInUs: dipInUs,
       dipOutUs: dipOutUs,
+      blendOutUs: blendOutUs,
     );
   }
 
@@ -99,6 +111,7 @@ class PreviewSegment {
         'fadeOutUs': c.effectiveFades.fadeOut > dipOutUs
             ? c.effectiveFades.fadeOut
             : dipOutUs,
+        if (blendOutUs > 0) 'blendOutUs': blendOutUs,
       },
     };
   }
@@ -110,6 +123,9 @@ class PreviewSegment {
       other.inUs == inUs &&
       other.outUs == outUs &&
       other.speed == speed &&
+      other.dipInUs == dipInUs &&
+      other.dipOutUs == dipOutUs &&
+      other.blendOutUs == blendOutUs &&
       other.clip?.rotation == clip?.rotation &&
       other.clip?.flipH == clip?.flipH &&
       other.clip?.flipV == clip?.flipV &&
@@ -125,15 +141,21 @@ class PreviewSegment {
 /// Transitions overlap neighbouring clips. With a pre-rendered transition
 /// (in [transitionFiles], by [Project.transitionKey]) the clips are cut
 /// short by its full length and the rendered piece plays in between.
-/// Otherwise each clip loses half the transition and they dip through black
-/// (which is exactly how Android exports every transition for now).
+/// "Through black/white" (and, unless [blend], every other kind as a
+/// stand-in) take half the transition off each clip and dip through the
+/// colour. With [blend] (Android), mixing transitions keep the outgoing
+/// clip whole and start the next clip after the overlap; the incoming part
+/// comes from a second layer (see [blendLayersOf]).
 List<PreviewSegment> segmentsOf(
   Project project, {
   Map<String, String> transitionFiles = const {},
+  bool blend = false,
 }) {
   final clips = project.mainTrack.clips;
   final n = clips.length;
   final head = List.filled(n, 0), tail = List.filled(n, 0);
+  final dipHead = List.filled(n, 0), dipTail = List.filled(n, 0);
+  final blendOut = List.filled(n, 0);
   final rendered = <int, (String, int)>{};
   for (var i = 0; i + 1 < n; i++) {
     final d = project.transitionUsAfter(i);
@@ -143,22 +165,26 @@ List<PreviewSegment> segmentsOf(
       tail[i] = d;
       head[i + 1] = d;
       rendered[i] = (file, d);
+    } else if (blend && !clips[i].transition!.kind.isDip) {
+      head[i + 1] = d;
+      blendOut[i] = d;
     } else {
       tail[i] = d ~/ 2;
       head[i + 1] = d - d ~/ 2;
+      dipTail[i] = tail[i];
+      dipHead[i + 1] = head[i + 1];
     }
   }
   final out = <PreviewSegment>[];
   for (var i = 0; i < n; i++) {
     final c = clips[i];
     if (!c.isMedia) continue;
-    final dipIn = i > 0 && !rendered.containsKey(i - 1) ? head[i] : 0;
-    final dipOut = !rendered.containsKey(i) ? tail[i] : 0;
     out.add(
       PreviewSegment.of(
         c.trimmedBy(headUs: head[i], tailUs: tail[i]),
-        dipInUs: dipIn,
-        dipOutUs: dipOut,
+        dipInUs: dipHead[i],
+        dipOutUs: dipTail[i],
+        blendOutUs: blendOut[i],
       ),
     );
     final r = rendered[i];
@@ -167,18 +193,131 @@ List<PreviewSegment> segmentsOf(
   return out;
 }
 
-/// Where the fade-through-black dips happen on the timeline (every
-/// transition without a pre-rendered copy).
-List<({int startUs, int durationUs})> dipsOf(
+/// One transition that mixes two clips, as Android draws it.
+class BlendWindow {
+  const BlendWindow(this.startUs, this.durationUs, this.code);
+
+  final int startUs;
+  final int durationUs;
+
+  /// Which picture ([TransitionKind.code]).
+  final int code;
+
+  Map<String, Object?> toMap() => {
+    'startUs': startUs,
+    'durationUs': durationUs,
+    'code': code,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is BlendWindow &&
+      other.startUs == startUs &&
+      other.durationUs == durationUs &&
+      other.code == code;
+
+  @override
+  int get hashCode => Object.hash(startUs, durationUs, code);
+}
+
+/// What Android needs to mix clips during transitions: a second picture
+/// layer, lined up with [segmentsOf] (`blend: true`), that holds each
+/// incoming clip's start while the first layer still shows the outgoing
+/// clip's end, plus the sound of those starts.
+class BlendLayers {
+  const BlendLayers(this.layerB, this.windows, this.audio);
+
+  /// Same length as the main layer; outside transitions it shows the same
+  /// clips (it is silent).
+  final List<PreviewSegment> layerB;
+  final List<BlendWindow> windows;
+
+  /// The incoming clips' sound during each transition (fades in), as
+  /// audio-track entries with `startUs`.
+  final List<Map<String, Object?>> audio;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BlendLayers &&
+      listEquals(other.layerB, layerB) &&
+      listEquals(other.windows, windows) &&
+      other.audio.length == audio.length;
+
+  @override
+  int get hashCode =>
+      Object.hash(Object.hashAll(layerB), Object.hashAll(windows));
+}
+
+/// The second layer for mixing transitions, or null if there are none.
+BlendLayers? blendLayersOf(Project project) {
+  final clips = project.mainTrack.clips;
+  final n = clips.length;
+  final placements = project.placementsOn(project.mainTrack);
+  final head = List.filled(n, 0), tail = List.filled(n, 0);
+  final windows = <BlendWindow>[];
+  final audio = <Map<String, Object?>>[];
+  for (var i = 0; i + 1 < n; i++) {
+    final d = project.transitionUsAfter(i);
+    if (d <= 0) continue;
+    final kind = clips[i].transition!.kind;
+    if (kind.isDip) {
+      tail[i] = d ~/ 2;
+      head[i + 1] = d - d ~/ 2;
+      continue;
+    }
+    tail[i] = d;
+    final start = placements[i + 1].startUs;
+    windows.add(BlendWindow(start, d, kind.code));
+    final next = clips[i + 1];
+    if (next.isMedia && (next.media?.hasAudio ?? false)) {
+      audio.add({
+        ...PreviewSegment.of(next.trimmedBy(tailUs: next.durationUs - d))
+            .toMap(),
+        'fadeInUs': d,
+        'fadeOutUs': 0,
+        'startUs': start,
+        'hasVideo': true,
+      });
+    }
+  }
+  if (windows.isEmpty) return null;
+  return BlendLayers(
+    [
+      for (var i = 0; i < n; i++)
+        if (clips[i].isMedia)
+          PreviewSegment.of(
+            clips[i].trimmedBy(headUs: head[i], tailUs: tail[i]),
+          ),
+    ],
+    windows,
+    audio,
+  );
+}
+
+/// One dip through a colour on the timeline.
+typedef Dip = ({int startUs, int durationUs, int color});
+
+/// Where the dips through black/white happen on the timeline: every
+/// transition without a pre-rendered copy, or with [blend] only the
+/// "through black/white" ones. Mixing kinds dip through black as a
+/// stand-in.
+List<Dip> dipsOf(
   Project project, {
   Map<String, String> transitionFiles = const {},
+  bool blend = false,
 }) {
   final ps = project.placementsOn(project.mainTrack);
+  final clips = project.mainTrack.clips;
   return [
     for (var i = 0; i + 1 < ps.length; i++)
       if (project.transitionUsAfter(i) > 0 &&
-          transitionFiles[project.transitionKey(i)] == null)
-        (startUs: ps[i + 1].startUs, durationUs: project.transitionUsAfter(i)),
+          transitionFiles[project.transitionKey(i)] == null &&
+          (!blend || clips[i].transition!.kind.isDip))
+        (
+          startUs: ps[i + 1].startUs,
+          durationUs: project.transitionUsAfter(i),
+          color: clips[i].transition!.kind.dipColor,
+        ),
   ];
 }
 
@@ -208,7 +347,12 @@ abstract class PreviewPlayer {
     List<PreviewSegment> segments, {
     int canvasWidth = 1920,
     int canvasHeight = 1080,
+    BlendLayers? blends,
   });
+
+  /// True if this player mixes clips during transitions itself (it then
+  /// gets [segmentsOf] with `blend: true` plus [blendLayersOf]).
+  bool get blendsTransitions;
 
   /// True if the player itself draws turn/mirror/crop/opacity and the black
   /// bars for these segments (the picture then fills the whole canvas).

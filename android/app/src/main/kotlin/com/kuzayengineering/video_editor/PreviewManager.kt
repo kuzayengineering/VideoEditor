@@ -6,6 +6,8 @@ import android.view.SurfaceView
 import android.view.View
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.effect.DefaultVideoFrameProcessor
+import androidx.media3.effect.MultipleInputVideoGraph
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.transformer.Composition
@@ -28,6 +30,9 @@ class PreviewManager(private val context: Context) {
     private var usingComposition = false
 
     private var segments: List<Segment> = emptyList()
+    private var blends: BlendInput? = null
+    /** The player was built for two picture layers (mixing transitions). */
+    private var usingLayers = false
     private var canvas = Pair(1920, 1080)
     /** Start of each segment on the timeline (plain mode), in microseconds. */
     private var starts: LongArray = LongArray(0)
@@ -45,11 +50,19 @@ class PreviewManager(private val context: Context) {
         }
     }
 
-    fun setTimeline(newSegments: List<Segment>, canvasWidth: Int, canvasHeight: Int) {
+    fun setTimeline(
+        newSegments: List<Segment>,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        newBlends: BlendInput? = null,
+    ) {
         val newCanvas = Pair(canvasWidth, canvasHeight)
-        if (newSegments == segments && newCanvas == canvas && player != null) return
+        if (newSegments == segments && newCanvas == canvas && newBlends == blends &&
+            player != null
+        ) return
         val keep = positionUs()
         segments = newSegments
+        blends = newBlends
         canvas = newCanvas
         starts = LongArray(newSegments.size)
         var t = 0L
@@ -57,15 +70,26 @@ class PreviewManager(private val context: Context) {
             starts[i] = t
             t += Math.round(s.lengthUs / s.speed)
         }
-        val wantComposition = newSegments.any { it.hasEffects }
-        if (player == null || wantComposition != usingComposition) {
+        val wantLayers = newBlends != null
+        val wantComposition = wantLayers || newSegments.any { it.hasEffects }
+        if (player == null || wantComposition != usingComposition || wantLayers != usingLayers) {
             player?.release()
-            player = if (wantComposition) {
+            player = if (wantLayers) {
+                // Two picture layers mixed by our TransitionBlender.
+                CompositionPlayer.Builder(context)
+                    .setVideoGraphFactory(
+                        MultipleInputVideoGraph.Factory(
+                            DefaultVideoFrameProcessor.Factory.Builder().build()
+                        )
+                    )
+                    .build()
+            } else if (wantComposition) {
                 CompositionPlayer.Builder(context).build()
             } else {
                 ExoPlayer.Builder(context).build()
             }
             usingComposition = wantComposition
+            usingLayers = wantLayers
             player!!.repeatMode = Player.REPEAT_MODE_OFF
             surface?.let { player!!.setVideoSurfaceView(it) }
         }
@@ -81,7 +105,10 @@ class PreviewManager(private val context: Context) {
             val w = evenAtLeast2(canvasWidth * scale)
             val h = evenAtLeast2(canvasHeight * scale)
             p.setComposition(
-                CompositionFactory.build(newSegments, w, h, null, Composition.HDR_MODE_KEEP_HDR)
+                CompositionFactory.build(
+                    newSegments, w, h, null, Composition.HDR_MODE_KEEP_HDR,
+                    blends = newBlends,
+                )
             )
             p.seekTo(keep.coerceIn(0, t) / 1000)
             p.prepare()
@@ -150,6 +177,7 @@ class PreviewManager(private val context: Context) {
         player?.release()
         player = null
         segments = emptyList()
+        blends = null
         starts = LongArray(0)
     }
 }

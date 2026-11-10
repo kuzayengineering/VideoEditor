@@ -118,36 +118,43 @@ private class AnimatedTextOverlay(private val t: TextLayer) : BitmapOverlay() {
     }
 }
 
-/** Where a fade-through-black transition happens on the timeline. */
-data class Dip(val startUs: Long, val durationUs: Long) {
+/** Where a dip through black (or white) happens on the timeline. */
+data class Dip(val startUs: Long, val durationUs: Long, val color: Int = android.graphics.Color.BLACK) {
     companion object {
-        fun from(m: Map<String, Any?>) = Dip(
+        fun from(m: Map<*, *>) = Dip(
             (m["startUs"] as Number).toLong(),
             (m["durationUs"] as Number).toLong(),
+            (m["color"] as Number?)?.toInt() ?: android.graphics.Color.BLACK,
         )
     }
 }
 
 /**
- * Fade-through-black transitions: a black layer over the whole picture that
- * darkens to fully black at the middle of each transition and clears again
- * (the clips themselves were already trimmed to meet in the middle).
+ * Dips through black or white: a layer of that colour over the whole
+ * picture that thickens to solid at the middle of each transition and clears
+ * again (the clips themselves were already trimmed to meet in the middle).
  */
 private class DipOverlay(private val dips: List<Dip>) : BitmapOverlay() {
-    private var black: Bitmap? = null
+    private val bitmaps = HashMap<Int, Bitmap>()
+    private var size = androidx.media3.common.util.Size(2, 2)
 
     override fun configure(videoSize: androidx.media3.common.util.Size) {
         super.configure(videoSize)
-        black = Bitmap.createBitmap(
-            maxOf(2, videoSize.width), maxOf(2, videoSize.height), Bitmap.Config.ARGB_8888,
-        ).apply { eraseColor(android.graphics.Color.BLACK) }
+        size = videoSize
+        bitmaps.clear()
     }
 
-    override fun getBitmap(presentationTimeUs: Long): Bitmap =
-        black ?: Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).also {
-            it.eraseColor(android.graphics.Color.BLACK)
-            black = it
+    private fun active(timeUs: Long): Dip? =
+        dips.lastOrNull { timeUs >= it.startUs && timeUs < it.startUs + it.durationUs }
+
+    override fun getBitmap(presentationTimeUs: Long): Bitmap {
+        val color = active(presentationTimeUs)?.color ?: android.graphics.Color.BLACK
+        return bitmaps.getOrPut(color) {
+            Bitmap.createBitmap(
+                maxOf(2, size.width), maxOf(2, size.height), Bitmap.Config.ARGB_8888,
+            ).apply { eraseColor(color) }
         }
+    }
 
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
         var alpha = 0f

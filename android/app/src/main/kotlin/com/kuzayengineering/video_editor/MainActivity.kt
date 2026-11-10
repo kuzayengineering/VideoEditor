@@ -117,6 +117,7 @@ class MainActivity : FlutterActivity() {
                     Segment.listFrom(call.argument<List<Map<String, Any?>>>("segments")!!),
                     call.argument<Int>("canvasWidth") ?: 1920,
                     call.argument<Int>("canvasHeight") ?: 1080,
+                    (call.arguments as? Map<*, *>)?.let { BlendInput.from(it) },
                 )
                 result.success(null)
             }

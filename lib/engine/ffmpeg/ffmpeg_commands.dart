@@ -629,11 +629,20 @@ FfmpegExportPlan buildExportPlan({
   final workFmt = tenBit ? 'yuv420p10le' : 'yuv420p';
   final bg = project.background;
 
-  // Transitions, in frames. "Fade through black" trims half its length off
-  // each clip and fades to and from black (exactly what Android does); the
-  // others overlap the clips and blend them (xfade).
+  // Transitions, in frames. "Through black/white" trims half its length off
+  // each clip and fades to and from the colour (exactly what Android does);
+  // the others overlap the clips and blend them (xfade).
   final n = clips.length;
   final dipHead = List.filled(n, 0), dipTail = List.filled(n, 0);
+  final dipHeadColor = List.filled(n, 'black'),
+      dipTailColor = List.filled(n, 'black');
+  // White at the brightness of paper, not the HDR maximum (which would
+  // flash): reference white for HLG / HDR10 (measured 721 / 572 of 1023).
+  final white = switch (range) {
+    DynamicRange.hlg => '0xBFBFBF',
+    DynamicRange.hdr10 => '0x949494',
+    DynamicRange.sdr => 'white',
+  };
   final xfadeAfter = List.filled(n, 0);
   for (var i = 0; i + 1 < n; i++) {
     final mainIndex = project.mainTrack.clips.indexOf(clips[i]);
@@ -645,9 +654,13 @@ FfmpegExportPlan buildExportPlan({
     final dFrames = (project.transitionUsAfter(mainIndex) * fps / usPerSecond)
         .round();
     if (dFrames <= 0) continue;
-    if (clips[i].transition!.kind == TransitionKind.fadeBlack) {
+    final kind = clips[i].transition!.kind;
+    if (kind.isDip) {
       dipTail[i] = dFrames ~/ 2;
       dipHead[i + 1] = dFrames - dFrames ~/ 2;
+      final color = kind == TransitionKind.fadeWhite ? white : 'black';
+      dipTailColor[i] = color;
+      dipHeadColor[i + 1] = color;
     } else {
       xfadeAfter[i] = dFrames;
     }
@@ -706,9 +719,10 @@ FfmpegExportPlan buildExportPlan({
       'tpad=stop_mode=clone:stop_duration=1',
       'trim=end_frame=$frames',
       'setpts=N/($fpsText)/TB',
-      if (dipHead[i] > 0) 'fade=t=in:st=0:d=${_f(dipHead[i] / fps)}',
+      if (dipHead[i] > 0)
+        'fade=t=in:st=0:d=${_f(dipHead[i] / fps)}:color=${dipHeadColor[i]}',
       if (dipTail[i] > 0)
-        'fade=t=out:st=${_f((frames - dipTail[i]) / fps)}:d=${_f(dipTail[i] / fps)}',
+        'fade=t=out:st=${_f((frames - dipTail[i]) / fps)}:d=${_f(dipTail[i] / fps)}:color=${dipTailColor[i]}',
     ];
     final tail = "${tailSteps.join(',')}[v$i]";
     final fit =

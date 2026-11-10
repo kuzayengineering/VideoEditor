@@ -24,3 +24,5 @@ plugins {
 }
 
 include(":app")
+// Patched copy of Media3's effect library (HDR blending); see its build file.
+include(":media3-effect")

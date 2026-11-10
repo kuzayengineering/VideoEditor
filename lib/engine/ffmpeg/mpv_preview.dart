@@ -101,11 +101,16 @@ class MpvPreviewPlayer implements PreviewPlayer {
   @override
   bool drawsEffects(List<PreviewSegment> segments) => false;
 
+  /// Windows shows transitions from pre-rendered pieces instead.
+  @override
+  bool get blendsTransitions => false;
+
   @override
   Future<void> setTimeline(
     List<PreviewSegment> segments, {
     int canvasWidth = 1920,
     int canvasHeight = 1080,
+    BlendLayers? blends,
   }) async {
     if (_sameMedia(segments, _segments)) {
       _segments = List.of(segments);

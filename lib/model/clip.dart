@@ -90,24 +90,84 @@ class ReverseProxy {
 }
 
 /// How one clip changes into the next.
-enum TransitionKind {
-  fade('Fade', 'fade'),
-  fadeBlack('Fade through black', 'fadeblack'),
-  slideLeft('Slide left', 'slideleft'),
-  slideRight('Slide right', 'slideright'),
-  slideUp('Slide up', 'slideup'),
-  slideDown('Slide down', 'slidedown'),
-  zoom('Zoom', 'zoomin');
+/// The groups the transition picker shows as tabs.
+enum TransitionGroup {
+  basic('Basic'),
+  slide('Slide'),
+  wipe('Wipe'),
+  shape('Shape');
 
-  const TransitionKind(this.label, this.ffmpegName);
+  const TransitionGroup(this.label);
+  final String label;
+}
+
+/// How one clip changes into the next.
+///
+/// [ffmpegName] is FFmpeg's name for it (the xfade filter, Windows); [code]
+/// picks the same picture on Android (TransitionBlender.kt draws it with the
+/// same maths). "Through black/white" are done differently on both: each
+/// clip fades to the colour and back, so the middle is a solid colour.
+enum TransitionKind {
+  fade('Crossfade', 'fade', 1, TransitionGroup.basic),
+  fadeBlack('Through black', 'fadeblack', 0, TransitionGroup.basic),
+  fadeWhite('Through white', 'fadewhite', 0, TransitionGroup.basic),
+  dissolve('Dissolve', 'dissolve', 2, TransitionGroup.basic),
+  pixelize('Pixelate', 'pixelize', 3, TransitionGroup.basic),
+  zoom('Zoom in', 'zoomin', 4, TransitionGroup.basic),
+
+  slideLeft('Slide left', 'slideleft', 10, TransitionGroup.slide),
+  slideRight('Slide right', 'slideright', 11, TransitionGroup.slide),
+  slideUp('Slide up', 'slideup', 12, TransitionGroup.slide),
+  slideDown('Slide down', 'slidedown', 13, TransitionGroup.slide),
+  coverLeft('Cover left', 'coverleft', 14, TransitionGroup.slide),
+  coverRight('Cover right', 'coverright', 15, TransitionGroup.slide),
+  coverUp('Cover up', 'coverup', 16, TransitionGroup.slide),
+  coverDown('Cover down', 'coverdown', 17, TransitionGroup.slide),
+  revealLeft('Reveal left', 'revealleft', 18, TransitionGroup.slide),
+  revealRight('Reveal right', 'revealright', 19, TransitionGroup.slide),
+  revealUp('Reveal up', 'revealup', 20, TransitionGroup.slide),
+  revealDown('Reveal down', 'revealdown', 21, TransitionGroup.slide),
+
+  wipeLeft('Wipe left', 'wipeleft', 30, TransitionGroup.wipe),
+  wipeRight('Wipe right', 'wiperight', 31, TransitionGroup.wipe),
+  wipeUp('Wipe up', 'wipeup', 32, TransitionGroup.wipe),
+  wipeDown('Wipe down', 'wipedown', 33, TransitionGroup.wipe),
+  softLeft('Soft wipe left', 'smoothleft', 34, TransitionGroup.wipe),
+  softRight('Soft wipe right', 'smoothright', 35, TransitionGroup.wipe),
+  softUp('Soft wipe up', 'smoothup', 36, TransitionGroup.wipe),
+  softDown('Soft wipe down', 'smoothdown', 37, TransitionGroup.wipe),
+  cornerTopLeft('Corner ↖', 'wipetl', 38, TransitionGroup.wipe),
+  cornerTopRight('Corner ↗', 'wipetr', 39, TransitionGroup.wipe),
+  cornerBottomLeft('Corner ↙', 'wipebl', 40, TransitionGroup.wipe),
+  cornerBottomRight('Corner ↘', 'wipebr', 41, TransitionGroup.wipe),
+  clock('Clock', 'radial', 42, TransitionGroup.wipe),
+
+  circleOpen('Circle open', 'circleopen', 50, TransitionGroup.shape),
+  circleClose('Circle close', 'circleclose', 51, TransitionGroup.shape),
+  iris('Iris', 'circlecrop', 52, TransitionGroup.shape),
+  box('Box', 'rectcrop', 53, TransitionGroup.shape),
+  doorsOpen('Doors open', 'vertopen', 54, TransitionGroup.shape),
+  doorsClose('Doors close', 'vertclose', 55, TransitionGroup.shape),
+  splitOpen('Split open', 'horzopen', 56, TransitionGroup.shape),
+  splitClose('Split close', 'horzclose', 57, TransitionGroup.shape);
+
+  const TransitionKind(this.label, this.ffmpegName, this.code, this.group);
   final String label;
 
   /// FFmpeg's name for it (the xfade filter).
   final String ffmpegName;
 
-  /// Android can show this one exactly in HDR (others appear as fade
-  /// through black there for now).
-  bool get worksOnAndroidHdr => this == TransitionKind.fadeBlack;
+  /// Android's number for it (0: a dip through a colour, not a blend).
+  final int code;
+  final TransitionGroup group;
+
+  /// Each clip fades to a solid colour and back, instead of the two clips
+  /// being mixed.
+  bool get isDip => code == 0;
+
+  /// The solid colour a dip passes through (ARGB).
+  int get dipColor =>
+      this == TransitionKind.fadeWhite ? 0xFFFFFFFF : 0xFF000000;
 }
 
 /// A transition into the next clip. Clips overlap by [durationUs] while it

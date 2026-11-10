@@ -69,7 +69,13 @@ void main() {
     expect(segs[1].inUs, 2 * s + s ~/ 2);
     expect(segs[0].dipOutUs, s ~/ 2);
     expect(segs[1].dipInUs, s ~/ 2);
-    expect(dipsOf(p).single, (startUs: 3 * s, durationUs: s));
+    expect(dipsOf(p).single, (
+      startUs: 3 * s,
+      durationUs: s,
+      color: 0xFF000000,
+    ));
+    // Android mixes it instead: no dip.
+    expect(dipsOf(p, blend: true), isEmpty);
 
     // With a rendered copy: cut by the whole length, the copy in between.
     final key = p.transitionKey(0);
@@ -122,4 +128,47 @@ void main() {
       expect(back.durationUs, p.durationUs);
     },
   );
+
+  test('Android layers: lined up, incoming clip on the second layer', () {
+    // Clips a, b, c of 4 s; a→b mixes (1 s), b→c dips through white (1 s).
+    final p = three()
+        .setTransition(
+          0,
+          const TransitionSpec(TransitionKind.wipeLeft, durationUs: s),
+        )
+        .setTransition(
+          1,
+          const TransitionSpec(TransitionKind.fadeWhite, durationUs: s),
+        );
+    expect(p.durationUs, 10 * s);
+    final a = segmentsOf(p, blend: true);
+    final layers = blendLayersOf(p)!;
+    final b = layers.layerB;
+    int total(List<PreviewSegment> x) => x.fold(0, (t, e) => t + e.timelineUs);
+    expect(total(a), p.durationUs);
+    expect(total(b), p.durationUs);
+    // Layer A: a whole (sound fades out at its end), b without its first
+    // second, then the white dip halves.
+    expect((a[0].inUs, a[0].outUs), (2 * s, 6 * s));
+    expect(a[0].blendOutUs, s);
+    expect(a[1].inUs, 3 * s);
+    expect(a[1].dipOutUs, s ~/ 2);
+    expect(a[2].dipInUs, s ~/ 2);
+    // Layer B: a without its last second, b from its start.
+    expect((b[0].inUs, b[0].outUs), (2 * s, 5 * s));
+    expect(b[1].inUs, 2 * s);
+    // The cut between the layers' pieces lines up with the dip on both.
+    expect(
+      a[0].timelineUs + a[1].timelineUs,
+      b[0].timelineUs + b[1].timelineUs,
+    );
+    expect(layers.windows.single, const BlendWindow(3 * s, s, 30));
+    // b's first second of sound, fading in where the transition starts.
+    final audio = layers.audio.single;
+    expect(audio['startUs'], 3 * s);
+    expect(audio['fadeInUs'], s);
+    expect((audio['inUs'], audio['outUs']), (2 * s, 3 * s));
+    expect(dipsOf(p, blend: true).single.color, 0xFFFFFFFF);
+    expect(blendLayersOf(three()), isNull);
+  });
 }

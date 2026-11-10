@@ -38,6 +38,7 @@ data class ExportRequest(
     val audioTracks: List<List<Segment>>,
     val texts: List<TextLayer>,
     val dips: List<Dip>,
+    val blends: BlendInput?,
     val width: Int,
     val height: Int,
     val frameRate: Double,
@@ -56,13 +57,8 @@ data class ExportRequest(
                 ?.map { Segment.listFrom(it) } ?: emptyList(),
             texts = @Suppress("UNCHECKED_CAST") (m["texts"] as List<Map<String, Any?>>?)
                 ?.map { TextLayer.from(it) } ?: emptyList(),
-            dips = (m["dips"] as List<*>?)?.map { d ->
-                val map = d as Map<*, *>
-                Dip(
-                    (map["startUs"] as Number).toLong(),
-                    (map["durationUs"] as Number).toLong(),
-                )
-            } ?: emptyList(),
+            dips = (m["dips"] as List<*>?)?.map { Dip.from(it as Map<*, *>) } ?: emptyList(),
+            blends = BlendInput.from(m),
             width = (m["width"] as Number).toInt(),
             height = (m["height"] as Number).toInt(),
             frameRate = (m["frameRate"] as Number).toDouble(),
@@ -147,6 +143,7 @@ object ExportManager {
                 withGain = true,
                 texts = req.texts,
                 dips = req.dips,
+                blends = req.blends,
             )
 
             val encoders = DefaultEncoderFactory.Builder(ctx)

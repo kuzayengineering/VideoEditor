@@ -71,7 +71,16 @@ dependencies {
     implementation("androidx.media3:media3-common:$media3")
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-transformer:$media3")
-    implementation("androidx.media3:media3-effect:$media3")
+    // Our patched copy (HDR-capable blending), used everywhere in place of
+    // the published media3-effect.
+    implementation(project(":media3-effect"))
+}
+
+configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("androidx.media3:media3-effect"))
+            .using(project(":media3-effect"))
+    }
 }
 
 kotlin {

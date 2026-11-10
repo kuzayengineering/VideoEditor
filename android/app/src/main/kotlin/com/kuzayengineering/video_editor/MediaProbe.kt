@@ -34,6 +34,8 @@ data class Segment(
     val startUs: Long = 0,
     /** True when the file also has a picture (its sound is used alone). */
     val hasVideo: Boolean = true,
+    /** The sound fades out over this long under a mixing transition. */
+    val blendOutUs: Long = 0,
 ) {
     val timelineUs: Long get() = Math.round(lengthUs / speed)
 
@@ -64,6 +66,7 @@ data class Segment(
             fadeOutUs = (map["fadeOutUs"] as Number?)?.toLong() ?: 0L,
             startUs = (map["startUs"] as Number?)?.toLong() ?: 0L,
             hasVideo = map["hasVideo"] as Boolean? ?: true,
+            blendOutUs = (map["blendOutUs"] as Number?)?.toLong() ?: 0L,
         )
 
         fun listFrom(list: List<Map<String, Any?>>) = list.map(::from)

@@ -55,8 +55,17 @@ class EditorController extends ChangeNotifier {
 
   /// True if the preview player draws clip effects itself (Android with
   /// effects); otherwise the screen draws them around the video.
-  bool get previewDrawsEffects =>
-      _preview?.drawsEffects(segmentsOf(project)) ?? false;
+  bool get previewDrawsEffects {
+    final p = _preview;
+    if (p == null) return false;
+    final blend = p.blendsTransitions;
+    // A player that mixes transitions plays the whole finished picture.
+    if (blend && blendLayersOf(project) != null) return true;
+    return p.drawsEffects(segmentsOf(project, blend: blend));
+  }
+
+  /// True if the preview player draws mixing transitions itself (Android).
+  bool get previewBlendsTransitions => _preview?.blendsTransitions ?? false;
 
   AudioPreviewMixer? _audio;
 
@@ -82,12 +91,23 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  BlendLayers? _previewBlends;
+
   void _syncPreviewTimeline() {
     final p = _preview;
     if (p == null) return;
-    final segments = segmentsOf(project, transitionFiles: transitionFiles);
-    if (listEquals(segments, _previewSegments)) return;
+    final blend = p.blendsTransitions;
+    final segments = segmentsOf(
+      project,
+      transitionFiles: transitionFiles,
+      blend: blend,
+    );
+    final blends = blend ? blendLayersOf(project) : null;
+    if (listEquals(segments, _previewSegments) && blends == _previewBlends) {
+      return;
+    }
     _previewSegments = segments;
+    _previewBlends = blends;
     final canvas = project.canvas;
     final long = 1920.0;
     final cw = canvas.value >= 1 ? long : long * canvas.value;
@@ -98,6 +118,7 @@ class EditorController extends ChangeNotifier {
             segments,
             canvasWidth: (cw / 2).round() * 2,
             canvasHeight: (ch / 2).round() * 2,
+            blends: blends,
           )
           .then((_) => _seekPreview(exact: true)),
     );

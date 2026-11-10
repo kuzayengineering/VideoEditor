@@ -13,6 +13,7 @@ IconData transitionIcon(TransitionKind? k) => switch (k) {
   TransitionKind.slideUp => Icons.arrow_upward,
   TransitionKind.slideDown => Icons.arrow_downward,
   TransitionKind.zoom => Icons.zoom_in,
+  _ => Icons.compare_arrows,
 };
 
 /// Choose how main clip [index] changes into the next one.

@@ -18,6 +18,28 @@ import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 
+/** What mixing transitions need (see BlendSettings): a second picture layer
+ * lined up with the main one, the transition windows, and the incoming
+ * clips' sound. */
+data class BlendInput(
+    val layerB: List<Segment>,
+    val windows: List<Blend>,
+    val audio: List<Segment>,
+) {
+    companion object {
+        /** From the method-channel arguments, or null when there are none. */
+        @Suppress("UNCHECKED_CAST")
+        fun from(m: Map<*, *>): BlendInput? {
+            val layerB = m["layerB"] as List<Map<String, Any?>>? ?: return null
+            val windows = (m["blends"] as List<*>?)?.map { Blend.from(it as Map<*, *>) }
+                ?: return null
+            val audio = (m["blendAudio"] as List<Map<String, Any?>>?) ?: emptyList()
+            if (windows.isEmpty()) return null
+            return BlendInput(Segment.listFrom(layerB), windows, Segment.listFrom(audio))
+        }
+    }
+}
+
 /**
  * Turns the timeline into a Media3 Composition. Used for both the preview and
  * the export, so what you see while editing is what you get.
@@ -39,14 +61,29 @@ object CompositionFactory {
         withGain: Boolean = false,
         texts: List<TextLayer> = emptyList(),
         dips: List<Dip> = emptyList(),
+        blends: BlendInput? = null,
     ): Composition {
         val items = segments.map { item(it, width, height, maxFrameRate, withGain) }
         val videoLengthUs = segments.sumOf { it.timelineUs }
         val sequences = mutableListOf(EditedMediaItemSequence.withAudioAndVideoFrom(items))
+        val mixing = blends != null && blends.windows.isNotEmpty() && blends.layerB.isNotEmpty()
+        if (mixing) {
+            // Second picture layer (silent): the incoming clips' starts.
+            val layerB = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
+            for (s in blends!!.layerB) {
+                layerB.addItem(item(s, width, height, maxFrameRate, withGain = false, silent = true))
+            }
+            sequences += layerB.build()
+        }
         for (track in audioTracks) {
             audioSequence(track, videoLengthUs)?.let { sequences += it }
         }
+        if (mixing) {
+            // The incoming clips' sound, fading in under the outgoing sound.
+            audioSequence(blends!!.audio, videoLengthUs)?.let { sequences += it }
+        }
         val builder = Composition.Builder(sequences)
+        if (mixing) builder.setVideoCompositorSettings(BlendSettings(blends!!.windows))
         if (texts.isNotEmpty() || dips.isNotEmpty()) {
             // Text goes on top of the finished picture, in timeline time.
             builder.setEffects(
@@ -99,11 +136,12 @@ object CompositionFactory {
     }
 
     private fun gainProcessors(s: Segment): List<AudioProcessor> {
-        if (Math.abs(s.volume - 1.0) < 0.0001 && s.fadeInUs <= 0 && s.fadeOutUs <= 0) {
+        val fadeOut = maxOf(s.fadeOutUs, s.blendOutUs)
+        if (Math.abs(s.volume - 1.0) < 0.0001 && s.fadeInUs <= 0 && fadeOut <= 0) {
             return listOf()
         }
         return listOf(
-            GainEnvelopeProcessor(s.volume.toFloat(), s.fadeInUs, s.fadeOutUs, s.timelineUs)
+            GainEnvelopeProcessor(s.volume.toFloat(), s.fadeInUs, fadeOut, s.timelineUs)
         )
     }
 
@@ -133,6 +171,7 @@ object CompositionFactory {
         height: Int,
         maxFrameRate: Int?,
         withGain: Boolean,
+        silent: Boolean = false,
     ): EditedMediaItem {
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.parse(s.source))
@@ -175,9 +214,18 @@ object CompositionFactory {
         // Fit into the canvas; black bars where the shapes differ.
         video += Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
 
-        val audio = pitchKeeper(s.speed) + (if (withGain) gainProcessors(s) else listOf())
+        val audio = when {
+            silent -> listOf()
+            withGain -> pitchKeeper(s.speed) + gainProcessors(s)
+            // Preview: only the fade under a mixing transition (the player's
+            // volume does the rest).
+            s.blendOutUs > 0 -> pitchKeeper(s.speed) +
+                GainEnvelopeProcessor(1f, 0, s.blendOutUs, s.timelineUs)
+            else -> pitchKeeper(s.speed)
+        }
         val builder = EditedMediaItem.Builder(mediaItem)
             .setEffects(Effects(audio, video))
+        if (silent) builder.setRemoveAudio(true)
         if (s.sourceDurationUs > 0) builder.setDurationUs(s.sourceDurationUs)
         applySpeed(builder, s.speed)
         // Never more frames per second than asked for (speeding up a 60 fps

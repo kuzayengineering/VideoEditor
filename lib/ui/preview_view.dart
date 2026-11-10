@@ -55,14 +55,19 @@ class PreviewView extends StatelessWidget {
             t < tr.startUs + tr.durationUs ~/ 2) {
           current = project.placementsOn(project.mainTrack)[tr.index];
         }
-        // Fade-through-black stand-in (and Android's real transition).
+        // Dips through black/white (on Windows also the stand-in for a
+        // transition that is still being prepared). The Android player
+        // draws mixing transitions itself.
         var dip = 0.0;
+        var dipColor = Colors.black;
         for (final d in dipsOf(
           project,
           transitionFiles: controller.transitionFiles,
+          blend: controller.previewBlendsTransitions,
         )) {
           if (t >= d.startUs && t < d.startUs + d.durationUs) {
             dip = 1 - ((t - d.startUs) / d.durationUs * 2 - 1).abs();
+            dipColor = Color(d.color);
           }
         }
         final Widget content;
@@ -118,7 +123,7 @@ class PreviewView extends StatelessWidget {
                     if (dip > 0.001)
                       IgnorePointer(
                         child: ColoredBox(
-                          color: Colors.black.withValues(
+                          color: dipColor.withValues(
                             alpha: dip.clamp(0.0, 1.0),
                           ),
                         ),

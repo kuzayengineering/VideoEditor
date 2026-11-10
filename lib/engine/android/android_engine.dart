@@ -185,8 +185,10 @@ class AndroidMediaEngine implements MediaEngine {
         if (c.isMedia) c,
     ];
     final dims = s.dimensionsFor(project.canvas);
-    // Transitions: clips are trimmed and dip through black (see segmentsOf).
-    final segments = segmentsOf(project);
+    // Transitions: mixing ones use a second picture layer; "through
+    // black/white" trim the clips and dip (see segmentsOf / blendLayersOf).
+    final segments = segmentsOf(project, blend: true);
+    final blends = blendLayersOf(project);
     // Media3 keeps the source frame rate when it is lower than the target
     // (it never invents frames), so the expected count follows suit.
     var frames = 0;
@@ -200,9 +202,10 @@ class AndroidMediaEngine implements MediaEngine {
     }
     await _channel.invokeMethod('startExport', {
       'segments': [for (final seg in segments) seg.toMap()],
+      ..._blendArgs(blends),
       'dips': [
-        for (final d in dipsOf(project))
-          {'startUs': d.startUs, 'durationUs': d.durationUs},
+        for (final d in dipsOf(project, blend: true))
+          {'startUs': d.startUs, 'durationUs': d.durationUs, 'color': d.color},
       ],
       'texts': textLayersFor(project, request.textImages),
       'audioTracks': [
@@ -322,6 +325,15 @@ class AndroidExportJob implements ExportJob {
 
 /// Preview on Android: Media3's ExoPlayer drawing into a native SurfaceView,
 /// which shows real HDR on the Pixel's HDR screen.
+/// The second layer and transition windows, for the method channel.
+Map<String, Object?> _blendArgs(BlendLayers? b) => b == null
+    ? const {}
+    : {
+        'layerB': [for (final s in b.layerB) s.toMap()],
+        'blends': [for (final w in b.windows) w.toMap()],
+        'blendAudio': b.audio,
+      };
+
 class AndroidPreviewPlayer implements PreviewPlayer {
   @override
   Widget buildView(BuildContext context) => PlatformViewLink(
@@ -348,11 +360,16 @@ class AndroidPreviewPlayer implements PreviewPlayer {
     List<PreviewSegment> segments, {
     int canvasWidth = 1920,
     int canvasHeight = 1080,
+    BlendLayers? blends,
   }) => _channel.invokeMethod('previewSetTimeline', {
     'segments': [for (final s in segments) s.toMap()],
+    ..._blendArgs(blends),
     'canvasWidth': canvasWidth,
     'canvasHeight': canvasHeight,
   });
+
+  @override
+  bool get blendsTransitions => true;
 
   @override
   bool drawsEffects(List<PreviewSegment> segments) =>
