@@ -39,8 +39,7 @@ data class TextLayer(
             animOut = m["animOut"] as String,
             animOutUs = (m["animOutUs"] as Number).toLong(),
             fullPath = m["full"] as String,
-            @Suppress("UNCHECKED_CAST")
-            typewriterPaths = (m["typewriter"] as List<String>?) ?: emptyList(),
+            typewriterPaths = (m["typewriter"] as List<*>?)?.map { it as String } ?: emptyList(),
             charCount = (m["charCount"] as Number?)?.toInt() ?: 0,
         )
     }
