@@ -7,6 +7,7 @@ import androidx.media3.common.util.GlProgram
 import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.Size
 import androidx.media3.effect.CustomVideoBlender
+import androidx.media3.effect.StaticOverlaySettings
 
 /** One transition that mixes two clips, in timeline time. */
 data class Blend(val startUs: Long, val durationUs: Long, val code: Int) {
@@ -34,7 +35,7 @@ class BlendSettings(private val blends: List<Blend>) : CustomVideoBlender.Provid
     override fun getOutputSize(inputSizes: List<Size>): Size = inputSizes[0]
 
     override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings =
-        OverlaySettings.Builder().build()
+        StaticOverlaySettings.Builder().build()
 }
 
 /**
@@ -46,12 +47,13 @@ class TransitionBlender(private val blends: List<Blend>) : CustomVideoBlender {
     private var program: GlProgram? = null
 
     override fun draw(
-        inputs: Array<GlTextureInfo?>,
+        inputs: Array<out GlTextureInfo?>?,
         presentationTimeUs: Long,
         outputWidth: Int,
         outputHeight: Int,
         hdr: Boolean,
     ) {
+        if (inputs == null) return
         val a = inputs.getOrNull(0) ?: inputs.firstOrNull { it != null } ?: return
         var b = inputs.getOrNull(1)
         var code = 0

@@ -23,6 +23,7 @@ import 'text_render.dart';
 import 'text_sheet.dart';
 import 'thumbnail_cache.dart';
 import 'timeline_view.dart';
+import 'tool_panel.dart';
 import 'tools.dart';
 import 'transition_sheet.dart';
 import 'voiceover_sheet.dart';
@@ -36,10 +37,38 @@ class EditorScreen extends StatefulWidget {
   final bool autosave;
 
   @override
-  State<EditorScreen> createState() => _EditorScreenState();
+  State<EditorScreen> createState() => _EditorHostState();
 }
 
-class _EditorScreenState extends State<EditorScreen>
+/// Holds the tool panels (shown below the video), so every tool in the
+/// editor can open one.
+class _EditorHostState extends State<EditorScreen> {
+  final _panels = ToolPanelController();
+
+  @override
+  void dispose() {
+    _panels.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ToolPanelScope(
+    controller: _panels,
+    child: _Editor(project: widget.project, autosave: widget.autosave),
+  );
+}
+
+class _Editor extends StatefulWidget {
+  const _Editor({required this.project, required this.autosave});
+
+  final Project project;
+  final bool autosave;
+
+  @override
+  State<_Editor> createState() => _EditorScreenState();
+}
+
+class _EditorScreenState extends State<_Editor>
     with SingleTickerProviderStateMixin {
   late final EditorController c = EditorController(widget.project);
   late final Ticker _ticker = createTicker(_onTick);
@@ -689,15 +718,30 @@ class _EditorScreenState extends State<EditorScreen>
         c.duplicateSelected,
     const SingleActivator(LogicalKeyboardKey.delete): c.deleteSelected,
     const SingleActivator(LogicalKeyboardKey.backspace): c.deleteSelected,
-    const SingleActivator(LogicalKeyboardKey.escape): () => c.select(null),
+    const SingleActivator(LogicalKeyboardKey.escape): () {
+      final panels = ToolPanelScope.maybeOf(context);
+      if (panels?.current != null) {
+        panels!.close();
+      } else {
+        c.select(null);
+      }
+    },
   };
 
   @override
   Widget build(BuildContext context) {
+    final panels = ToolPanelScope.watch(context)!;
+    final panel = panels.current;
     return PopScope<Project>(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) Navigator.of(context).pop(c.project);
+        if (didPop) return;
+        // Back closes an open tool first.
+        if (panels.current != null) {
+          panels.close();
+        } else {
+          Navigator.of(context).pop(c.project);
+        }
       },
       child: CallbackShortcuts(
         bindings: _shortcuts,
@@ -738,35 +782,53 @@ class _EditorScreenState extends State<EditorScreen>
                 ],
               ),
               body: SafeArea(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: PreviewView(
-                        controller: c,
-                        player: _previewWidget,
-                        thumbnails: _thumbs,
-                        onEditText: (id) => showTextSheet(context, c, id),
-                      ),
-                    ),
-                    _TransportBar(controller: c),
-                    const Divider(height: 1),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 230),
-                      child: SingleChildScrollView(
-                        child: TimelineView(
+                child: LayoutBuilder(
+                  builder: (context, box) => Column(
+                    children: [
+                      Expanded(
+                        child: PreviewView(
                           controller: c,
+                          player: _previewWidget,
                           thumbnails: _thumbs,
-                          waveforms: _waves,
-                          onLongPressClip: _reorder,
-                          reverseJobs: _reverses,
-                          onTransitionTap: (i) =>
-                              showTransitionSheet(context, c, _engine, i),
+                          onEditText: (id) => showTextSheet(context, c, id),
                         ),
                       ),
-                    ),
-                    const Divider(height: 1),
-                    ToolBar(tools: _tools()),
-                  ],
+                      _TransportBar(controller: c),
+                      const Divider(height: 1),
+                      // A tool's settings take the place of the timeline and
+                      // toolbar, so they never cover the video.
+                      if (panel != null)
+                        SizedBox(
+                          height: (box.maxHeight - 170).clamp(
+                            0.0,
+                            (box.maxHeight * 0.5).clamp(240.0, 330.0),
+                          ),
+                          child: ToolPanelView(
+                            key: ObjectKey(panel),
+                            panel: panel,
+                            onDone: () => panels.close(panel),
+                          ),
+                        )
+                      else ...[
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 230),
+                          child: SingleChildScrollView(
+                            child: TimelineView(
+                              controller: c,
+                              thumbnails: _thumbs,
+                              waveforms: _waves,
+                              onLongPressClip: _reorder,
+                              reverseJobs: _reverses,
+                              onTransitionTap: (i) =>
+                                  showTransitionSheet(context, c, _engine, i),
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        ToolBar(tools: _tools()),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -7,25 +7,22 @@ import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_controller.dart';
+import 'tool_panel.dart';
 
-/// Bottom sheet with a slider whose changes are shown live and become a
-/// single undo step when the sheet closes.
+/// A tool panel (below the video) whose changes are shown live and become
+/// a single undo step when it closes.
 Future<void> _liveSheet(
   BuildContext context,
   EditorController c,
+  String title,
   Widget Function(BuildContext context) builder,
 ) async {
-  await showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-        child: ListenableBuilder(
-          listenable: c,
-          builder: (context, _) => builder(context),
-        ),
-      ),
+  await showToolPanel(
+    context,
+    title: title,
+    builder: (context) => ListenableBuilder(
+      listenable: c,
+      builder: (context, _) => builder(context),
     ),
   );
   c.endLiveEdit();
@@ -43,7 +40,7 @@ Future<void> showSpeedSheet(BuildContext context, EditorController c) {
   double fromSlider(double v) => math.pow(2, v).toDouble();
   const presets = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
 
-  return _liveSheet(context, c, (context) {
+  return _liveSheet(context, c, 'Speed', (context) {
     final clip = c.project.placementOf(id)?.clip;
     if (clip == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
@@ -107,7 +104,7 @@ Future<void> showSpeedSheet(BuildContext context, EditorController c) {
 Future<void> showOpacitySheet(BuildContext context, EditorController c) {
   final id = c.selectedClipId;
   if (id == null) return Future.value();
-  return _liveSheet(context, c, (context) {
+  return _liveSheet(context, c, 'Opacity', (context) {
     final clip = c.project.placementOf(id)?.clip;
     if (clip == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
@@ -163,99 +160,94 @@ Future<void> showBackgroundSheet(
   EditorController c,
   MediaEngine engine,
 ) {
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-        child: ListenableBuilder(
-          listenable: c,
-          builder: (context, _) {
-            final current = c.project.background;
-            final theme = Theme.of(context);
-            final allowed = engine.supportsBackgrounds;
-            Widget swatch(BackgroundFill fill, Widget child, String tooltip) {
-              final selected = current == fill;
-              final enabled = allowed || fill.isPlainBlack;
-              return Tooltip(
-                message: tooltip,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(24),
-                  onTap: enabled ? () => c.setBackground(fill) : null,
-                  child: Opacity(
-                    opacity: enabled ? 1 : 0.3,
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: selected
-                              ? theme.colorScheme.primary
-                              : Colors.white24,
-                          width: selected ? 3 : 1,
-                        ),
-                      ),
-                      child: ClipOval(child: child),
+  return showToolPanel(
+    context,
+    title: 'Background',
+    builder: (context) => ListenableBuilder(
+      listenable: c,
+      builder: (context, _) {
+        final current = c.project.background;
+        final theme = Theme.of(context);
+        final allowed = engine.supportsBackgrounds;
+        Widget swatch(BackgroundFill fill, Widget child, String tooltip) {
+          final selected = current == fill;
+          final enabled = allowed || fill.isPlainBlack;
+          return Tooltip(
+            message: tooltip,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(24),
+              onTap: enabled ? () => c.setBackground(fill) : null,
+              child: Opacity(
+                opacity: enabled ? 1 : 0.3,
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: selected
+                          ? theme.colorScheme.primary
+                          : Colors.white24,
+                      width: selected ? 3 : 1,
                     ),
                   ),
+                  child: ClipOval(child: child),
                 ),
-              );
-            }
+              ),
+            ),
+          );
+        }
 
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Background', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Fills the space around videos that don\'t match the canvas '
+              'shape, and shows through when opacity is lowered.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
               children: [
-                Text('Background', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 4),
-                Text(
-                  'Fills the space around videos that don\'t match the canvas '
-                  'shape, and shows through when opacity is lowered.',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    swatch(
-                      const BackgroundFill.blur(),
-                      const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF4DB6AC), Color(0xFF7986CB)],
-                          ),
-                        ),
-                        child: Center(
-                          child: Icon(Icons.blur_on, color: Colors.white),
-                        ),
+                swatch(
+                  const BackgroundFill.blur(),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF4DB6AC), Color(0xFF7986CB)],
                       ),
-                      'Blurred video',
                     ),
-                    for (final color in backgroundColors)
-                      swatch(
-                        BackgroundFill.color(color),
-                        ColoredBox(color: Color(color)),
-                        color == 0xFF000000 ? 'Black' : 'Color',
-                      ),
-                  ],
-                ),
-                if (!allowed) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Colored and blurred backgrounds aren\'t available on '
-                    'Android yet (they need custom work beyond Google\'s video '
-                    'tools). They already work on Windows.',
-                    style: theme.textTheme.bodySmall,
+                    child: Center(
+                      child: Icon(Icons.blur_on, color: Colors.white),
+                    ),
                   ),
-                ],
+                  'Blurred video',
+                ),
+                for (final color in backgroundColors)
+                  swatch(
+                    BackgroundFill.color(color),
+                    ColoredBox(color: Color(color)),
+                    color == 0xFF000000 ? 'Black' : 'Color',
+                  ),
               ],
-            );
-          },
-        ),
-      ),
+            ),
+            if (!allowed) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Colored and blurred backgrounds aren\'t available on '
+                'Android yet (they need custom work beyond Google\'s video '
+                'tools). They already work on Windows.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ],
+        );
+      },
     ),
   );
 }
@@ -582,7 +574,7 @@ class _CropPainter extends CustomPainter {
 Future<void> showVolumeSheet(BuildContext context, EditorController c) {
   final id = c.selectedClipId;
   if (id == null) return Future.value();
-  return _liveSheet(context, c, (context) {
+  return _liveSheet(context, c, 'Volume', (context) {
     final clip = c.project.placementOf(id)?.clip;
     if (clip == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
@@ -637,7 +629,7 @@ Future<void> showVolumeSheet(BuildContext context, EditorController c) {
 Future<void> showFadeSheet(BuildContext context, EditorController c) {
   final id = c.selectedClipId;
   if (id == null) return Future.value();
-  return _liveSheet(context, c, (context) {
+  return _liveSheet(context, c, 'Fade', (context) {
     final clip = c.project.placementOf(id)?.clip;
     if (clip == null) return const SizedBox.shrink();
     final theme = Theme.of(context);

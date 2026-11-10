@@ -1,22 +1,63 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../engine/media_engine.dart';
 import '../model/project.dart';
+import '../model/transition_math.dart';
 import 'editor_controller.dart';
+import 'tool_panel.dart';
 
-IconData transitionIcon(TransitionKind? k) => switch (k) {
-  null => Icons.block,
-  TransitionKind.fade => Icons.gradient,
-  TransitionKind.fadeBlack => Icons.contrast,
-  TransitionKind.slideLeft => Icons.arrow_back,
-  TransitionKind.slideRight => Icons.arrow_forward,
-  TransitionKind.slideUp => Icons.arrow_upward,
-  TransitionKind.slideDown => Icons.arrow_downward,
-  TransitionKind.zoom => Icons.zoom_in,
-  _ => Icons.compare_arrows,
-};
+/// The small icon on the timeline's transition button.
+IconData transitionIcon(TransitionKind? k) {
+  if (k == null) return Icons.block;
+  return switch (k) {
+    TransitionKind.fade => Icons.gradient,
+    TransitionKind.fadeBlack => Icons.contrast,
+    TransitionKind.fadeWhite => Icons.wb_sunny_outlined,
+    TransitionKind.dissolve => Icons.grain,
+    TransitionKind.pixelize => Icons.grid_on,
+    TransitionKind.zoom => Icons.zoom_in,
+    TransitionKind.slideLeft ||
+    TransitionKind.coverLeft ||
+    TransitionKind.revealLeft ||
+    TransitionKind.wipeLeft ||
+    TransitionKind.softLeft => Icons.arrow_back,
+    TransitionKind.slideRight ||
+    TransitionKind.coverRight ||
+    TransitionKind.revealRight ||
+    TransitionKind.wipeRight ||
+    TransitionKind.softRight => Icons.arrow_forward,
+    TransitionKind.slideUp ||
+    TransitionKind.coverUp ||
+    TransitionKind.revealUp ||
+    TransitionKind.wipeUp ||
+    TransitionKind.softUp => Icons.arrow_upward,
+    TransitionKind.slideDown ||
+    TransitionKind.coverDown ||
+    TransitionKind.revealDown ||
+    TransitionKind.wipeDown ||
+    TransitionKind.softDown => Icons.arrow_downward,
+    TransitionKind.cornerTopLeft => Icons.north_west,
+    TransitionKind.cornerTopRight => Icons.north_east,
+    TransitionKind.cornerBottomLeft => Icons.south_west,
+    TransitionKind.cornerBottomRight => Icons.south_east,
+    TransitionKind.clock => Icons.schedule,
+    TransitionKind.circleOpen ||
+    TransitionKind.circleClose ||
+    TransitionKind.iris => Icons.circle_outlined,
+    TransitionKind.box => Icons.crop_square,
+    TransitionKind.doorsOpen || TransitionKind.doorsClose => Icons.door_sliding,
+    TransitionKind.splitOpen ||
+    TransitionKind.splitClose => Icons.horizontal_split,
+  };
+}
 
-/// Choose how main clip [index] changes into the next one.
+/// Choose how main clip [index] changes into the next one. Opens below the
+/// video, and plays the cut each time a type is picked.
 Future<void> showTransitionSheet(
   BuildContext context,
   EditorController c,
@@ -24,141 +65,392 @@ Future<void> showTransitionSheet(
   int index,
 ) {
   c.pause();
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: ListenableBuilder(
-          listenable: c,
-          builder: (context, _) {
-            final clips = c.project.mainTrack.clips;
-            if (index >= clips.length - 1) return const SizedBox.shrink();
-            final current = clips[index].transition;
-            final theme = Theme.of(context);
-            Widget tile(TransitionKind? k) {
-              final selected = current?.kind == k;
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => c.setTransition(
-                  index,
-                  k == null
-                      ? null
-                      : TransitionSpec(
-                          k,
-                          durationUs: current?.durationUs ?? 500000,
-                        ),
-                ),
-                child: Container(
-                  width: 84,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: selected
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.outlineVariant,
-                      width: selected ? 2 : 1,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(transitionIcon(k)),
-                      const SizedBox(height: 6),
-                      Text(
-                        k?.label ?? 'None',
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        style: theme.textTheme.labelSmall,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
+  return showToolPanel(
+    context,
+    title: 'Transition',
+    scrollable: false,
+    builder: (context) => _TransitionPanel(c: c, index: index),
+  );
+}
 
-            final hasHdr = clips.any((x) => x.media?.isHdr ?? false);
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Transition', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+class _TransitionPanel extends StatefulWidget {
+  const _TransitionPanel({required this.c, required this.index});
+
+  final EditorController c;
+  final int index;
+
+  @override
+  State<_TransitionPanel> createState() => _TransitionPanelState();
+}
+
+class _TransitionPanelState extends State<_TransitionPanel>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _loop = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2200),
+  )..repeat();
+  late TransitionGroup _group = _current?.kind.group ?? TransitionGroup.basic;
+  int? _stopAtUs;
+
+  EditorController get c => widget.c;
+  TransitionSpec? get _current {
+    final clips = c.project.mainTrack.clips;
+    return widget.index < clips.length ? clips[widget.index].transition : null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    c.addListener(_watchPlayback);
+    // Show the cut, ready to play.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _jumpToCut(play: false);
+    });
+  }
+
+  @override
+  void dispose() {
+    c.removeListener(_watchPlayback);
+    _loop.dispose();
+    super.dispose();
+  }
+
+  /// Puts the playhead just before the cut and (optionally) plays across it.
+  void _jumpToCut({required bool play}) {
+    final placements = c.project.placementsOn(c.project.mainTrack);
+    if (widget.index + 1 >= placements.length) return;
+    final start = placements[widget.index + 1].startUs;
+    final d = c.project.transitionUsAfter(widget.index);
+    c.pause();
+    c.seek(math.max(0, start - 700000), exact: true);
+    if (play) {
+      _stopAtUs = start + d + 500000;
+      c.play();
+    }
+  }
+
+  void _watchPlayback() {
+    final stop = _stopAtUs;
+    if (stop != null && (c.playheadUs >= stop || !c.playing)) {
+      _stopAtUs = null;
+      if (c.playing) c.pause();
+    }
+  }
+
+  void _pick(TransitionKind? k) {
+    final current = _current;
+    c.setTransition(
+      widget.index,
+      k == null
+          ? null
+          : TransitionSpec(k, durationUs: current?.durationUs ?? 800000),
+    );
+    if (k != null) _jumpToCut(play: true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, _) {
+        final clips = c.project.mainTrack.clips;
+        if (widget.index >= clips.length - 1) return const SizedBox.shrink();
+        final current = _current;
+        final kinds = TransitionKind.values
+            .where((k) => k.group == _group)
+            .toList();
+        return Column(
+          children: [
+            SizedBox(
+              height: 104,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  _Tile(
+                    label: 'None',
+                    selected: current == null,
+                    onTap: () => _pick(null),
+                    child: const Center(
+                      child: Icon(Icons.block, color: Colors.white54),
+                    ),
+                  ),
+                  for (final k in kinds)
+                    _Tile(
+                      label: k.label,
+                      selected: current?.kind == k,
+                      onTap: () => _pick(k),
+                      child: _Thumb(kind: k, loop: _loop),
+                    ),
+                ],
+              ),
+            ),
+            if (current != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
                   children: [
-                    tile(null),
-                    for (final k in TransitionKind.values) tile(k),
-                  ],
-                ),
-                if (current != null) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Text('Length'),
-                      Expanded(
-                        child: Slider(
-                          min: 200000,
-                          max: TransitionSpec.maxUs.toDouble(),
-                          divisions: 28,
-                          value: current.durationUs
-                              .clamp(200000, TransitionSpec.maxUs)
-                              .toDouble(),
-                          onChanged: (v) => c.liveEdit(
-                            (b) => b.setTransition(
-                              index,
-                              current.copyWith(durationUs: v.round()),
-                            ),
+                    const Text('Length'),
+                    Expanded(
+                      child: Slider(
+                        min: 200000,
+                        max: TransitionSpec.maxUs.toDouble(),
+                        divisions: 28,
+                        value: current.durationUs
+                            .clamp(200000, TransitionSpec.maxUs)
+                            .toDouble(),
+                        onChanged: (v) => c.liveEdit(
+                          (b) => b.setTransition(
+                            widget.index,
+                            current.copyWith(durationUs: v.round()),
                           ),
-                          onChangeEnd: (_) => c.endLiveEdit(),
                         ),
+                        onChangeEnd: (_) {
+                          c.endLiveEdit();
+                          _jumpToCut(play: true);
+                        },
                       ),
-                      SizedBox(
-                        width: 48,
-                        child: Text(
-                          '${(c.project.transitionUsAfter(index) / 1000000).toStringAsFixed(1)} s',
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    'The two clips overlap while it plays, so the video gets '
-                    'that much shorter. It can be at most half as long as '
-                    'the shorter clip.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  if (!engine.supportsAllTransitions &&
-                      current.kind != TransitionKind.fadeBlack) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      hasHdr
-                          ? 'On Android this shows as "Fade through black" for '
-                                'now: Android\'s own tools can\'t blend two HDR '
-                                'videos yet. It keeps your HDR intact.'
-                          : 'On Android this shows as "Fade through black" for '
-                                'now. The Windows version does every type.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.tertiary,
+                    ),
+                    SizedBox(
+                      width: 44,
+                      child: Text(
+                        '${(c.project.transitionUsAfter(widget.index) / 1000000).toStringAsFixed(1)} s',
                       ),
                     ),
                   ],
-                ],
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.done_all),
-                    label: const Text('Use for all cuts'),
+                ),
+              )
+            else
+              const SizedBox(height: 48),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      current == null
+                          ? 'Pick how this clip changes into the next.'
+                          : 'The clips overlap while it plays, so the video '
+                                'gets that much shorter.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  TextButton.icon(
+                    icon: const Icon(Icons.done_all, size: 18),
+                    label: const Text('Use for all'),
                     onPressed: () => c.setAllTransitions(current),
                   ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            const Divider(height: 1),
+            SizedBox(
+              height: 44,
+              child: Row(
+                children: [
+                  for (final g in TransitionGroup.values)
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _group = g),
+                        child: Center(
+                          child: Text(
+                            g.label.toUpperCase(),
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: g == _group
+                                  ? theme.colorScheme.onSurface
+                                  : theme.colorScheme.onSurface.withValues(
+                                      alpha: 0.45,
+                                    ),
+                              fontWeight: g == _group
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _Tile extends StatelessWidget {
+  const _Tile({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.child,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, top: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 84,
+          child: Column(
+            children: [
+              Container(
+                width: 84,
+                height: 56,
+                clipBehavior: ui.Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : Colors.white12,
+                    width: selected ? 2.5 : 1,
+                  ),
                 ),
-              ],
-            );
-          },
+                child: child,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: selected ? theme.colorScheme.primary : null,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+/// A looping little picture of the transition between two sample scenes.
+class _Thumb extends StatelessWidget {
+  const _Thumb({required this.kind, required this.loop});
+
+  final TransitionKind kind;
+  final Animation<double> loop;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<ui.Image>>(
+      future: TransitionThumbnails.framesFor(kind),
+      builder: (context, snap) {
+        final frames = snap.data;
+        if (frames == null) return const SizedBox.expand();
+        return AnimatedBuilder(
+          animation: loop,
+          builder: (context, _) {
+            // Hold the first scene, play the transition, hold the second.
+            final x = ((loop.value - 0.2) / 0.6).clamp(0.0, 1.0);
+            final i = (x * (frames.length - 1)).round();
+            return RawImage(image: frames[i], fit: BoxFit.cover);
+          },
+        );
+      },
+    );
+  }
+}
+
+/// Makes (once) the frames of each transition's little preview.
+class TransitionThumbnails {
+  static const width = 96, height = 64, frameCount = 24;
+  static final _cache = <TransitionKind, Future<List<ui.Image>>>{};
+
+  static Future<List<ui.Image>> framesFor(TransitionKind kind) =>
+      _cache.putIfAbsent(kind, () async {
+        final bytes = await compute(renderFrames, kind.index);
+        final images = <ui.Image>[];
+        final size = width * height * 4;
+        for (var f = 0; f < frameCount; f++) {
+          final done = Completer<ui.Image>();
+          ui.decodeImageFromPixels(
+            Uint8List.sublistView(bytes, f * size, (f + 1) * size),
+            width,
+            height,
+            ui.PixelFormat.rgba8888,
+            done.complete,
+          );
+          images.add(await done.future);
+        }
+        return images;
+      });
+
+  /// RGBA bytes of every frame (runs in the background).
+  @visibleForTesting
+  static Uint8List renderFrames(int kindIndex) {
+    final kind = TransitionKind.values[kindIndex];
+    final out = Uint8List(width * height * 4 * frameCount);
+    const Rgb white = (r: 1, g: 1, b: 1), black = (r: 0, g: 0, b: 0);
+    var o = 0;
+    for (var f = 0; f < frameCount; f++) {
+      final t = f / (frameCount - 1);
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+          final u = (x + 0.5) / width, v = (y + 0.5) / height;
+          final c = kind.isDip
+              ? dipPixel(
+                  u,
+                  v,
+                  t,
+                  kind == TransitionKind.fadeWhite ? white : black,
+                  _sunset,
+                  _sea,
+                )
+              : transitionPixel(
+                  kind.code,
+                  u,
+                  v,
+                  t,
+                  width.toDouble(),
+                  height.toDouble(),
+                  _sunset,
+                  _sea,
+                );
+          out[o++] = (c.r * 255).round().clamp(0, 255);
+          out[o++] = (c.g * 255).round().clamp(0, 255);
+          out[o++] = (c.b * 255).round().clamp(0, 255);
+          out[o++] = 255;
+        }
+      }
+    }
+    return out;
+  }
+
+  /// Sample scene 1: an orange sky with a sun over dark hills.
+  static Rgb _sunset(double u, double v) {
+    final hill = 0.72 + 0.08 * math.sin(u * 7);
+    if (v > hill) return (r: 0.25, g: 0.12, b: 0.18);
+    final dx = (u - 0.32) * 1.5, dy = v - 0.42;
+    if (dx * dx + dy * dy < 0.025) return (r: 1, g: 0.93, b: 0.55);
+    return (r: 1, g: 0.55 - 0.25 * v, b: 0.25 + 0.3 * v);
+  }
+
+  /// Sample scene 2: a blue sea with a white sail.
+  static Rgb _sea(double u, double v) {
+    if (v > 0.6) return (r: 0.05, g: 0.3 + 0.2 * (1 - v), b: 0.55);
+    final inSail =
+        u > 0.58 &&
+        u < 0.78 &&
+        v > 0.18 &&
+        v < 0.6 &&
+        (u - 0.58) < (v - 0.18) * 0.5;
+    if (inSail) return (r: 1, g: 1, b: 1);
+    return (r: 0.55 + 0.3 * v, g: 0.78 + 0.1 * v, b: 0.95);
+  }
 }

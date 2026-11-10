@@ -5,6 +5,7 @@ import android.net.Uri
 import android.view.SurfaceView
 import android.view.View
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.effect.DefaultVideoFrameProcessor
 import androidx.media3.effect.MultipleInputVideoGraph
@@ -33,6 +34,8 @@ class PreviewManager(private val context: Context) {
     private var blends: BlendInput? = null
     /** The player was built for two picture layers (mixing transitions). */
     private var usingLayers = false
+    private var layersFailed = false
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private var canvas = Pair(1920, 1080)
     /** Start of each segment on the timeline (plain mode), in microseconds. */
     private var starts: LongArray = LongArray(0)
@@ -70,7 +73,8 @@ class PreviewManager(private val context: Context) {
             starts[i] = t
             t += Math.round(s.lengthUs / s.speed)
         }
-        val wantLayers = newBlends != null
+        // If mixing failed once on this phone, preview without it (cuts).
+        val wantLayers = newBlends != null && !layersFailed
         val wantComposition = wantLayers || newSegments.any { it.hasEffects }
         if (player == null || wantComposition != usingComposition || wantLayers != usingLayers) {
             player?.release()
@@ -90,6 +94,16 @@ class PreviewManager(private val context: Context) {
             }
             usingComposition = wantComposition
             usingLayers = wantLayers
+            if (wantLayers) {
+                player!!.addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        layersFailed = true
+                        val s = segments
+                        segments = emptyList()
+                        main.post { setTimeline(s, canvas.first, canvas.second, blends) }
+                    }
+                })
+            }
             player!!.repeatMode = Player.REPEAT_MODE_OFF
             surface?.let { player!!.setVideoSurfaceView(it) }
         }
@@ -107,7 +121,7 @@ class PreviewManager(private val context: Context) {
             p.setComposition(
                 CompositionFactory.build(
                     newSegments, w, h, null, Composition.HDR_MODE_KEEP_HDR,
-                    blends = newBlends,
+                    blends = if (wantLayers) newBlends else null,
                 )
             )
             p.seekTo(keep.coerceIn(0, t) / 1000)

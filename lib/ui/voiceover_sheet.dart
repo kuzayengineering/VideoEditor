@@ -9,6 +9,7 @@ import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_controller.dart';
+import 'tool_panel.dart';
 
 /// Records narration from the microphone while the video plays, then puts
 /// it on an audio track starting where recording began.
@@ -18,11 +19,9 @@ Future<void> showVoiceOverSheet(
   MediaEngine engine,
 ) {
   c.pause();
-  return showModalBottomSheet<void>(
-    context: context,
-    isDismissible: false,
-    enableDrag: false,
-    showDragHandle: true,
+  return showToolPanel(
+    context,
+    title: 'Voice-over',
     builder: (context) => _VoiceOverSheet(controller: c, engine: engine),
   );
 }
@@ -54,6 +53,8 @@ class _VoiceOverSheetState extends State<_VoiceOverSheet> {
   void dispose() {
     _tick?.cancel();
     _levels?.cancel();
+    // Closed while recording: stop the video too (the take is dropped).
+    if (_recording) c.pause();
     _recorder.dispose();
     c.previewMuted = false;
     super.dispose();
@@ -127,7 +128,7 @@ class _VoiceOverSheetState extends State<_VoiceOverSheet> {
       if (path != null) {
         unawaited(File(path).delete().then((_) {}, onError: (Object _) {}));
       }
-      if (mounted) Navigator.pop(context);
+      if (mounted) closeToolPanel(context);
       return;
     }
     try {
@@ -152,7 +153,7 @@ class _VoiceOverSheetState extends State<_VoiceOverSheet> {
       );
       c.apply(c.project.addAudio(clip));
       c.seek(_startUs, exact: true);
-      if (mounted) Navigator.pop(context);
+      if (mounted) closeToolPanel(context);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -167,88 +168,81 @@ class _VoiceOverSheetState extends State<_VoiceOverSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final elapsed = _clock.elapsedMicroseconds;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Voice-over', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              _recording
-                  ? 'Recording… talk along with the video.'
-                  : 'Recording starts at the playhead '
-                        '(${formatTimecode(c.playheadUs, c.project.frameRate)}). '
-                        'The video plays silently while you talk.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              formatShortDuration(_recording ? elapsed : 0),
-              style: theme.textTheme.displaySmall?.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-            const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: _recording ? _level : 0,
-                minHeight: 8,
-                color: _level > 0.92 ? Colors.redAccent : Colors.greenAccent,
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (_saving)
-              const CircularProgressIndicator()
-            else
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (_recording)
-                    TextButton(
-                      onPressed: () => _stop(keep: false),
-                      child: const Text('Discard'),
-                    )
-                  else
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
-                    ),
-                  const SizedBox(width: 24),
-                  SizedBox(
-                    width: 76,
-                    height: 76,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        shape: const CircleBorder(),
-                        backgroundColor: Colors.redAccent,
-                        padding: EdgeInsets.zero,
-                      ),
-                      onPressed: _recording ? _stop : _start,
-                      child: Icon(
-                        _recording ? Icons.stop_rounded : Icons.mic,
-                        size: 38,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 24 + 64),
-                ],
-              ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _error!,
-                style: TextStyle(color: theme.colorScheme.error),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _recording
+              ? 'Recording… talk along with the video.'
+              : 'Recording starts at the playhead '
+                    '(${formatTimecode(c.playheadUs, c.project.frameRate)}). '
+                    'The video plays silently while you talk.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
         ),
-      ),
+        const SizedBox(height: 20),
+        Text(
+          formatShortDuration(_recording ? elapsed : 0),
+          style: theme.textTheme.displaySmall?.copyWith(
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: _recording ? _level : 0,
+            minHeight: 8,
+            color: _level > 0.92 ? Colors.redAccent : Colors.greenAccent,
+          ),
+        ),
+        const SizedBox(height: 20),
+        if (_saving)
+          const CircularProgressIndicator()
+        else
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_recording)
+                TextButton(
+                  onPressed: () => _stop(keep: false),
+                  child: const Text('Discard'),
+                )
+              else
+                TextButton(
+                  onPressed: () => closeToolPanel(context),
+                  child: const Text('Close'),
+                ),
+              const SizedBox(width: 24),
+              SizedBox(
+                width: 76,
+                height: 76,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    shape: const CircleBorder(),
+                    backgroundColor: Colors.redAccent,
+                    padding: EdgeInsets.zero,
+                  ),
+                  onPressed: _recording ? _stop : _start,
+                  child: Icon(
+                    _recording ? Icons.stop_rounded : Icons.mic,
+                    size: 38,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 24 + 64),
+            ],
+          ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            _error!,
+            style: TextStyle(color: theme.colorScheme.error),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
     );
   }
 }

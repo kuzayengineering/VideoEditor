@@ -203,6 +203,20 @@ class AndroidMediaEngine implements MediaEngine {
     await _channel.invokeMethod('startExport', {
       'segments': [for (final seg in segments) seg.toMap()],
       ..._blendArgs(blends),
+      // If mixing fails on the phone: every transition as a dip instead.
+      if (blends != null) ...{
+        'fallbackSegments': [
+          for (final seg in segmentsOf(project)) seg.toMap(),
+        ],
+        'fallbackDips': [
+          for (final d in dipsOf(project))
+            {
+              'startUs': d.startUs,
+              'durationUs': d.durationUs,
+              'color': d.color,
+            },
+        ],
+      },
       'dips': [
         for (final d in dipsOf(project, blend: true))
           {'startUs': d.startUs, 'durationUs': d.durationUs, 'color': d.color},

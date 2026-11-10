@@ -2,54 +2,45 @@ import 'package:flutter/material.dart';
 
 import '../model/project.dart';
 import 'editor_controller.dart';
+import 'tool_panel.dart';
 
 /// Lets the user pick the video's shape (aspect ratio), including a custom one.
 Future<void> showCanvasSheet(BuildContext context, EditorController c) {
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
+  return showToolPanel(
+    context,
+    title: 'Canvas',
     builder: (context) => ListenableBuilder(
       listenable: c,
-      builder: (context, _) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (context, _) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
             children: [
-              Text(
-                'Canvas shape',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (final r in CanvasRatio.presets)
-                    _RatioTile(
-                      ratio: r,
-                      selected: c.project.canvas.sameShapeAs(r),
-                      onTap: () => c.setCanvas(r),
-                    ),
-                  _RatioTile(
-                    ratio: CanvasRatio.presets.any(c.project.canvas.sameShapeAs)
-                        ? const CanvasRatio('Custom', 1, 1, hint: 'Your own')
-                        : c.project.canvas,
-                    selected: !CanvasRatio.presets.any(
-                      c.project.canvas.sameShapeAs,
-                    ),
-                    custom: true,
-                    onTap: () async {
-                      final r = await _askCustomRatio(context);
-                      if (r != null) c.setCanvas(r);
-                    },
-                  ),
-                ],
+              for (final r in CanvasRatio.presets)
+                _RatioTile(
+                  ratio: r,
+                  selected: c.project.canvas.sameShapeAs(r),
+                  onTap: () => c.setCanvas(r),
+                ),
+              _RatioTile(
+                ratio: CanvasRatio.presets.any(c.project.canvas.sameShapeAs)
+                    ? const CanvasRatio('Custom', 1, 1, hint: 'Your own')
+                    : c.project.canvas,
+                selected: !CanvasRatio.presets.any(
+                  c.project.canvas.sameShapeAs,
+                ),
+                custom: true,
+                onTap: () async {
+                  final r = await _askCustomRatio(context);
+                  if (r != null) c.setCanvas(r);
+                },
               ),
             ],
           ),
-        ),
+        ],
       ),
     ),
   );

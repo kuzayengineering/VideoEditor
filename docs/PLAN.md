@@ -159,12 +159,14 @@ Status notes:
   typewriter). The app draws the text itself, so preview and export match;
   white text sits at HDR reference white in HDR exports. Dragging text
   snaps to the centre lines of the video.
-- **Transitions** work: fade, fade through black, four slides and zoom, with
-  a length slider and "Use for all cuts". The two clips overlap while it
-  plays. Windows does every type (the preview shows it after a short
-  background render). Android shows them all as fade through black for now,
-  because Android's own tools can't blend two videos in HDR yet; a custom
-  HDR blender is planned together with picture in picture.
+- **Transitions** work on both platforms: 39 types in four groups (Basic,
+  Slide, Wipe, Shape), including a true crossfade, with a length slider and
+  "Use for all". The two clips overlap while it plays. On Android the app
+  blends the two clips itself, in HDR, using a patched copy of Google's
+  video library (android/media3-effect); the maths matches the Windows
+  version exactly (checked against FFmpeg by a test).
+- **Tool menus open below the video** (in place of the timeline), so the
+  picture is never covered while you adjust things.
 - **Picture in picture** (video on top of video: move, resize, opacity)
 - **Text overlays** with fonts, colors and outlines, plus in/out **animations**
   (fade, slide, pop, typewriter, and so on)

@@ -39,6 +39,10 @@ data class ExportRequest(
     val texts: List<TextLayer>,
     val dips: List<Dip>,
     val blends: BlendInput?,
+    /** If blending the transitions fails: the same video with every
+     * transition as a dip through black (what older versions did). */
+    val fallbackSegments: List<Segment>?,
+    val fallbackDips: List<Dip>?,
     val width: Int,
     val height: Int,
     val frameRate: Double,
@@ -59,6 +63,9 @@ data class ExportRequest(
                 ?.map { TextLayer.from(it) } ?: emptyList(),
             dips = (m["dips"] as List<*>?)?.map { Dip.from(it as Map<*, *>) } ?: emptyList(),
             blends = BlendInput.from(m),
+            fallbackSegments = @Suppress("UNCHECKED_CAST") (m["fallbackSegments"] as List<Map<String, Any?>>?)
+                ?.let { Segment.listFrom(it) },
+            fallbackDips = (m["fallbackDips"] as List<*>?)?.map { Dip.from(it as Map<*, *>) },
             width = (m["width"] as Number).toInt(),
             height = (m["height"] as Number).toInt(),
             frameRate = (m["frameRate"] as Number).toDouble(),
@@ -114,6 +121,7 @@ object ExportManager {
         message = null
         location = null
         verification = null
+        fallbackNote = ""
         pending = req
         val intent = Intent(context, ExportService::class.java)
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
@@ -170,6 +178,23 @@ object ExportManager {
                         exportResult: ExportResult,
                         exportException: ExportException,
                     ) {
+                        val fallback = req.fallbackSegments
+                        if (req.blends != null && fallback != null) {
+                            // Mixing the clips didn't work on this phone: try
+                            // again with simple dips through black.
+                            transformer = null
+                            fallbackNote = " (transitions shown as fades through black: " +
+                                "${exportException.errorCodeName})"
+                            main.post {
+                                run(svc, req.copy(
+                                    segments = fallback,
+                                    dips = req.fallbackDips ?: emptyList(),
+                                    blends = null,
+                                    fallbackSegments = null,
+                                ))
+                            }
+                            return
+                        }
                         fail("Export failed: ${exportException.message ?: exportException.errorCodeName}")
                     }
                 })
@@ -187,6 +212,9 @@ object ExportManager {
     }
 
     private val holder = ProgressHolder()
+
+    /** Added to the result when the transitions had to be simplified. */
+    private var fallbackNote = ""
 
     private fun pollProgress() {
         val t = transformer ?: return
@@ -212,7 +240,7 @@ object ExportManager {
                 verification = verify(temp, req)
                 location = saveToDestination(ctx, temp, req)
                 temp.delete()
-                main.post { finish("done", "Saved to $location") }
+                main.post { finish("done", "Saved to $location$fallbackNote") }
             } catch (e: Exception) {
                 main.post { fail("Could not save the video: ${e.message ?: e}") }
             }
