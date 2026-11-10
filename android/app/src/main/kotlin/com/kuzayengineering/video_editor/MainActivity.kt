@@ -131,6 +131,11 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "previewPosition" -> result.success(preview.positionUs())
+            "renderTransition" -> {
+                TransitionRenderer.render(this, call.arguments as Map<*, *>) { ok ->
+                    result.success(ok)
+                }
+            }
             "startExport" -> {
                 @Suppress("UNCHECKED_CAST")
                 val request = ExportRequest.from(call.arguments as Map<String, Any?>)

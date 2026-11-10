@@ -76,10 +76,40 @@ class AndroidMediaEngine implements MediaEngine {
   bool get supportsBackgrounds => false;
 
   @override
-  bool get supportsAllTransitions => false;
+  bool get supportsAllTransitions => true;
 
+  /// Makes the transition's little video for the preview (in the
+  /// background, with the same blending as the export), in HDR if the clips
+  /// are HDR. The preview then plays it in place of the cut.
   @override
-  Future<String?> renderPreviewClip(Project project, String key) async => null;
+  Future<String?> renderPreviewClip(Project project, String key) async {
+    final dir = await Directory(
+      '${(await getApplicationCacheDirectory()).path}/transitions',
+    ).create(recursive: true);
+    final out = File('${dir.path}/$key.mp4');
+    if (await out.exists()) return out.path;
+    // Same size as the preview player's picture.
+    final ratio = project.canvas.value;
+    final w = ratio >= 1 ? 1920.0 : 1920 * ratio;
+    final h = ratio >= 1 ? 1920 / ratio : 1920.0;
+    final ok = await _channel.invokeMethod<bool>('renderTransition', {
+      'segments': [
+        for (final seg in segmentsOf(project, blend: true)) seg.toMap(),
+      ],
+      ..._blendArgs(blendLayersOf(project)),
+      'dips': [
+        for (final d in dipsOf(project, blend: true))
+          {'startUs': d.startUs, 'durationUs': d.durationUs, 'color': d.color},
+      ],
+      'width': (w / 2).round() * 2,
+      'height': (h / 2).round() * 2,
+      'frameRate': project.frameRate.round(),
+      'path': '${out.path}.part.mp4',
+    });
+    if (ok != true) return null;
+    await File('${out.path}.part.mp4').rename(out.path);
+    return out.path;
+  }
 
   @override
   Future<ReverseProxy> prepareReverse(
@@ -382,8 +412,10 @@ class AndroidPreviewPlayer implements PreviewPlayer {
     'canvasHeight': canvasHeight,
   });
 
+  /// Transitions play from little pre-made videos (see renderPreviewClip):
+  /// Media3's two-layer player can't jump around reliably.
   @override
-  bool get blendsTransitions => true;
+  bool get blendsTransitions => false;
 
   @override
   bool drawsEffects(List<PreviewSegment> segments) =>
