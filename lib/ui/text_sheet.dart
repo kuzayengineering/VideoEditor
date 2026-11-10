@@ -31,6 +31,8 @@ Future<void> showTextSheet(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
+    // Keep the video visible above, so changes can be seen as they're made.
+    barrierColor: Colors.transparent,
     builder: (context) =>
         _TextSheet(c: c, clipId: clipId, initialTab: initialTab),
   );
@@ -123,7 +125,7 @@ class _TextSheetState extends State<_TextSheet> {
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.62,
+          height: MediaQuery.of(context).size.height * 0.46,
           child: ListenableBuilder(
             listenable: c,
             builder: (context, _) {

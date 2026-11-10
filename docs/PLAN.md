@@ -150,7 +150,14 @@ Status notes:
 - Volume per clip, **fade in / fade out with custom durations**
 - **Record a voice-over** in the app
 
-### Stage 4 — Layers and text
+### Stage 4 — Layers and text *(text in testing; transitions and PiP next)*
+
+Status notes:
+- **Text** works on both platforms: 10 bundled fonts, size, colour, bold,
+  italic, shadow, alignment, outline, background box, drag/pinch/twist on
+  the preview, and appear/disappear animations (fade, four slides, pop,
+  typewriter). The app draws the text itself, so preview and export match;
+  white text sits at HDR reference white in HDR exports.
 - **Picture in picture** (video on top of video: move, resize, opacity)
 - **Text overlays** with fonts, colors and outlines, plus in/out **animations**
   (fade, slide, pop, typewriter, and so on)
