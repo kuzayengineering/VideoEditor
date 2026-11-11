@@ -187,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: Icons.play_circle_outline,
                     title: 'Try the demo project',
                     subtitle:
-                        'Colored placeholder clips to practise split, trim, '
+                        'Placeholder clips to practise split, trim, '
                         'copy and undo',
                     onTap: () =>
                         _open(buildDemoProject(_newId()), autosave: false),
@@ -253,11 +253,18 @@ class _BigAction extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: primary ? scheme.onPrimaryContainer : null,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: primary ? scheme.onPrimaryContainer : null,
+                      ),
                     ),
                   ],
                 ),

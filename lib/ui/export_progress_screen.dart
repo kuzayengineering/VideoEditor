@@ -129,8 +129,8 @@ class ExportProgressScreen extends StatelessWidget {
                                   ? Icons.verified_outlined
                                   : Icons.warning_amber_rounded,
                               color: p.verification!.ok
-                                  ? Colors.greenAccent
-                                  : Colors.orangeAccent,
+                                  ? theme.colorScheme.onSurface
+                                  : theme.colorScheme.error,
                             ),
                             title: Text(p.verification!.describe()),
                             subtitle: p.verification!.isHdr == null

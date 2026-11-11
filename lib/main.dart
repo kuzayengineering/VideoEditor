@@ -21,11 +21,12 @@ class VideoEditorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Dark theme by default: it's easier to judge video colors against a dark
-    // interface, which is why most editors (YouCut included) use one.
+    // Dark and colourless (shades of gray only), so the interface never
+    // tints how the video's colours look or nudges colour choices.
     final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF00BFA5),
+      seedColor: const Color(0xFF808080),
       brightness: Brightness.dark,
+      dynamicSchemeVariant: DynamicSchemeVariant.monochrome,
     );
     return AppScope(
       services: services,

@@ -219,7 +219,7 @@ Future<void> showBackgroundSheet(
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFF4DB6AC), Color(0xFF7986CB)],
+                        colors: [Color(0xFFBDBDBD), Color(0xFF424242)],
                       ),
                     ),
                     child: Center(
@@ -489,7 +489,7 @@ class _CropScreenState extends State<CropScreen> {
     final frame = widget.frame;
     final Widget image = frame == null
         ? const ColoredBox(
-            color: Color(0xFF263238),
+            color: Color(0xFF2A2A2A),
             child: Center(
               child: Icon(Icons.image_outlined, color: Colors.white38),
             ),

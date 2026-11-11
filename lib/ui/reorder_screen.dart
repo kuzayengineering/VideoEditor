@@ -73,7 +73,7 @@ class _ReorderScreenState extends State<ReorderScreen> {
                   return Card(
                     key: ValueKey(c.id),
                     color: highlighted
-                        ? theme.colorScheme.primaryContainer
+                        ? theme.colorScheme.surfaceContainerHighest
                         : null,
                     child: ListTile(
                       contentPadding: const EdgeInsets.fromLTRB(8, 4, 8, 4),

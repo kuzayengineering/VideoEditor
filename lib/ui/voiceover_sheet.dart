@@ -193,7 +193,8 @@ class _VoiceOverSheetState extends State<_VoiceOverSheet> {
           child: LinearProgressIndicator(
             value: _recording ? _level : 0,
             minHeight: 8,
-            color: _level > 0.92 ? Colors.redAccent : Colors.greenAccent,
+            // White, red only when too loud (it would distort).
+            color: _level > 0.92 ? Colors.redAccent : Colors.white70,
           ),
         ),
         const SizedBox(height: 20),

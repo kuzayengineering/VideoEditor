@@ -487,9 +487,13 @@ class TransitionThumbnails {
                   _sunset,
                   _sea,
                 );
-          out[o++] = (c.r * 255).round().clamp(0, 255);
-          out[o++] = (c.g * 255).round().clamp(0, 255);
-          out[o++] = (c.b * 255).round().clamp(0, 255);
+          // In shades of gray, like the rest of the interface.
+          final gray = ((0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * 255)
+              .round()
+              .clamp(0, 255);
+          out[o++] = gray;
+          out[o++] = gray;
+          out[o++] = gray;
           out[o++] = 255;
         }
       }
