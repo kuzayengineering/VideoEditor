@@ -3,7 +3,8 @@ package com.kuzayengineering.video_editor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.media3.common.OverlaySettings
-import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.TextOverlay
+import android.text.SpannableString
 import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.effect.TextureOverlay
 import kotlin.math.ceil
@@ -82,7 +83,19 @@ private fun frameAt(t: TextLayer, offsetUs: Long): Frame {
 }
 
 /** A text overlay that animates over time. */
-private class AnimatedTextOverlay(private val t: TextLayer) : BitmapOverlay() {
+/**
+ * Our overlays draw their own pictures, but are TextOverlays to Media3: in
+ * HDR videos it treats any other picture overlay as an "Ultra HDR" photo
+ * (and fails on ours), while text overlays are brought to HDR brightness.
+ */
+private abstract class PictureOverlay : TextOverlay() {
+    override fun getText(presentationTimeUs: Long) = SpannableString("")
+}
+
+/** In HDR: SDR white at "paper white" rather than the HDR maximum. */
+private const val HDR_BRIGHTNESS = 0.5f
+
+private class AnimatedTextOverlay(private val t: TextLayer) : PictureOverlay() {
     private val full: Bitmap = BitmapFactory.decodeFile(t.fullPath)
         ?: throw IllegalStateException("Text picture missing: ${t.fullPath}")
     private val steps = HashMap<Int, Bitmap>()
@@ -103,7 +116,10 @@ private class AnimatedTextOverlay(private val t: TextLayer) : BitmapOverlay() {
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
         val offset = presentationTimeUs - t.startUs
         if (offset < 0 || offset >= t.durationUs) {
-            return StaticOverlaySettings.Builder().setAlphaScale(0f).build()
+            return StaticOverlaySettings.Builder()
+                .setAlphaScale(0f)
+                .setHdrLuminanceMultiplier(HDR_BRIGHTNESS)
+                .build()
         }
         val f = frameAt(t, offset)
         // Media3 places overlays in -1…1 coordinates with up as positive.
@@ -114,6 +130,7 @@ private class AnimatedTextOverlay(private val t: TextLayer) : BitmapOverlay() {
             .setScale(f.scale.toFloat(), f.scale.toFloat())
             .setOverlayFrameAnchor(0f, 0f)
             .setBackgroundFrameAnchor(ax, ay)
+            .setHdrLuminanceMultiplier(HDR_BRIGHTNESS)
             .build()
     }
 }
@@ -134,7 +151,7 @@ data class Dip(val startUs: Long, val durationUs: Long, val color: Int = android
  * picture that thickens to solid at the middle of each transition and clears
  * again (the clips themselves were already trimmed to meet in the middle).
  */
-private class DipOverlay(private val dips: List<Dip>) : BitmapOverlay() {
+private class DipOverlay(private val dips: List<Dip>) : PictureOverlay() {
     private val bitmaps = HashMap<Int, Bitmap>()
     private var size = androidx.media3.common.util.Size(2, 2)
 
@@ -164,7 +181,10 @@ private class DipOverlay(private val dips: List<Dip>) : BitmapOverlay() {
                 alpha = 1f - kotlin.math.abs(2f * p - 1f)
             }
         }
-        return StaticOverlaySettings.Builder().setAlphaScale(alpha).build()
+        return StaticOverlaySettings.Builder()
+            .setAlphaScale(alpha)
+            .setHdrLuminanceMultiplier(HDR_BRIGHTNESS)
+            .build()
     }
 }
 
