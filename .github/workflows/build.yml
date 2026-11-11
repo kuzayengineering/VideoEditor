@@ -104,6 +104,12 @@ jobs:
           name: android
           path: dist/*.apk
           if-no-files-found: error
+      # The key for reading Android error reports (crash locations).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-mapping
+          path: build/app/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
 
   windows:
     name: Build Windows program
