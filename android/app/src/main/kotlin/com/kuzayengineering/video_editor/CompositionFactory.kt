@@ -268,6 +268,8 @@ object CompositionFactory {
             video += GradeEffect(
                 FloatArray(9) { grade.getOrElse(it) { 0.0 }.toFloat() },
                 s.transfer,
+                // The preview follows the sliders live; exports don't.
+                liveClipId = if (withGain) null else s.clipId,
             )
         }
         if (s.opacity < 0.999) {

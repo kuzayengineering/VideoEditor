@@ -271,7 +271,8 @@ class _LookPreview extends StatelessWidget {
   }
 }
 
-/// Shown while transitions are being prepared in the background.
+/// A small "working on it" spinner while parts of the preview are being
+/// made in the background.
 class _PreparingBadge extends StatelessWidget {
   const _PreparingBadge();
 
@@ -279,28 +280,15 @@ class _PreparingBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.black.withValues(alpha: 0.5),
+        shape: BoxShape.circle,
       ),
       child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(width: 8),
-            Text(
-              'Preparing transition…',
-              style: TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ],
+        padding: EdgeInsets.all(6),
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
         ),
       ),
     );

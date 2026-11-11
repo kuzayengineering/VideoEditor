@@ -169,6 +169,15 @@ class MainActivity : FlutterActivity() {
                 overlays.remove((call.argument<Number>("id")!!).toLong())?.release()
                 result.success(null)
             }
+            "previewGrades" -> {
+                val raw = call.argument<Map<String, List<Number>>>("grades") ?: emptyMap()
+                preview.setGrades(
+                    raw.entries.associate { (k, v) ->
+                        k.toInt() to FloatArray(v.size) { v[it].toFloat() }
+                    }
+                )
+                result.success(null)
+            }
             "previewScrubbing" -> {
                 preview.setScrubbing(call.argument<Boolean>("on") ?: false)
                 result.success(null)

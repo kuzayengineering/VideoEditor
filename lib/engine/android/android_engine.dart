@@ -466,6 +466,15 @@ class AndroidPreviewPlayer implements PreviewPlayer {
       _channel.invokeMethod('previewScrubbing', {'on': on});
 
   @override
+  bool get gradesLive => true;
+
+  @override
+  Future<void> setGrades(Map<int, List<double>> grades) =>
+      _channel.invokeMethod('previewGrades', {
+        'grades': {for (final e in grades.entries) '${e.key}': e.value},
+      });
+
+  @override
   Future<void> seek(int timeUs, {bool exact = true}) =>
       _channel.invokeMethod('previewSeek', {'timeUs': timeUs, 'exact': exact});
 

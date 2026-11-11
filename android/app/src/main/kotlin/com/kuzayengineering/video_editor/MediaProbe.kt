@@ -46,6 +46,8 @@ data class Segment(
     val grade: List<Double>? = null,
     /** The clip's signal: "sdr", "hlg" or "pq". */
     val transfer: String = "sdr",
+    /** The clip this piece comes from (for live filter changes). */
+    val clipId: Int? = null,
 ) {
     val timelineUs: Long get() = Math.round(lengthUs / speed)
 
@@ -82,6 +84,7 @@ data class Segment(
             silent = map["silent"] as Boolean? ?: false,
             grade = (map["grade"] as List<*>?)?.map { (it as Number).toDouble() },
             transfer = map["transfer"] as String? ?: "sdr",
+            clipId = (map["clipId"] as Number?)?.toInt(),
         )
 
         fun listFrom(list: List<Map<String, Any?>>) = list.map(::from)

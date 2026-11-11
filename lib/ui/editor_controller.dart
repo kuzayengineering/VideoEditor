@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -123,6 +124,49 @@ class EditorController extends ChangeNotifier {
 
   BlendLayers? _previewBlends;
 
+  /// What the preview player was last built from, leaving out filter
+  /// values (those can change live, without rebuilding).
+  String? _previewShape;
+
+  /// Everything about [segments] except the filter values (whether a clip
+  /// has a filter still counts: adding the first one needs a rebuild).
+  static String _shapeOf(List<PreviewSegment> segments) => jsonEncode([
+    for (final s in segments)
+      {
+        ...s.toMap()
+          ..remove('grade')
+          ..remove('transfer')
+          ..remove('clipId'),
+        'graded': s.clip?.gradeParams != null,
+      },
+  ]);
+
+  static Map<int, List<double>> _gradesOf(List<PreviewSegment> segments) => {
+    for (final s in segments)
+      if (s.clip?.gradeParams != null) s.clip!.id: s.clip!.gradeParams!.values,
+  };
+
+  /// During a slider drag: if only filter values changed, update them in
+  /// the player straight away (no rebuild). Other changes wait for the end.
+  void _liveGrades() {
+    final p = _preview;
+    if (p == null || !p.gradesLive || _previewShape == null) return;
+    final segments = segmentsOf(
+      project,
+      transitionFiles: transitionFiles,
+      blend: p.blendsTransitions,
+    );
+    final shape = _shapeOf(segments);
+    if (shape == _previewShape) {
+      unawaited(p.setGrades(_gradesOf(segments)));
+      return;
+    }
+    // A clip got (or lost) its filter: rebuild once, then it's live.
+    String strip(String s) =>
+        s.replaceAll(RegExp(r',"graded":(true|false)'), '');
+    if (strip(shape) == strip(_previewShape!)) _syncPreviewTimeline();
+  }
+
   void _syncPreviewTimeline() {
     final p = _preview;
     if (p == null) return;
@@ -136,6 +180,14 @@ class EditorController extends ChangeNotifier {
     if (listEquals(segments, _previewSegments) && blends == _previewBlends) {
       return;
     }
+    final shape = _shapeOf(segments);
+    if (p.gradesLive && shape == _previewShape && blends == _previewBlends) {
+      // Only filter values changed: no rebuild needed.
+      _previewSegments = segments;
+      unawaited(p.setGrades(_gradesOf(segments)));
+      return;
+    }
+    _previewShape = shape;
     _previewSegments = segments;
     _previewBlends = blends;
     final canvas = project.canvas;
@@ -445,6 +497,7 @@ class EditorController extends ChangeNotifier {
     history.updateGesture(change(base));
     _playheadUs = _playheadUs.clamp(0, project.durationUs);
     notifyListeners();
+    _liveGrades();
   }
 
   void endLiveEdit() {

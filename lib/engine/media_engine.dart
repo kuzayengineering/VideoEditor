@@ -120,6 +120,7 @@ class PreviewSegment {
             : dipOutUs,
         if (blendOutUs > 0) 'blendOutUs': blendOutUs,
         if (c.gradeParams != null) ...{
+          'clipId': c.id,
           'grade': c.gradeParams!.values,
           'transfer': c.media?.transfer.name ?? 'sdr',
         },
@@ -491,6 +492,11 @@ abstract class PreviewPlayer {
   /// While paused, the player is tuned for many quick jumps (scrubbing and
   /// frame stepping); it is switched off before playing.
   Future<void> setScrubbing(bool on);
+
+  /// True if the player draws filters itself and can change their values
+  /// live (by clip id) without rebuilding.
+  bool get gradesLive;
+  Future<void> setGrades(Map<int, List<double>> grades);
 
   /// Jumps to a timeline position. [exact] lands on the exact frame (slower);
   /// otherwise the nearest quick-to-reach frame is shown (for scrubbing).

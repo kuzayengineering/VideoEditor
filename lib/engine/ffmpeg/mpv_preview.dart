@@ -98,6 +98,13 @@ class MpvPreviewPlayer implements PreviewPlayer {
   Widget buildView(BuildContext context) =>
       Video(controller: _video, controls: NoVideoControls, fill: Colors.black);
 
+  /// Filters are drawn by the screen on Windows (always live).
+  @override
+  bool get gradesLive => false;
+
+  @override
+  Future<void> setGrades(Map<int, List<double>> grades) async {}
+
   /// mpv already seeks to exact frames quickly enough.
   @override
   Future<void> setScrubbing(bool on) async {}

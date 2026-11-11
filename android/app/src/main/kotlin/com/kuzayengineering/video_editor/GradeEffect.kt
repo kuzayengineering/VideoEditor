@@ -20,15 +20,33 @@ import androidx.media3.effect.GlShaderProgram
  * and turned into light again. Every step keeps 0 at 0 and 1 at 1, so HDR
  * highlights don't clip.
  */
-class GradeEffect(private val params: FloatArray, private val transfer: String) : GlEffect {
+class GradeEffect(
+    private val params: FloatArray,
+    private val transfer: String,
+    /** Preview only: the clip whose live values (from the sliders) to use. */
+    private val liveClipId: Int? = null,
+) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        GradeShaderProgram(params, transfer, useHdr)
+        GradeShaderProgram(params, transfer, useHdr, liveClipId)
+}
+
+/** Filter values being adjusted right now, by clip id (preview). */
+object LiveGrades {
+    private val values = java.util.concurrent.ConcurrentHashMap<Int, FloatArray>()
+
+    fun get(clipId: Int): FloatArray? = values[clipId]
+
+    fun set(all: Map<Int, FloatArray>) {
+        values.clear()
+        values.putAll(all)
+    }
 }
 
 private class GradeShaderProgram(
-    params: FloatArray,
+    private val params: FloatArray,
     transfer: String,
     useHdr: Boolean,
+    private val liveClipId: Int?,
 ) : BaseGlShaderProgram(useHdr, 1) {
     private val program: GlProgram
 
@@ -40,15 +58,7 @@ private class GradeShaderProgram(
                 GlUtil.getNormalizedCoordinateBounds(),
                 GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE,
             )
-            program.setFloatUniform("uBrightness", params[0])
-            program.setFloatUniform("uContrast", params[1])
-            program.setFloatUniform("uSaturation", params[2])
-            program.setFloatUniform("uWarmth", params[3])
-            program.setFloatUniform("uTint", params[4])
-            program.setFloatUniform("uFade", params[5])
-            program.setFloatUniform("uShadows", params.getOrElse(6) { 0f })
-            program.setFloatUniform("uHighlights", params.getOrElse(7) { 0f })
-            program.setFloatUniform("uHdr", params.getOrElse(8) { 0f })
+            setValues(params)
             program.setIntUniform(
                 "uTransfer",
                 when {
@@ -64,8 +74,22 @@ private class GradeShaderProgram(
 
     override fun configure(inputWidth: Int, inputHeight: Int): Size = Size(inputWidth, inputHeight)
 
+    private fun setValues(p: FloatArray) {
+        program.setFloatUniform("uBrightness", p.getOrElse(0) { 0f })
+        program.setFloatUniform("uContrast", p.getOrElse(1) { 0f })
+        program.setFloatUniform("uSaturation", p.getOrElse(2) { 0f })
+        program.setFloatUniform("uWarmth", p.getOrElse(3) { 0f })
+        program.setFloatUniform("uTint", p.getOrElse(4) { 0f })
+        program.setFloatUniform("uFade", p.getOrElse(5) { 0f })
+        program.setFloatUniform("uShadows", p.getOrElse(6) { 0f })
+        program.setFloatUniform("uHighlights", p.getOrElse(7) { 0f })
+        program.setFloatUniform("uHdr", p.getOrElse(8) { 0f })
+    }
+
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
         try {
+            // While a slider moves, its newest values (no rebuild needed).
+            liveClipId?.let { id -> LiveGrades.get(id)?.let { setValues(it) } }
             program.use()
             program.setSamplerTexIdUniform("uTex", inputTexId, 0)
             program.bindAttributesAndUniforms()

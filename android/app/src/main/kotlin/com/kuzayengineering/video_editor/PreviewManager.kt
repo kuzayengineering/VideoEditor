@@ -66,6 +66,8 @@ class PreviewManager(private val context: Context) {
             player != null
         ) return
         val keep = positionUs()
+        // A rebuild carries the newest filter values itself.
+        LiveGrades.set(emptyMap())
         segments = newSegments
         blends = newBlends
         canvas = newCanvas
@@ -159,6 +161,13 @@ class PreviewManager(private val context: Context) {
 
     fun play() {
         player?.play()
+    }
+
+    /** New filter values while a slider moves: redraw the frame with them. */
+    fun setGrades(grades: Map<Int, FloatArray>) {
+        LiveGrades.set(grades)
+        val p = player ?: return
+        if (!p.isPlaying) p.seekTo(p.currentPosition)
     }
 
     /**
