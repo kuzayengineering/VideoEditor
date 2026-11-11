@@ -45,6 +45,7 @@ enum ExportQuality {
 /// The "short side" of the picture: 1080 means 1920×1080 for 16:9 and
 /// 1080×1920 for 9:16.
 enum ExportResolution {
+  p480('480p', 480),
   p720('720p', 720),
   p1080('1080p', 1080),
   p1440('1440p (2K)', 1440),
@@ -55,6 +56,17 @@ enum ExportResolution {
   final int shortSide;
 }
 
+/// Which recording date the exported video carries (what galleries such as
+/// Google Photos sort it by).
+enum ExportDate {
+  firstClip('Same as first clip'),
+  now('When exported'),
+  custom('Choose…');
+
+  const ExportDate(this.label);
+  final String label;
+}
+
 class ExportSettings {
   const ExportSettings({
     this.resolution = ExportResolution.p2160,
@@ -63,7 +75,30 @@ class ExportSettings {
     this.dynamicRange = DynamicRange.hlg,
     this.codec = VideoCodec.hevc,
     this.outputFolder,
+    this.date = ExportDate.firstClip,
+    this.customDate,
+    this.creationTime,
   });
+
+  final ExportDate date;
+
+  /// The date picked for [ExportDate.custom].
+  final DateTime? customDate;
+
+  /// The exact date written into the file, worked out when Export is
+  /// pressed (null: the engine's default).
+  final DateTime? creationTime;
+
+  /// The date for [date]: [firstClipDate] is when the first clip was
+  /// recorded (if known).
+  DateTime resolveDate({DateTime? firstClipDate, DateTime? now}) {
+    now ??= DateTime.now();
+    return switch (date) {
+      ExportDate.firstClip => firstClipDate ?? now,
+      ExportDate.now => now,
+      ExportDate.custom => customDate ?? now,
+    };
+  }
 
   static const frameRates = <double>[24, 25, 30, 50, 60];
 
@@ -79,7 +114,7 @@ class ExportSettings {
     final shortSide = media
         .map((m) => m.width < m.height ? m.width : m.height)
         .reduce((a, b) => a > b ? a : b);
-    var resolution = ExportResolution.p720;
+    var resolution = ExportResolution.values.first;
     for (final r in ExportResolution.values) {
       if (r.shortSide <= shortSide + 8) resolution = r;
     }
@@ -126,6 +161,9 @@ class ExportSettings {
     VideoCodec? codec,
     String? outputFolder,
     bool resetFolder = false,
+    ExportDate? date,
+    DateTime? customDate,
+    DateTime? creationTime,
   }) {
     final range = dynamicRange ?? this.dynamicRange;
     var chosenCodec = codec ?? this.codec;
@@ -138,6 +176,9 @@ class ExportSettings {
       dynamicRange: range,
       codec: chosenCodec,
       outputFolder: resetFolder ? null : (outputFolder ?? this.outputFolder),
+      date: date ?? this.date,
+      customDate: customDate ?? this.customDate,
+      creationTime: creationTime ?? this.creationTime,
     );
   }
 

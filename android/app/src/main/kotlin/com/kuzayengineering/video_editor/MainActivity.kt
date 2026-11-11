@@ -122,6 +122,10 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "previewPlay" -> { preview.play(); result.success(null) }
+            "previewScrubbing" -> {
+                preview.setScrubbing(call.argument<Boolean>("on") ?: false)
+                result.success(null)
+            }
             "previewPause" -> { preview.pause(); result.success(null) }
             "previewSeek" -> {
                 preview.seek(

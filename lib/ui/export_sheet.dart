@@ -33,6 +33,73 @@ class _ExportSheet extends StatefulWidget {
 class _ExportSheetState extends State<_ExportSheet> {
   late ExportSettings s = widget.controller.exportSettings;
 
+  /// When the first clip was recorded (read from the file if the project
+  /// was made before the app kept this).
+  DateTime? _firstClipDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final first = widget.controller.project.mainTrack.clips
+        .where((c) => c.isMedia)
+        .firstOrNull;
+    _firstClipDate = first?.media?.createdAt;
+    if (first != null &&
+        _firstClipDate == null &&
+        widget.engine.supportsMedia) {
+      widget.engine.probe(first.sourcePath!).then((info) {
+        if (mounted && info.createdAt != null) {
+          setState(() => _firstClipDate = info.createdAt);
+        }
+      }, onError: (Object _) {});
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final start = (s.customDate ?? _firstClipDate ?? DateTime.now()).toLocal();
+    final day = await showDatePicker(
+      context: context,
+      initialDate: start,
+      firstDate: DateTime(1970),
+      lastDate: DateTime(2100),
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(start),
+    );
+    if (!mounted) return;
+    final t = time ?? TimeOfDay.fromDateTime(start);
+    _update(
+      s.copyWith(
+        date: ExportDate.custom,
+        customDate: DateTime(day.year, day.month, day.day, t.hour, t.minute),
+      ),
+    );
+  }
+
+  static String _describeDate(DateTime d) {
+    final l = d.toLocal();
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final hour = l.hour % 12 == 0 ? 12 : l.hour % 12;
+    final minute = l.minute.toString().padLeft(2, '0');
+    return '${l.day} ${months[l.month - 1]} ${l.year}, '
+        '$hour:$minute ${l.hour < 12 ? 'AM' : 'PM'}';
+  }
+
   void _update(ExportSettings next) {
     setState(() => s = next);
     widget.controller.exportSettings = next;
@@ -158,6 +225,28 @@ class _ExportSheetState extends State<_ExportSheet> {
                   : 'H.264 plays on almost anything; HEVC gives smaller files.',
             ),
             section(
+              'Date and time',
+              chips(
+                ExportDate.values,
+                s.date,
+                (d) => d.label,
+                (d) => d == ExportDate.custom
+                    ? _pickDate()
+                    : _update(s.copyWith(date: d)),
+              ),
+              note: switch (s.date) {
+                ExportDate.firstClip =>
+                  _firstClipDate == null
+                      ? 'The first clip has no recording date, so the export '
+                            'time is used.'
+                      : 'Recorded ${_describeDate(_firstClipDate!)}. Galleries '
+                            'sort the video by this date.',
+                ExportDate.now => 'The moment the export starts.',
+                ExportDate.custom =>
+                  '${_describeDate(s.resolveDate())} · tap "Choose…" to change.',
+              },
+            ),
+            section(
               'Save to',
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -225,6 +314,11 @@ class _ExportSheetState extends State<_ExportSheet> {
                   );
                   return;
                 }
+                _update(
+                  s.copyWith(
+                    creationTime: s.resolveDate(firstClipDate: _firstClipDate),
+                  ),
+                );
                 Navigator.pop(context, true);
               },
             ),

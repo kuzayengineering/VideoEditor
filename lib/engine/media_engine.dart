@@ -372,6 +372,10 @@ abstract class PreviewPlayer {
   Future<void> play();
   Future<void> pause();
 
+  /// While paused, the player is tuned for many quick jumps (scrubbing and
+  /// frame stepping); it is switched off before playing.
+  Future<void> setScrubbing(bool on);
+
   /// Jumps to a timeline position. [exact] lands on the exact frame (slower);
   /// otherwise the nearest quick-to-reach frame is shown (for scrubbing).
   Future<void> seek(int timeUs, {bool exact = true});

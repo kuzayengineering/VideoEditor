@@ -98,6 +98,10 @@ class MpvPreviewPlayer implements PreviewPlayer {
   Widget buildView(BuildContext context) =>
       Video(controller: _video, controls: NoVideoControls, fill: Colors.black);
 
+  /// mpv already seeks to exact frames quickly enough.
+  @override
+  Future<void> setScrubbing(bool on) async {}
+
   @override
   bool drawsEffects(List<PreviewSegment> segments) => false;
 

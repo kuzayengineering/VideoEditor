@@ -338,6 +338,34 @@ void main() {
         expect(check.isHdr, isFalse);
       });
 
+      test('480p export carries the chosen recording date', () async {
+        final info = await _probe(hlg);
+        final project = Project.empty(id: 't')
+            .insertMedia([clipFor(hlg, info)]);
+        final out = '${dir.path}/out_480.mp4';
+        final when = DateTime.utc(2024, 7, 4, 15, 30);
+        final settings = const ExportSettings(resolution: ExportResolution.p480)
+            .copyWith(
+              dynamicRange: DynamicRange.sdr,
+              codec: VideoCodec.h264,
+              frameRate: 30,
+              creationTime: when,
+            );
+        final plan = buildExportPlan(
+          project: project,
+          settings: settings,
+          encoder: VideoEncoder.h264Candidates.firstWhere(
+            (e) => e.name == 'libx264',
+          ),
+          outputPath: out,
+        );
+        final r = await Process.run('ffmpeg', plan.args);
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+        final back = await _probe(out);
+        expect((back.width, back.height), (854, 480));
+        expect(back.createdAt, when);
+      });
+
       test('brightness: SDR white -> HLG reference white, and back', () async {
         Future<double> exportLuma(String src, DynamicRange range) async {
           final info = await _probe(src);

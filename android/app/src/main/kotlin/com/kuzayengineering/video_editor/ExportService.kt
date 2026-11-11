@@ -53,6 +53,8 @@ data class ExportRequest(
     val fileName: String,
     val expectedFrames: Long,
     val expectedDurationUs: Long,
+    /** The recording date to give the video (ms since 1970), if chosen. */
+    val createdAtMs: Long?,
 ) {
     companion object {
         fun from(m: Map<String, Any?>) = ExportRequest(
@@ -76,6 +78,7 @@ data class ExportRequest(
             fileName = m["fileName"] as String,
             expectedFrames = (m["expectedFrames"] as Number).toLong(),
             expectedDurationUs = (m["expectedDurationUs"] as Number).toLong(),
+            createdAtMs = (m["createdAtMs"] as Number?)?.toLong(),
         )
     }
 }
@@ -245,6 +248,7 @@ object ExportManager {
         val ctx = service?.applicationContext ?: return
         io.execute {
             try {
+                req.createdAtMs?.let { Mp4Dates.set(temp, it) }
                 verification = verify(temp, req)
                 location = saveToDestination(ctx, temp, req)
                 temp.delete()
@@ -312,6 +316,7 @@ object ExportManager {
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             put(MediaStore.Video.Media.RELATIVE_PATH, relative)
             put(MediaStore.Video.Media.IS_PENDING, 1)
+            req.createdAtMs?.let { put(MediaStore.Video.Media.DATE_TAKEN, it) }
         }
         val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val uri = resolver.insert(collection, values)

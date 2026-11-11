@@ -254,6 +254,13 @@ MediaInfo parseProbeJson(String text) {
         ((s['disposition'] as Map?)?['attached_pic'] ?? 0) == 0,
   );
   final hasAudio = streams.any((s) => s['codec_type'] == 'audio');
+  // When it was recorded ("2026-11-05T12:34:56.000000Z").
+  final created = DateTime.tryParse(
+    '${(format['tags'] as Map?)?['creation_time'] ?? ''}',
+  );
+  final createdAtMs = created != null && created.year > 1971
+      ? created.millisecondsSinceEpoch
+      : null;
   final durationSeconds = double.tryParse('${format['duration']}') ?? 0;
   final durationUs = (durationSeconds * usPerSecond).round();
   if (video.isEmpty) {
@@ -263,6 +270,7 @@ MediaInfo parseProbeJson(String text) {
       height: 0,
       hasVideo: false,
       hasAudio: hasAudio,
+      createdAtMs: createdAtMs,
     );
   }
   final v = video.first;
@@ -312,6 +320,7 @@ MediaInfo parseProbeJson(String text) {
     hasAudio: hasAudio,
     codec: v['codec_name'] as String?,
     wideGamut: v['color_primaries'] == 'bt2020',
+    createdAtMs: createdAtMs,
   );
 }
 
@@ -963,6 +972,11 @@ FfmpegExportPlan buildExportPlan({
     'aac',
     '-b:a',
     '${ExportSettings.audioBitrateBps}',
+    // The recording date galleries sort by (otherwise the first clip's).
+    if (settings.creationTime != null) ...[
+      '-metadata',
+      'creation_time=${settings.creationTime!.toUtc().toIso8601String()}',
+    ],
     '-movflags',
     '+faststart',
     '-progress',

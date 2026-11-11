@@ -31,7 +31,16 @@ class MediaInfo {
     this.hasAudio = true,
     this.codec,
     this.wideGamut = false,
+    this.createdAtMs,
   });
+
+  /// When the video was recorded (from the file's own information), in
+  /// milliseconds since 1970 (UTC), if known.
+  final int? createdAtMs;
+
+  DateTime? get createdAt => createdAtMs == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(createdAtMs!, isUtc: true);
 
   final int durationUs;
 
@@ -72,6 +81,7 @@ class MediaInfo {
     'hasAudio': hasAudio,
     'codec': codec,
     'wideGamut': wideGamut,
+    if (createdAtMs != null) 'createdAtMs': createdAtMs,
   };
 
   factory MediaInfo.fromJson(Map<String, Object?> json) => MediaInfo(
@@ -88,6 +98,7 @@ class MediaInfo {
     hasAudio: json['hasAudio'] as bool? ?? true,
     codec: json['codec'] as String?,
     wideGamut: json['wideGamut'] as bool? ?? false,
+    createdAtMs: (json['createdAtMs'] as num?)?.toInt(),
   );
 }
 

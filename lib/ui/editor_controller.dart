@@ -30,7 +30,8 @@ class EditorController extends ChangeNotifier {
   bool get playing => _playing;
 
   /// Timeline zoom: how many screen pixels one second takes up.
-  double _pixelsPerSecond = 60;
+  // Zoomed out a little by default, so a swipe covers more time.
+  double _pixelsPerSecond = 32;
   double get pixelsPerSecond => _pixelsPerSecond;
   static const minPixelsPerSecond = 4.0;
   static const maxPixelsPerSecond = 2400.0;
@@ -74,6 +75,8 @@ class EditorController extends ChangeNotifier {
 
   void attachPreview(PreviewPlayer preview, {AudioPreviewMixer? audio}) {
     _preview = preview;
+    // Paused: ready for quick scrubbing and frame stepping.
+    unawaited(preview.setScrubbing(true));
     _audio = audio?..sync(project);
     _syncPreviewTimeline();
   }
@@ -204,14 +207,20 @@ class EditorController extends ChangeNotifier {
       _seekPreview(exact: true);
     }
     _playing = true;
-    if (usesPreview) unawaited(_preview!.play());
+    if (usesPreview) {
+      unawaited(_preview!.setScrubbing(false));
+      unawaited(_preview!.play());
+    }
     notifyListeners();
   }
 
   void pause() {
     if (!_playing) return;
     _playing = false;
-    if (usesPreview) unawaited(_preview!.pause());
+    if (usesPreview) {
+      unawaited(_preview!.pause());
+      unawaited(_preview!.setScrubbing(true));
+    }
     _audio?.stopAll();
     // Land on a whole frame so split points are exact.
     _playheadUs = snapToFrame(

@@ -157,10 +157,27 @@ object MediaProbe {
                 "hasAudio" to hasAudio,
                 "codec" to codec,
                 "wideGamut" to wideGamut,
+                "createdAtMs" to recordedAt(meta(MediaMetadataRetriever.METADATA_KEY_DATE)),
             )
         } finally {
             retriever.release()
         }
+    }
+
+    /** "20261105T123456.000Z" (the file's recording date) → ms since 1970. */
+    private fun recordedAt(text: String?): Long? {
+        if (text.isNullOrBlank()) return null
+        for (pattern in listOf("yyyyMMdd'T'HHmmss.SSS'Z'", "yyyyMMdd'T'HHmmss'Z'", "yyyyMMdd'T'HHmmss")) {
+            try {
+                val f = java.text.SimpleDateFormat(pattern, java.util.Locale.US)
+                f.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val ms = f.parse(text)?.time ?: continue
+                // Files without a real date say 1904 or 1970.
+                return if (ms > 86_400_000L * 366) ms else null
+            } catch (_: Exception) {
+            }
+        }
+        return null
     }
 
     fun thumbnails(context: Context, source: String, timesUs: List<Long>, height: Int): List<String?> {

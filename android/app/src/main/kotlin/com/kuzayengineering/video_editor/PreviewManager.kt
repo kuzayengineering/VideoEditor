@@ -35,6 +35,8 @@ class PreviewManager(private val context: Context) {
     /** The player was built for two picture layers (mixing transitions). */
     private var usingLayers = false
     private var layersFailed = false
+    /** Paused: tuned for many quick jumps (Media3's scrubbing mode). */
+    private var scrubbing = false
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private var canvas = Pair(1920, 1080)
     /** Start of each segment on the timeline (plain mode), in microseconds. */
@@ -105,6 +107,7 @@ class PreviewManager(private val context: Context) {
                 })
             }
             player!!.repeatMode = Player.REPEAT_MODE_OFF
+            applyScrubbing()
             surface?.let { player!!.setVideoSurfaceView(it) }
         }
         val p = player!!
@@ -158,6 +161,23 @@ class PreviewManager(private val context: Context) {
         player?.play()
     }
 
+    /**
+     * Scrubbing mode keeps the decoder running between jumps (no restart from
+     * the last key frame for every small move), so dragging the timeline and
+     * stepping frames show real frames quickly, even in 4K.
+     */
+    fun setScrubbing(on: Boolean) {
+        scrubbing = on
+        applyScrubbing()
+    }
+
+    private fun applyScrubbing() {
+        when (val p = player) {
+            is ExoPlayer -> p.setScrubbingModeEnabled(scrubbing)
+            is CompositionPlayer -> p.setScrubbingModeEnabled(scrubbing)
+        }
+    }
+
     /** Loudness of the video's own sound (0–1; louder isn't possible here). */
     fun setVolume(v: Double) {
         player?.volume = v.toFloat().coerceIn(0f, 1f)
@@ -171,7 +191,11 @@ class PreviewManager(private val context: Context) {
         val p = player ?: return
         if (segments.isEmpty()) return
         if (p is ExoPlayer) {
-            p.setSeekParameters(if (exact) SeekParameters.EXACT else SeekParameters.CLOSEST_SYNC)
+            // In scrubbing mode every jump shows the exact frame (fast there);
+            // otherwise the nearest key frame is quicker to reach.
+            p.setSeekParameters(
+                if (exact || scrubbing) SeekParameters.EXACT else SeekParameters.CLOSEST_SYNC
+            )
             val (index, offsetMs) = locate(timeUs)
             p.seekTo(index, offsetMs)
         } else {

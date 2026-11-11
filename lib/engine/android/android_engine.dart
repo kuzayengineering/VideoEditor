@@ -274,6 +274,8 @@ class AndroidMediaEngine implements MediaEngine {
       'range': s.dynamicRange.name,
       'folder': s.outputFolder,
       'fileName': request.fileName,
+      if (s.creationTime != null)
+        'createdAtMs': s.creationTime!.millisecondsSinceEpoch,
       'expectedFrames': frames,
       'expectedDurationUs': durationUs,
     });
@@ -428,6 +430,10 @@ class AndroidPreviewPlayer implements PreviewPlayer {
 
   @override
   Future<void> pause() => _channel.invokeMethod('previewPause');
+
+  @override
+  Future<void> setScrubbing(bool on) =>
+      _channel.invokeMethod('previewScrubbing', {'on': on});
 
   @override
   Future<void> seek(int timeUs, {bool exact = true}) =>
