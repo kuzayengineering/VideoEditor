@@ -1,0 +1,37 @@
+# Turns a scrambled Android error report (from the app's "Copy the details")
+# back into readable code locations, using the code map saved by a build.
+name: Read error report
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Build run whose code map to use
+        required: true
+      trace:
+        description: The copied error text
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  retrace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-mapping
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: map
+      - name: Decode
+        env:
+          TRACE: ${{ inputs.trace }}
+        run: |
+          grep -m1 "pg_map_id" map/mapping.txt || true
+          printf '%s\n' "$TRACE" | sed 's/ at /\n    at /g' > trace.txt
+          RETRACE=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/retrace | head -1)
+          echo "Using $RETRACE"
+          "$RETRACE" map/mapping.txt trace.txt
