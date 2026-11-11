@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_settings.dart';
 import '../engine/media_engine.dart';
 
 /// Shows an export's progress, then where the video was saved and whether
@@ -129,8 +130,12 @@ class ExportProgressScreen extends StatelessWidget {
                                   ? Icons.verified_outlined
                                   : Icons.warning_amber_rounded,
                               color: p.verification!.ok
-                                  ? theme.colorScheme.onSurface
-                                  : theme.colorScheme.error,
+                                  ? (AppSettings.instance.neutralColors
+                                        ? theme.colorScheme.onSurface
+                                        : Colors.greenAccent)
+                                  : (AppSettings.instance.neutralColors
+                                        ? theme.colorScheme.error
+                                        : Colors.orangeAccent),
                             ),
                             title: Text(p.verification!.describe()),
                             subtitle: p.verification!.isHdr == null

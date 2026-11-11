@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
+import '../app_settings.dart';
 import 'editor_controller.dart';
 import 'tool_panel.dart';
 
@@ -216,13 +217,15 @@ Future<void> showBackgroundSheet(
               children: [
                 swatch(
                   const BackgroundFill.blur(),
-                  const DecoratedBox(
+                  DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFFBDBDBD), Color(0xFF424242)],
+                        colors: AppSettings.instance.neutralColors
+                            ? const [Color(0xFFBDBDBD), Color(0xFF424242)]
+                            : const [Color(0xFF4DB6AC), Color(0xFF7986CB)],
                       ),
                     ),
-                    child: Center(
+                    child: const Center(
                       child: Icon(Icons.blur_on, color: Colors.white),
                     ),
                   ),

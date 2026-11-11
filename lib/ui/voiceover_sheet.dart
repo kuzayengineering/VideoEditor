@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
+import '../app_settings.dart';
 import 'editor_controller.dart';
 import 'tool_panel.dart';
 
@@ -193,8 +194,12 @@ class _VoiceOverSheetState extends State<_VoiceOverSheet> {
           child: LinearProgressIndicator(
             value: _recording ? _level : 0,
             minHeight: 8,
-            // White, red only when too loud (it would distort).
-            color: _level > 0.92 ? Colors.redAccent : Colors.white70,
+            // Red when too loud (it would distort).
+            color: _level > 0.92
+                ? Colors.redAccent
+                : (AppSettings.instance.neutralColors
+                      ? Colors.white70
+                      : Colors.greenAccent),
           ),
         ),
         const SizedBox(height: 20),

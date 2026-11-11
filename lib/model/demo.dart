@@ -34,9 +34,9 @@ Project buildDemoProject(String id) {
   }
 
   return Project.empty(id: id, name: 'Demo project', frameRate: 60)
-      .appendVideo(video('Beach · HDR', 8, 0xFF3C3C3C))
-      .appendVideo(video('Sunset · HDR', 6, 0xFF555555))
-      .appendVideo(video('City night', 10, 0xFF2E2E2E))
+      .appendVideo(video('Beach · HDR', 8, 0xFF00897B))
+      .appendVideo(video('Sunset · HDR', 6, 0xFFEF6C00))
+      .appendVideo(video('City night', 10, 0xFF5E35B1))
       .addAudio(audio('Music', 0, 20, 0xFF2E7D32))
       .addAudio(audio('Voice-over', 3, 5, 0xFF1565C0));
 }

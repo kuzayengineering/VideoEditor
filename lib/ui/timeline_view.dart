@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_settings.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_controller.dart';
@@ -492,13 +493,14 @@ class _TimelinePainter extends CustomPainter {
     final selected = p.clip.id == selectedClipId;
     final rect = Rect.fromLTRB(left + 1, top, right - 1, top + height);
     final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(6));
-    // Neutral grays by kind (the clip's own colour is only for the demo's
-    // placeholder pictures), so the timeline adds no colour of its own.
-    final base = switch (p.clip.kind) {
-      ClipKind.audio => const Color(0xFF4A4A4A),
-      ClipKind.text => const Color(0xFF5A5A5A),
-      _ => const Color(0xFF383838),
-    };
+    // With neutral colours: grays by kind, so the timeline adds no colour.
+    final base = !AppSettings.instance.neutralColors
+        ? Color(p.clip.colorValue)
+        : switch (p.clip.kind) {
+            ClipKind.audio => const Color(0xFF4A4A4A),
+            ClipKind.text => const Color(0xFF5A5A5A),
+            _ => const Color(0xFF383838),
+          };
 
     canvas.drawRRect(rrect, Paint()..color = base);
     canvas.save();

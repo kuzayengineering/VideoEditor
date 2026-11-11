@@ -6,6 +6,7 @@ import '../model/demo.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_screen.dart';
+import 'settings_screen.dart';
 import 'import_media.dart';
 
 /// Version label baked in by the automatic build (see
@@ -128,18 +129,31 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(
-                          'Video Editor',
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Video Editor',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              '4K · HDR · 60 fps',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: muted,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Chip(
-                        label: const Text('4K · HDR · 60 fps'),
-                        avatar: Icon(
-                          Icons.hdr_on,
-                          color: theme.colorScheme.primary,
+                      IconButton(
+                        tooltip: 'Settings',
+                        icon: const Icon(Icons.settings_outlined),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const SettingsScreen(),
+                          ),
                         ),
                       ),
                     ],

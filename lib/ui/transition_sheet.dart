@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/transition_math.dart';
+import '../app_settings.dart';
 import 'editor_controller.dart';
 import 'tool_panel.dart';
 
@@ -436,29 +437,41 @@ class _Thumb extends StatelessWidget {
 class TransitionThumbnails {
   static const width = 96, height = 64, frameCount = 24;
   static final _cache = <TransitionKind, Future<List<ui.Image>>>{};
+  static bool? _cacheNeutral;
 
-  static Future<List<ui.Image>> framesFor(TransitionKind kind) =>
-      _cache.putIfAbsent(kind, () async {
-        final bytes = await compute(renderFrames, kind.index);
-        final images = <ui.Image>[];
-        final size = width * height * 4;
-        for (var f = 0; f < frameCount; f++) {
-          final done = Completer<ui.Image>();
-          ui.decodeImageFromPixels(
-            Uint8List.sublistView(bytes, f * size, (f + 1) * size),
-            width,
-            height,
-            ui.PixelFormat.rgba8888,
-            done.complete,
-          );
-          images.add(await done.future);
-        }
-        return images;
-      });
+  static Uint8List _renderFor((int, bool) a) => renderFrames(a.$1, gray: a.$2);
+
+  static Future<List<ui.Image>> framesFor(TransitionKind kind) {
+    // Remade in colour or gray when the setting changes.
+    if (_cacheNeutral != AppSettings.instance.neutralColors) {
+      _cache.clear();
+      _cacheNeutral = AppSettings.instance.neutralColors;
+    }
+    return _cache.putIfAbsent(kind, () async {
+      final bytes = await compute(_renderFor, (
+        kind.index,
+        AppSettings.instance.neutralColors,
+      ));
+      final images = <ui.Image>[];
+      final size = width * height * 4;
+      for (var f = 0; f < frameCount; f++) {
+        final done = Completer<ui.Image>();
+        ui.decodeImageFromPixels(
+          Uint8List.sublistView(bytes, f * size, (f + 1) * size),
+          width,
+          height,
+          ui.PixelFormat.rgba8888,
+          done.complete,
+        );
+        images.add(await done.future);
+      }
+      return images;
+    });
+  }
 
   /// RGBA bytes of every frame (runs in the background).
   @visibleForTesting
-  static Uint8List renderFrames(int kindIndex) {
+  static Uint8List renderFrames(int kindIndex, {bool gray = false}) {
     final kind = TransitionKind.values[kindIndex];
     final out = Uint8List(width * height * 4 * frameCount);
     const Rgb white = (r: 1, g: 1, b: 1), black = (r: 0, g: 0, b: 0);
@@ -487,13 +500,19 @@ class TransitionThumbnails {
                   _sunset,
                   _sea,
                 );
-          // In shades of gray, like the rest of the interface.
-          final gray = ((0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * 255)
-              .round()
-              .clamp(0, 255);
-          out[o++] = gray;
-          out[o++] = gray;
-          out[o++] = gray;
+          if (gray) {
+            // Shades of gray, like the rest of the interface.
+            final y = ((0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * 255)
+                .round()
+                .clamp(0, 255);
+            out[o++] = y;
+            out[o++] = y;
+            out[o++] = y;
+          } else {
+            out[o++] = (c.r * 255).round().clamp(0, 255);
+            out[o++] = (c.g * 255).round().clamp(0, 255);
+            out[o++] = (c.b * 255).round().clamp(0, 255);
+          }
           out[o++] = 255;
         }
       }
