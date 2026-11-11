@@ -105,4 +105,38 @@ void main() {
     expect(rows[1], '0.250000 0.000000 0.000000'); // red changes fastest
     expect(rows.last, '1.000000 1.000000 1.000000');
   });
+
+  test('shadows, highlights and HDR intensity', () {
+    for (final p in [
+      const GradeParams(shadows: 1),
+      const GradeParams(shadows: -1),
+      const GradeParams(highlights: 1),
+      const GradeParams(highlights: -1),
+      const GradeParams(hdr: 1),
+      const GradeParams(hdr: -1),
+    ]) {
+      var last = -1.0;
+      for (var i = 0; i <= 200; i++) {
+        final v = applyGrade(p, i / 200, i / 200, i / 200).g;
+        expect(v, greaterThanOrEqualTo(last - 1e-9), reason: '${p.toJson()}');
+        expect(v, lessThanOrEqualTo(1.0));
+        last = v;
+      }
+    }
+    double g(GradeParams p, double x, {double knee = kneeHlg}) =>
+        applyGrade(p, x, x, x, knee: knee).g;
+    // Shadows lift dark tones, leave white alone.
+    expect(g(const GradeParams(shadows: 1), 0.2), greaterThan(0.3));
+    expect(g(const GradeParams(shadows: 1), 1), closeTo(1, 1e-9));
+    // Highlights down recovers bright tones, leaves black alone.
+    expect(g(const GradeParams(highlights: -1), 0.8), lessThan(0.7));
+    expect(g(const GradeParams(highlights: -1), 0), closeTo(0, 1e-9));
+    // HDR intensity only works above paper white.
+    expect(g(const GradeParams(hdr: 1), 0.6), closeTo(0.6, 1e-9));
+    expect(g(const GradeParams(hdr: 1), 0.85), greaterThan(0.85));
+    expect(g(const GradeParams(hdr: -1), 0.85), lessThan(0.85));
+    expect(g(const GradeParams(hdr: -1), 1.0), closeTo(0.875, 1e-9));
+    // PQ's paper white is lower.
+    expect(g(const GradeParams(hdr: -1), 0.7, knee: kneePq), lessThan(0.7));
+  });
 }

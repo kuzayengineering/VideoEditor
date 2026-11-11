@@ -180,7 +180,7 @@ Status notes:
 
 Status notes:
 - 16 ready-made looks (with strength) and Brightness, Contrast,
-  Saturation, Warmth, Tint and Fade, per clip (main and PiP), with "Use
+  Saturation, Warmth, Tint, Fade, Shadows, Highlights and HDR intensity, per clip (main and PiP), with "Use
   for all". One set of maths runs everywhere: Android applies it in a GPU
   effect (exact in the preview and the export), the Windows export through
   a lookup table (tested against the maths), and the Windows preview shows

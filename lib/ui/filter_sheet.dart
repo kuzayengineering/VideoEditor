@@ -222,7 +222,7 @@ class _FilterPanelState extends State<_FilterPanel> {
       double min = -1,
     }) => Row(
       children: [
-        SizedBox(width: 84, child: Text(label)),
+        SizedBox(width: 96, child: Text(label)),
         Expanded(
           child: Slider(
             min: min,
@@ -247,6 +247,9 @@ class _FilterPanelState extends State<_FilterPanel> {
       children: [
         row('Brightness', a.brightness, (v) => a.copyWith(brightness: v)),
         row('Contrast', a.contrast, (v) => a.copyWith(contrast: v)),
+        row('Shadows', a.shadows, (v) => a.copyWith(shadows: v)),
+        row('Highlights', a.highlights, (v) => a.copyWith(highlights: v)),
+        row('HDR intensity', a.hdr, (v) => a.copyWith(hdr: v)),
         row('Saturation', a.saturation, (v) => a.copyWith(saturation: v)),
         row('Warmth', a.warmth, (v) => a.copyWith(warmth: v)),
         row('Tint', a.tint, (v) => a.copyWith(tint: v)),

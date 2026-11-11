@@ -10,7 +10,19 @@ class GradeParams {
     this.warmth = 0,
     this.tint = 0,
     this.fade = 0,
+    this.shadows = 0,
+    this.highlights = 0,
+    this.hdr = 0,
   });
+
+  /// Lighter or darker dark tones (black stays black).
+  final double shadows;
+
+  /// Lighter or darker bright tones (white stays white).
+  final double highlights;
+
+  /// More or less of the brightness above paper white (HDR's extra range).
+  final double hdr;
 
   final double brightness;
   final double contrast;
@@ -33,7 +45,10 @@ class GradeParams {
       saturation.abs() < 1e-4 &&
       warmth.abs() < 1e-4 &&
       tint.abs() < 1e-4 &&
-      fade.abs() < 1e-4;
+      fade.abs() < 1e-4 &&
+      shadows.abs() < 1e-4 &&
+      highlights.abs() < 1e-4 &&
+      hdr.abs() < 1e-4;
 
   GradeParams operator *(double k) => GradeParams(
     brightness: brightness * k,
@@ -42,6 +57,9 @@ class GradeParams {
     warmth: warmth * k,
     tint: tint * k,
     fade: fade * k,
+    shadows: shadows * k,
+    highlights: highlights * k,
+    hdr: hdr * k,
   );
 
   /// Adds two sets of changes (kept within range).
@@ -52,6 +70,9 @@ class GradeParams {
     warmth: (warmth + o.warmth).clamp(-1.0, 1.0),
     tint: (tint + o.tint).clamp(-1.0, 1.0),
     fade: (fade + o.fade).clamp(0.0, 1.0),
+    shadows: (shadows + o.shadows).clamp(-1.0, 1.0),
+    highlights: (highlights + o.highlights).clamp(-1.0, 1.0),
+    hdr: (hdr + o.hdr).clamp(-1.0, 1.0),
   );
 
   GradeParams copyWith({
@@ -61,6 +82,9 @@ class GradeParams {
     double? warmth,
     double? tint,
     double? fade,
+    double? shadows,
+    double? highlights,
+    double? hdr,
   }) => GradeParams(
     brightness: brightness ?? this.brightness,
     contrast: contrast ?? this.contrast,
@@ -68,6 +92,9 @@ class GradeParams {
     warmth: warmth ?? this.warmth,
     tint: tint ?? this.tint,
     fade: fade ?? this.fade,
+    shadows: shadows ?? this.shadows,
+    highlights: highlights ?? this.highlights,
+    hdr: hdr ?? this.hdr,
   );
 
   /// In the order the shaders take them.
@@ -78,6 +105,9 @@ class GradeParams {
     warmth,
     tint,
     fade,
+    shadows,
+    highlights,
+    hdr,
   ];
 
   @override
@@ -88,11 +118,23 @@ class GradeParams {
       other.saturation == saturation &&
       other.warmth == warmth &&
       other.tint == tint &&
-      other.fade == fade;
+      other.fade == fade &&
+      other.shadows == shadows &&
+      other.highlights == highlights &&
+      other.hdr == hdr;
 
   @override
-  int get hashCode =>
-      Object.hash(brightness, contrast, saturation, warmth, tint, fade);
+  int get hashCode => Object.hash(
+    brightness,
+    contrast,
+    saturation,
+    warmth,
+    tint,
+    fade,
+    shadows,
+    highlights,
+    hdr,
+  );
 
   Map<String, Object?> toJson() => {
     if (brightness != 0) 'brightness': brightness,
@@ -101,6 +143,9 @@ class GradeParams {
     if (warmth != 0) 'warmth': warmth,
     if (tint != 0) 'tint': tint,
     if (fade != 0) 'fade': fade,
+    if (shadows != 0) 'shadows': shadows,
+    if (highlights != 0) 'highlights': highlights,
+    if (hdr != 0) 'hdr': hdr,
   };
 
   factory GradeParams.fromJson(Object? json) {
@@ -113,6 +158,9 @@ class GradeParams {
       warmth: v('warmth').clamp(-1.0, 1.0),
       tint: v('tint').clamp(-1.0, 1.0),
       fade: v('fade').clamp(0.0, 1.0),
+      shadows: v('shadows').clamp(-1.0, 1.0),
+      highlights: v('highlights').clamp(-1.0, 1.0),
+      hdr: v('hdr').clamp(-1.0, 1.0),
     );
   }
 }
@@ -232,16 +280,23 @@ class ColorGrade {
 
 double _smooth(double x) => x * x * (3 - 2 * x);
 
+/// Signal value of paper white (203 nits), where HDR's extra range
+/// starts: HLG (and, for "HDR intensity", SDR) 0.75, PQ 0.58.
+const kneeHlg = 0.75;
+const kneePq = 0.58;
+
 /// The filter maths, on video signal values from 0 to 1 (what is stored in
 /// the file: SDR, HLG or PQ). Every step keeps black at 0 and white at 1, so
 /// HDR highlights never clip. The same steps run in Android's GradeEffect
-/// shader and in the Windows export's lookup table.
+/// shader and in the Windows export's lookup table. [knee] is paper white
+/// in this signal (see [kneeHlg], [kneePq]).
 ({double r, double g, double b}) applyGrade(
   GradeParams p,
   double r,
   double g,
-  double b,
-) {
+  double b, {
+  double knee = kneeHlg,
+}) {
   // 1. Saturation, around the brightness of the colour.
   final y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   final k = 1 + p.saturation;
@@ -268,12 +323,24 @@ double _smooth(double x) => x * x * (3 - 2 * x);
   b = b.clamp(0.0, 1.0);
   // 3. Brightness as a curve (0 and 1 stay put).
   final e = math.pow(2, -p.brightness).toDouble();
-  // 4. Contrast: towards (or away from) a gentle S-curve.
-  // 5. Fade: lift the blacks.
+  // 4. Shadows and highlights: bend the dark / bright end (each keeps 0
+  //    and 1 in place and never reverses tones).
+  // 5. Contrast: towards (or away from) a gentle S-curve.
+  // 6. HDR intensity: above paper white, more (or less) of the extra
+  //    brightness; turned down it also lowers the brightest parts.
+  // 7. Fade: lift the blacks.
   final f = 0.12 * p.fade;
+  final he = math.pow(2, -p.hdr).toDouble();
+  final hScale = p.hdr < 0 ? 1 + 0.5 * p.hdr : 1.0;
   double curve(double x) {
     x = math.pow(x, e).toDouble();
+    x = x + p.shadows * x * (1 - x) * (1 - x);
+    x = x + p.highlights * x * x * (1 - x);
     x = x + p.contrast * (_smooth(x) - x);
+    if (x > knee) {
+      final t = (x - knee) / (1 - knee);
+      x = knee + (1 - knee) * math.pow(t, he) * hScale;
+    }
     return f + x * (1 - f);
   }
 
@@ -281,7 +348,7 @@ double _smooth(double x) => x * x * (3 - 2 * x);
 }
 
 /// The filter as a 3D lookup table in the ".cube" format (FFmpeg's lut3d).
-String gradeCube(GradeParams p, {int size = 33}) {
+String gradeCube(GradeParams p, {int size = 33, double knee = kneeHlg}) {
   final out = StringBuffer()
     ..writeln('LUT_3D_SIZE $size')
     ..writeln('DOMAIN_MIN 0 0 0')
@@ -291,7 +358,7 @@ String gradeCube(GradeParams p, {int size = 33}) {
   for (var bi = 0; bi < size; bi++) {
     for (var gi = 0; gi < size; gi++) {
       for (var ri = 0; ri < size; ri++) {
-        final c = applyGrade(p, ri / n, gi / n, bi / n);
+        final c = applyGrade(p, ri / n, gi / n, bi / n, knee: knee);
         out.writeln(
           '${c.r.toStringAsFixed(6)} ${c.g.toStringAsFixed(6)} '
           '${c.b.toStringAsFixed(6)}',

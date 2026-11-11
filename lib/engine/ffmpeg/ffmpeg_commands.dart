@@ -649,7 +649,10 @@ FfmpegExportPlan buildExportPlan({
     final g = c.gradeParams;
     if (g == null) return null;
     final name = 'grade_${c.id}.cube';
-    sideFiles['${workDir ?? '.'}/$name'] = gradeCube(g);
+    sideFiles['${workDir ?? '.'}/$name'] = gradeCube(
+      g,
+      knee: range == DynamicRange.hdr10 ? kneePq : kneeHlg,
+    );
     // To RGB and back with the output's own colour maths (FFmpeg's
     // guess would shift the colours).
     final matrix = range.isHdr ? 'bt2020' : 'bt709';

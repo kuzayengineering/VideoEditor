@@ -46,6 +46,9 @@ private class GradeShaderProgram(
             program.setFloatUniform("uWarmth", params[3])
             program.setFloatUniform("uTint", params[4])
             program.setFloatUniform("uFade", params[5])
+            program.setFloatUniform("uShadows", params.getOrElse(6) { 0f })
+            program.setFloatUniform("uHighlights", params.getOrElse(7) { 0f })
+            program.setFloatUniform("uHdr", params.getOrElse(8) { 0f })
             program.setIntUniform(
                 "uTransfer",
                 when {
@@ -104,6 +107,9 @@ uniform float uSaturation;
 uniform float uWarmth;
 uniform float uTint;
 uniform float uFade;
+uniform float uShadows;
+uniform float uHighlights;
+uniform float uHdr;
 varying vec2 vUv;
 
 const float HA = 0.17883277;
@@ -140,7 +146,16 @@ float toLight(float s) {
 
 float curve(float x) {
   x = pow(x, pow(2.0, -uBrightness));
+  x = x + uShadows * x * (1.0 - x) * (1.0 - x);
+  x = x + uHighlights * x * x * (1.0 - x);
   x = x + uContrast * (x * x * (3.0 - 2.0 * x) - x);
+  // Paper white in this signal: above it is HDR's extra range.
+  float knee = uTransfer == 2 ? 0.58 : 0.75;
+  if (x > knee) {
+    float t = (x - knee) / (1.0 - knee);
+    float scale = uHdr < 0.0 ? 1.0 + 0.5 * uHdr : 1.0;
+    x = knee + (1.0 - knee) * pow(t, pow(2.0, -uHdr)) * scale;
+  }
   float f = 0.12 * uFade;
   return f + x * (1.0 - f);
 }

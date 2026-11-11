@@ -265,7 +265,10 @@ object CompositionFactory {
         }
         val grade = s.grade
         if (grade != null && grade.size >= 6) {
-            video += GradeEffect(FloatArray(6) { grade[it].toFloat() }, s.transfer)
+            video += GradeEffect(
+                FloatArray(9) { grade.getOrElse(it) { 0.0 }.toFloat() },
+                s.transfer,
+            )
         }
         if (s.opacity < 0.999) {
             // Over the black background, opacity is the same as dimming.
