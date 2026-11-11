@@ -173,13 +173,16 @@ class ClipAudioPlayers(private val context: Context) {
 
     /** Each player's sound effects (changeable while playing). */
     private val effects = HashMap<Int, FxAudioProcessor>()
+    private val noises = HashMap<Int, NoiseReducer>()
     private val speeds = HashMap<Int, Double>()
     private val pitches = HashMap<Int, Double>()
 
     fun open(id: Int, source: String) {
         players[id]?.release()
         val fx = FxAudioProcessor(FxSpec.NONE)
-        val p = ExoPlayer.Builder(context, FxRenderersFactory(context, fx)).build()
+        val noise = NoiseReducer(NoiseSpec.NONE)
+        val p = ExoPlayer.Builder(context, FxRenderersFactory(context, noise, fx)).build()
+        noises[id] = noise
         p.setMediaItem(MediaItem.fromUri(Uri.parse(source)))
         p.prepare()
         players[id] = p
@@ -190,6 +193,7 @@ class ClipAudioPlayers(private val context: Context) {
     /** New sound effects for a player (live, for the sliders). */
     fun effects(id: Int, spec: FxSpec) {
         effects[id]?.update(spec)
+        noises[id]?.update(spec.noise ?: NoiseSpec.NONE)
         pitches[id] = spec.pitch
         applyRate(id)
     }
@@ -224,6 +228,7 @@ class ClipAudioPlayers(private val context: Context) {
     fun release(id: Int) {
         players.remove(id)?.release()
         effects.remove(id)
+        noises.remove(id)
         speeds.remove(id)
         pitches.remove(id)
     }
@@ -232,6 +237,7 @@ class ClipAudioPlayers(private val context: Context) {
         players.values.forEach { it.release() }
         players.clear()
         effects.clear()
+        noises.clear()
         speeds.clear()
         pitches.clear()
     }

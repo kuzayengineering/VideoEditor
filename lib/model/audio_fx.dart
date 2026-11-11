@@ -11,6 +11,19 @@ enum ReverbKind {
   final String label;
 }
 
+/// Kinds of noise to reduce (each with suitable filters).
+enum NoiseKind {
+  hiss('Hiss / background', 'Steady noise: fans, air conditioning, hiss'),
+  wind('Wind', 'Low rumble and buffeting from wind on the microphone'),
+  road('Road / traffic', 'Engine and tyre rumble, steady traffic noise'),
+  hum('Hum', 'Electrical hum (50 or 60 Hz) from cables and lights'),
+  breath('Breathing', 'Quietens breaths and small noises between words');
+
+  const NoiseKind(this.label, this.description);
+  final String label;
+  final String description;
+}
+
 /// Ready-made equalizer settings (gains for [AudioFx.eqFrequencies]).
 enum EqPreset {
   flat('Flat', [0, 0, 0, 0, 0, 0, 0]),
@@ -41,7 +54,15 @@ class AudioFx {
     this.delayMs,
     this.delayRepeats = 0.4,
     this.delayAmount = 0.4,
+    this.noise,
+    this.noiseAmount = 0.6,
   });
+
+  /// The kind of noise to reduce, or null for none.
+  final NoiseKind? noise;
+
+  /// How strongly (0–1).
+  final double noiseAmount;
 
   /// Semitones up (+) or down (−), from −12 to 12. The speed doesn't change.
   final int pitch;
@@ -78,7 +99,8 @@ class AudioFx {
       pitch == 0 &&
       !hasEq &&
       (reverb == null || reverbAmount <= 0.001) &&
-      (delayMs == null || delayAmount <= 0.001);
+      (delayMs == null || delayAmount <= 0.001) &&
+      (noise == null || noiseAmount <= 0.001);
 
   /// How much the pitch is multiplied by.
   double get pitchFactor => math.pow(2, pitch / 12).toDouble();
@@ -93,6 +115,9 @@ class AudioFx {
     bool clearDelay = false,
     double? delayRepeats,
     double? delayAmount,
+    NoiseKind? noise,
+    bool clearNoise = false,
+    double? noiseAmount,
   }) => AudioFx(
     pitch: (pitch ?? this.pitch).clamp(-12, 12),
     eq: eq ?? this.eq,
@@ -101,7 +126,35 @@ class AudioFx {
     delayMs: clearDelay ? null : (delayMs ?? this.delayMs),
     delayRepeats: (delayRepeats ?? this.delayRepeats).clamp(0.1, 0.8),
     delayAmount: (delayAmount ?? this.delayAmount).clamp(0.0, 1.0),
+    noise: clearNoise ? null : (noise ?? this.noise),
+    noiseAmount: (noiseAmount ?? this.noiseAmount).clamp(0.0, 1.0),
   );
+
+  /// Fixed filters for the kind of noise: (type, Hz, Q), type "hp"
+  /// (high-pass, removes rumble below) or "notch" (removes one tone).
+  List<({String type, double hz, double q})> get noiseFilters =>
+      switch (noise) {
+        NoiseKind.wind => const [(type: 'hp', hz: 150, q: 0.707)],
+        NoiseKind.road => const [(type: 'hp', hz: 80, q: 0.707)],
+        NoiseKind.hum => [
+          for (final hz in const [50.0, 100.0, 150.0, 60.0, 120.0, 180.0])
+            (type: 'notch', hz: hz, q: 12.0),
+        ],
+        _ => const [],
+      };
+
+  /// How much the background noise is turned down (dB), by the denoiser.
+  double get denoiseDb => switch (noise) {
+    null || NoiseKind.hum => 0,
+    NoiseKind.hiss => 24 * noiseAmount,
+    NoiseKind.wind || NoiseKind.road => 18 * noiseAmount,
+    NoiseKind.breath => 8 * noiseAmount,
+  };
+
+  /// For breathing: sound quieter than this level (0–1) is turned down by
+  /// up to [gateRangeDb].
+  double get gateThreshold => 0.004 + 0.03 * noiseAmount;
+  double get gateRangeDb => 24 * noiseAmount;
 
   /// Reflections of the reverb: (delay in ms, loudness).
   List<({double ms, double gain})> get reverbTaps {
@@ -148,10 +201,34 @@ class AudioFx {
   }
 
   /// FFmpeg audio filters for these effects (for 48 kHz stereo input), or
-  /// null for none. Order: pitch, equalizer, delay, reverb.
+  /// null for none. Order: noise reduction, pitch, equalizer, delay, reverb.
   String? ffmpegFilters() {
     if (isNeutral) return null;
     final parts = <String>[];
+    if (noise != null && noiseAmount > 0.001) {
+      for (final f in noiseFilters) {
+        parts.add(
+          f.type == 'hp'
+              ? 'highpass=f=${f.hz.toStringAsFixed(0)}:p=2:t=q:w=${f.q}'
+              : 'bandreject=f=${f.hz.toStringAsFixed(0)}:t=q:w=${f.q}',
+        );
+      }
+      if (noise == NoiseKind.road) {
+        parts.add(
+          'equalizer=f=200:t=q:w=0.7:g=${(-6 * noiseAmount).toStringAsFixed(2)}',
+        );
+      }
+      if (denoiseDb > 0.5) {
+        parts.add('afftdn=nr=${denoiseDb.toStringAsFixed(1)}:nf=-50:tn=1');
+      }
+      if (noise == NoiseKind.breath) {
+        parts.add(
+          'agate=threshold=${gateThreshold.toStringAsFixed(4)}:ratio=4:'
+          'range=${math.pow(10, -gateRangeDb / 20).toStringAsFixed(4)}:'
+          'attack=5:release=150',
+        );
+      }
+    }
     if (pitch != 0) {
       final k = pitchFactor;
       // Play faster (higher), back to 48 kHz, then slow back down keeping
@@ -182,6 +259,18 @@ class AudioFx {
   /// For Android's audio processor: pitch factor, equalizer bands
   /// [frequency, Q, gain dB] and echo taps [ms, gain] (delay, then reverb).
   Map<String, Object?> toEngineMap() => {
+    if (noise != null && noiseAmount > 0.001)
+      'noise': {
+        'filters': [
+          for (final f in noiseFilters) [f.type, f.hz, f.q],
+          if (noise == NoiseKind.road) ['peak', 200.0, 0.7, -6 * noiseAmount],
+        ],
+        'denoiseDb': denoiseDb,
+        if (noise == NoiseKind.breath) ...{
+          'gateThreshold': gateThreshold,
+          'gateRangeDb': gateRangeDb,
+        },
+      },
     'pitch': pitchFactor,
     'eq': [
       for (var i = 0; i < eq.length; i++)
@@ -215,7 +304,9 @@ class AudioFx {
       other.reverbAmount == reverbAmount &&
       other.delayMs == delayMs &&
       other.delayRepeats == delayRepeats &&
-      other.delayAmount == delayAmount;
+      other.delayAmount == delayAmount &&
+      other.noise == noise &&
+      other.noiseAmount == noiseAmount;
 
   @override
   int get hashCode => Object.hash(
@@ -226,6 +317,8 @@ class AudioFx {
     delayMs,
     delayRepeats,
     delayAmount,
+    noise,
+    noiseAmount,
   );
 
   /// True if two sets of equalizer gains are the same.
@@ -247,6 +340,8 @@ class AudioFx {
     if (delayMs != null) 'delayMs': delayMs,
     'delayRepeats': delayRepeats,
     'delayAmount': delayAmount,
+    if (noise != null) 'noise': noise!.name,
+    'noiseAmount': noiseAmount,
   };
 
   static AudioFx? fromJson(Object? json) {
@@ -269,6 +364,11 @@ class AudioFx {
         0.8,
       ),
       delayAmount: ((json['delayAmount'] as num?)?.toDouble() ?? 0.4).clamp(
+        0.0,
+        1.0,
+      ),
+      noise: NoiseKind.values.asNameMap()[json['noise']],
+      noiseAmount: ((json['noiseAmount'] as num?)?.toDouble() ?? 0.6).clamp(
         0.0,
         1.0,
       ),

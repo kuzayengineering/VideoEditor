@@ -210,7 +210,9 @@ object CompositionFactory {
     /** Pitch (kept through speed changes) and the clip's sound effects. */
     private fun soundEffects(s: Segment): List<AudioProcessor> {
         val fx = s.fx
-        val list = pitchProcessor(s.speed, fx?.pitch ?: 1.0).toMutableList<AudioProcessor>()
+        val list = mutableListOf<AudioProcessor>()
+        fx?.noise?.let { list += NoiseReducer(it) }
+        list += pitchProcessor(s.speed, fx?.pitch ?: 1.0)
         if (fx != null && fx.hasFilters) list += FxAudioProcessor(fx)
         return list
     }

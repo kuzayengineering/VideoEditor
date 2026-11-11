@@ -784,6 +784,124 @@ void main() {
         },
       );
 
+      test(
+        'noise reduction: hiss is quieter, hum is removed, all kinds run',
+        () async {
+          // A 1 kHz tone under steady hiss, then hiss alone; and a 60 Hz hum.
+          final noisy = '${dir.path}/noisy.mp4';
+          await _run([
+            '-f',
+            'lavfi',
+            '-i',
+            'color=c=gray:s=320x180:r=30:d=4',
+            '-f',
+            'lavfi',
+            '-i',
+            'sine=f=1000:d=4:r=48000,volume=0.3[t];'
+                'anoisesrc=d=4:r=48000:c=white:a=0.03[n];'
+                'sine=f=60:d=4:r=48000,volume=0.2[h];'
+                '[t]volume=enable=\'gte(t,2)\':volume=0[t2];'
+                '[t2][n][h]amix=inputs=3:normalize=0',
+            '-pix_fmt',
+            'yuv420p',
+            '-c:v',
+            'libx264',
+            '-preset',
+            'ultrafast',
+            '-c:a',
+            'aac',
+            '-b:a',
+            '256k',
+            '-shortest',
+            noisy,
+          ]);
+          final info = await _probe(noisy);
+
+          Future<String> export(AudioFx fx, String name) async {
+            final project = Project.empty(
+              id: 't',
+              frameRate: 30,
+            ).insertMedia([clipFor(noisy, info).copyWith(audioFx: fx)]);
+            final out = '${dir.path}/$name.mp4';
+            final plan = buildExportPlan(
+              project: project,
+              settings: const ExportSettings(resolution: ExportResolution.p480)
+                  .copyWith(
+                    dynamicRange: DynamicRange.sdr,
+                    codec: VideoCodec.h264,
+                    frameRate: 30,
+                  ),
+              encoder: VideoEncoder.h264Candidates.firstWhere(
+                (e) => e.name == 'libx264',
+              ),
+              outputPath: out,
+            );
+            final r = await Process.run('ffmpeg', plan.args);
+            expect(r.exitCode, 0, reason: '${r.stderr}');
+            return out;
+          }
+
+          // Level of one band of the sound (dB), from 2.5 s to 3.5 s.
+          Future<double> band(String path, String filter) async {
+            final r = await Process.run('ffmpeg', [
+              '-hide_banner',
+              '-v',
+              'error',
+              '-ss',
+              '2.5',
+              '-t',
+              '1',
+              '-i',
+              path,
+              '-vn',
+              '-af',
+              '$filter,astats=metadata=1:reset=0,'
+                  'ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-',
+              '-f',
+              'null',
+              '-',
+            ]);
+            final all = RegExp(r'RMS_level=(-?[0-9.]+)')
+                .allMatches('${r.stdout}')
+                .map((m) => double.parse(m.group(1)!))
+                .toList();
+            if (all.isEmpty) fail('no audio stats: ${r.stderr}');
+            return all.last;
+          }
+
+          const hissBand = 'highpass=f=2000,highpass=f=2000';
+          const humBand = 'lowpass=f=100,lowpass=f=100';
+          final before = (
+            hiss: await band(noisy, hissBand),
+            hum: await band(noisy, humBand),
+          );
+
+          final hiss = await export(
+            const AudioFx(noise: NoiseKind.hiss, noiseAmount: 1),
+            'nr_hiss',
+          );
+          expect(
+            await band(hiss, hissBand),
+            lessThan(before.hiss - 10),
+            reason: 'hiss reduced',
+          );
+
+          final hum = await export(
+            const AudioFx(noise: NoiseKind.hum, noiseAmount: 1),
+            'nr_hum',
+          );
+          expect(
+            await band(hum, humBand),
+            lessThan(before.hum - 15),
+            reason: 'hum removed',
+          );
+
+          for (final k in [NoiseKind.wind, NoiseKind.road, NoiseKind.breath]) {
+            await export(AudioFx(noise: k), 'nr_${k.name}');
+          }
+        },
+      );
+
       test('480p export carries the chosen recording date', () async {
         final info = await _probe(hlg);
         final project = Project.empty(id: 't')

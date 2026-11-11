@@ -687,6 +687,12 @@ class _EditorScreenState extends State<_Editor>
         stage: 6,
         onTap: sel.clip.isMedia ? () => showDelaySheet(context, c) : null,
       ),
+      EditorTool(
+        'Noise',
+        Icons.noise_aware,
+        stage: 6,
+        onTap: sel.clip.isMedia ? () => showNoiseSheet(context, c) : null,
+      ),
     ];
     if (sel.clip.kind == ClipKind.text) {
       return [
@@ -760,10 +766,7 @@ class _EditorScreenState extends State<_Editor>
       ];
     }
     if (sel.clip.kind == ClipKind.audio) {
-      return [
-        ...common,
-        const EditorTool('Noise', Icons.noise_aware, stage: 6),
-      ];
+      return common;
     }
     return [
       ...common,
@@ -834,7 +837,6 @@ class _EditorScreenState extends State<_Editor>
       ),
       const EditorTool('Cutout', Icons.person_outline, stage: 7),
       const EditorTool('Smooth slo-mo', Icons.slow_motion_video, stage: 7),
-      const EditorTool('Noise', Icons.noise_aware, stage: 6),
     ];
   }
 

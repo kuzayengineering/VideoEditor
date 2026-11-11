@@ -476,3 +476,51 @@ Future<void> showDelaySheet(BuildContext context, EditorController c) =>
         ],
       );
     });
+
+// -----------------------------------------------------------------------------
+// Noise reduction
+// -----------------------------------------------------------------------------
+
+Future<void> showNoiseSheet(BuildContext context, EditorController c) =>
+    _soundPanel(context, c, 'Noise reduction', (context, fx, edit) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('Off'),
+                selected: fx.noise == null,
+                onSelected: (_) =>
+                    edit.now((f) => f.copyWith(clearNoise: true)),
+              ),
+              for (final k in NoiseKind.values)
+                ChoiceChip(
+                  label: Text(k.label),
+                  selected: fx.noise == k,
+                  onSelected: (_) => edit.now((f) => f.copyWith(noise: k)),
+                ),
+            ],
+          ),
+          if (fx.noise != null)
+            _slider(
+              context,
+              'Amount',
+              fx.noiseAmount,
+              0,
+              1,
+              '${(fx.noiseAmount * 100).round()}%',
+              (v) => edit.live((f) => f.copyWith(noiseAmount: v)),
+              edit.done,
+            ),
+          _note(
+            context,
+            fx.noise?.description ??
+                'Pick the kind of noise to take out. A lighter amount keeps '
+                    'voices more natural.',
+          ),
+        ],
+      );
+    });

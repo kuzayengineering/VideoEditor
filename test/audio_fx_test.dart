@@ -57,4 +57,49 @@ void main() {
     expect((m['delayTaps'] as List).length, 4);
     expect((m['reverbTaps'] as List).length, 11);
   });
+
+  test('noise reduction filters for each kind', () {
+    expect(const AudioFx(noise: NoiseKind.hiss).isNeutral, isFalse);
+    expect(
+      const AudioFx(noise: NoiseKind.hiss, noiseAmount: 0).isNeutral,
+      isTrue,
+    );
+
+    final hiss = const AudioFx(noise: NoiseKind.hiss, noiseAmount: 0.5);
+    expect(hiss.ffmpegFilters(), startsWith('afftdn=nr=12.0'));
+    final m = hiss.toEngineMap()['noise'] as Map;
+    expect(m['denoiseDb'], closeTo(12, 1e-9));
+    expect(m['filters'], isEmpty);
+
+    final hum = const AudioFx(noise: NoiseKind.hum).ffmpegFilters()!;
+    expect('bandreject'.allMatches(hum).length, 6);
+    expect(hum, isNot(contains('afftdn')));
+
+    final wind = const AudioFx(noise: NoiseKind.wind).ffmpegFilters()!;
+    expect(wind, startsWith('highpass=f=150'));
+    expect(wind, contains('afftdn'));
+
+    final breath = const AudioFx(noise: NoiseKind.breath).ffmpegFilters()!;
+    expect(breath, contains('agate'));
+    final b =
+        const AudioFx(noise: NoiseKind.breath).toEngineMap()['noise'] as Map;
+    expect(b['gateRangeDb'], greaterThan(0));
+
+    // Noise comes first, before pitch and equalizer.
+    final all = const AudioFx(
+      noise: NoiseKind.road,
+      pitch: 2,
+      eq: [0, 0, 0, 3, 0, 0, 0],
+    ).ffmpegFilters()!;
+    expect(all.indexOf('afftdn'), lessThan(all.indexOf('asetrate')));
+    expect(all.indexOf('asetrate'), lessThan(all.indexOf('equalizer=f=1000')));
+  });
+
+  test('noise settings saved with the clip', () {
+    const fx = AudioFx(noise: NoiseKind.wind, noiseAmount: 0.3);
+    final back = AudioFx.fromJson(
+      (jsonDecode(jsonEncode(fx.toJson())) as Map).cast<String, Object?>(),
+    );
+    expect(back, fx);
+  });
 }

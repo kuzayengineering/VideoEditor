@@ -27,6 +27,7 @@ data class FxSpec(
     val eq: List<DoubleArray> = emptyList(),
     val delayTaps: List<DoubleArray> = emptyList(),
     val reverbTaps: List<DoubleArray> = emptyList(),
+    val noise: NoiseSpec? = null,
 ) {
     val hasFilters: Boolean get() = eq.isNotEmpty() || delayTaps.isNotEmpty() || reverbTaps.isNotEmpty()
 
@@ -43,6 +44,7 @@ data class FxSpec(
                 rows("eq"),
                 rows("delayTaps"),
                 rows("reverbTaps"),
+                NoiseSpec.from(m["noise"] as Map<*, *>?),
             )
         }
     }
@@ -183,14 +185,18 @@ fun pitchProcessor(speed: Double, pitch: Double): List<AudioProcessor> {
     return listOf(SonicAudioProcessor().apply { setPitch(p.toFloat()) })
 }
 
-/** An ExoPlayer setup whose sound goes through [fx] (preview players). */
-class FxRenderersFactory(context: Context, private val fx: FxAudioProcessor) :
-    DefaultRenderersFactory(context) {
+/** An ExoPlayer setup whose sound goes through [noise] and [fx] (preview
+ * players). */
+class FxRenderersFactory(
+    context: Context,
+    private val noise: NoiseReducer,
+    private val fx: FxAudioProcessor,
+) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink = DefaultAudioSink.Builder(context)
-        .setAudioProcessors(arrayOf(fx))
+        .setAudioProcessors(arrayOf(noise, fx))
         .build()
 }
