@@ -150,7 +150,7 @@ Status notes:
 - Volume per clip, **fade in / fade out with custom durations**
 - **Record a voice-over** in the app
 
-### Stage 4 — Layers and text *(text and transitions in testing; PiP next)*
+### Stage 4 — Layers and text *(in testing)*
 
 Status notes:
 - **Text** works on both platforms: 10 bundled fonts, size, colour, bold,
@@ -167,7 +167,11 @@ Status notes:
   version exactly (checked against FFmpeg by a test).
 - **Tool menus open below the video** (in place of the timeline), so the
   picture is never covered while you adjust things.
-- **Picture in picture** (video on top of video: move, resize, opacity)
+- **Picture in picture** works: videos on their own rows above the main
+  video; drag, pinch and twist on the preview; see-through, crop, turn,
+  mirror, speed and sound like any clip. On Android an HDR export needs
+  the PiP clips to be HDR too (or export SDR), for now.
+- **Settings**: optional neutral (gray) interface.
 - **Text overlays** with fonts, colors and outlines, plus in/out **animations**
   (fade, slide, pop, typewriter, and so on)
 - **Transitions** between clips (fade, dissolve, wipe, slide, zoom, and so on)
