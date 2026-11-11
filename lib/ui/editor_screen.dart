@@ -102,9 +102,12 @@ class _EditorScreenState extends State<_Editor>
     _waves = WaveformCache(_engine)..ensureFor(c.project);
     _reverses = ReverseJobs(_engine);
     // A saved project may have reversed clips whose copies were never
-    // finished (e.g. the app was closed): pick those back up.
+    // finished (e.g. the app was closed): pick those back up. Its
+    // transitions need their preview clips too.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _resumeReverses(c.project);
+      if (!mounted) return;
+      _resumeReverses(c.project);
+      _renderTransitions(c.project);
     });
     if (_engine.supportsMedia) {
       final preview = _engine.createPreview();
@@ -135,11 +138,13 @@ class _EditorScreenState extends State<_Editor>
 
   void _onProjectMaybeChanged() {
     final project = c.project;
-    if (identical(project, _lastSaved) || c.history.inGesture) return;
+    if (c.history.inGesture) return;
+    // (Cheap: transitions already made or being made are skipped.)
+    _renderTransitions(project);
+    if (identical(project, _lastSaved)) return;
     _thumbs?.ensureFor(project);
     _waves?.ensureFor(project);
     _resumeReverses(project);
-    _renderTransitions(project);
     if (!widget.autosave || _services.store == null) return;
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 600), _flushSave);

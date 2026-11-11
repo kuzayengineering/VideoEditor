@@ -26,7 +26,12 @@ class PreviewSegment {
     this.dipInUs = 0,
     this.dipOutUs = 0,
     this.blendOutUs = 0,
+    this.fileDurationUs = 0,
   });
+
+  /// Length of the whole file, for pieces that aren't a clip (a pre-made
+  /// transition).
+  final int fileDurationUs;
 
   /// Fade-through-black at the start / end (sound fades with it).
   final int dipInUs;
@@ -92,6 +97,7 @@ class PreviewSegment {
       'inUs': inUs,
       'outUs': outUs,
       'speed': speed,
+      if (c == null && fileDurationUs > 0) 'sourceDurationUs': fileDurationUs,
       if (c != null) ...{
         'hasAudio': c.media?.hasAudio ?? true,
         'frameRate': c.media?.frameRate ?? 30,
@@ -188,7 +194,11 @@ List<PreviewSegment> segmentsOf(
       ),
     );
     final r = rendered[i];
-    if (r != null) out.add(PreviewSegment(r.$1, r.$2, 2 * r.$2));
+    // The pre-made file holds the transition with a little either side
+    // (three times its length); its middle third plays here.
+    if (r != null) {
+      out.add(PreviewSegment(r.$1, r.$2, 2 * r.$2, fileDurationUs: 3 * r.$2));
+    }
   }
   return out;
 }
