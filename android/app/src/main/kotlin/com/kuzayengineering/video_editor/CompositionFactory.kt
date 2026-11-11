@@ -93,11 +93,13 @@ object CompositionFactory {
                 )
             )
         }
-        return builder
-            .setHdrMode(hdrMode)
-            // Clips without sound get silence, so sound stays in sync.
-            .experimentalSetForceAudioTrack(true)
-            .build()
+        builder.setHdrMode(hdrMode)
+        // Clips without sound get silence, so sound stays in sync. With two
+        // picture layers this is left off: it would give the silent second
+        // layer a sound track too, which Media3 can't set up (it crashes);
+        // the main layer already has sound and picture tracks of its own.
+        if (!mixing) builder.experimentalSetForceAudioTrack(true)
+        return builder.build()
     }
 
     /** One audio track: its clips with silent gaps in between. */
