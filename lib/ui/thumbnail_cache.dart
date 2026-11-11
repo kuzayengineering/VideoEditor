@@ -23,7 +23,10 @@ class ThumbnailCache extends ChangeNotifier {
   /// Starts making pictures for every real clip in [project] (once per file).
   void ensureFor(Project project) {
     if (!engine.supportsMedia) return;
-    for (final clip in project.mainTrack.clips) {
+    for (final clip in [
+      ...project.mainTrack.clips,
+      for (final t in project.overlayTracks) ...t.clips,
+    ]) {
       if (!clip.isMedia || _sources.containsKey(clip.sourcePath)) continue;
       final thumbs = _SourceThumbs(clip.sourcePath!, clip.media!);
       _sources[clip.sourcePath!] = thumbs;

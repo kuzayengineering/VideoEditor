@@ -36,6 +36,11 @@ data class Segment(
     val hasVideo: Boolean = true,
     /** The sound fades out over this long under a mixing transition. */
     val blendOutUs: Long = 0,
+    /** Picture size for picture-in-picture pieces (0: the canvas). */
+    val boxW: Int = 0,
+    val boxH: Int = 0,
+    /** Picture only (its sound is played elsewhere, or not at all). */
+    val silent: Boolean = false,
 ) {
     val timelineUs: Long get() = Math.round(lengthUs / speed)
 
@@ -67,6 +72,9 @@ data class Segment(
             startUs = (map["startUs"] as Number?)?.toLong() ?: 0L,
             hasVideo = map["hasVideo"] as Boolean? ?: true,
             blendOutUs = (map["blendOutUs"] as Number?)?.toLong() ?: 0L,
+            boxW = (map["boxW"] as Number?)?.toInt() ?: 0,
+            boxH = (map["boxH"] as Number?)?.toInt() ?: 0,
+            silent = map["silent"] as Boolean? ?: false,
         )
 
         fun listFrom(list: List<Map<String, Any?>>) = list.map(::from)

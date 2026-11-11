@@ -345,6 +345,9 @@ class FfmpegEngine implements MediaEngine {
   @override
   PreviewPlayer createPreview() => MpvPreviewPlayer();
 
+  @override
+  OverlayPlayer? createOverlayPlayer() => MpvOverlayPlayer();
+
   FfmpegExportJob? _running;
 
   @override

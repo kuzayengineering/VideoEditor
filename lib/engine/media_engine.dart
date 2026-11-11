@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -304,6 +305,98 @@ BlendLayers? blendLayersOf(Project project) {
   );
 }
 
+/// One picture-in-picture layer for Android: a picture layer as long as the
+/// video, holding the track's clips at their times (sized to their box) and
+/// unseen filler from the main video in between (Media3 can't leave gaps
+/// in HDR), plus where and when each clip shows.
+class PipLayerPlan {
+  const PipLayerPlan(this.segments, this.windows);
+
+  final List<Map<String, Object?>> segments;
+  final List<Map<String, Object?>> windows;
+}
+
+/// The picture-in-picture layers, lined up with [base] (the main layer).
+List<PipLayerPlan> pipLayersOf(
+  Project project,
+  List<PreviewSegment> base, {
+  required int canvasWidth,
+  required int canvasHeight,
+}) {
+  final videoUs = base.fold(0, (t, s) => t + s.timelineUs);
+
+  // The main layer's pieces from [from] to [to], as silent tiny filler.
+  List<Map<String, Object?>> filler(int from, int to) {
+    final out = <Map<String, Object?>>[];
+    var t = 0;
+    for (final s in base) {
+      final end = t + s.timelineUs;
+      final a = math.max(from, t), b = math.min(to, end);
+      if (b > a) {
+        out.add({
+          ...s.toMap(),
+          'inUs': s.inUs + ((a - t) * s.speed).round(),
+          'outUs': s.inUs + ((b - t) * s.speed).round(),
+          'fadeInUs': 0,
+          'fadeOutUs': 0,
+          'opacity': 1.0,
+          'boxW': 32,
+          'boxH': 18,
+          'silent': true,
+        });
+      }
+      t = end;
+    }
+    return out;
+  }
+
+  final layers = <PipLayerPlan>[];
+  for (final track in project.overlayTracks) {
+    final segments = <Map<String, Object?>>[];
+    final windows = <Map<String, Object?>>[];
+    var cursor = 0;
+    final clips = [...track.clips]
+      ..sort((a, b) => a.startUs.compareTo(b.startUs));
+    for (var clip in clips) {
+      final pip = clip.pip;
+      if (!clip.isMedia || pip == null || clip.startUs >= videoUs) continue;
+      if (clip.startUs < cursor) continue;
+      if (clip.endUs > videoUs) {
+        clip = clip.trimmedBy(tailUs: clip.endUs - videoUs);
+      }
+      if (clip.startUs > cursor) segments.addAll(filler(cursor, clip.startUs));
+      final d = clip.displaySize;
+      int even(double v) => math.max(2, (v / 2).round() * 2);
+      final w = even(pip.size * canvasWidth);
+      final h = even(d.width > 0 ? w * d.height / d.width : w * 9 / 16);
+      segments.add({
+        ...PreviewSegment.of(clip).toMap(),
+        'opacity': 1.0,
+        'fadeInUs': 0,
+        'fadeOutUs': 0,
+        'boxW': w,
+        'boxH': h,
+        'silent': true,
+      });
+      windows.add({
+        'startUs': clip.startUs,
+        'endUs': clip.startUs + clip.durationUs,
+        'x': pip.x,
+        'y': pip.y,
+        'w': w / canvasWidth,
+        'h': h / canvasHeight,
+        'angle': pip.angle,
+        'opacity': clip.opacity,
+      });
+      cursor = clip.startUs + clip.durationUs;
+    }
+    if (windows.isEmpty) continue;
+    if (cursor < videoUs) segments.addAll(filler(cursor, videoUs));
+    layers.add(PipLayerPlan(segments, windows));
+  }
+  return layers;
+}
+
 /// One dip through a colour on the timeline.
 typedef Dip = ({int startUs, int durationUs, int color});
 
@@ -343,6 +436,24 @@ abstract class ClipAudioPlayer {
   /// 0.0–1.0 (preview can't go louder than the file).
   Future<void> setVolume(double volume);
   Future<void> setRate(double rate);
+  Future<void> dispose();
+}
+
+/// Plays one picture-in-picture clip in the preview. Times are timeline
+/// time from the start of the clip.
+abstract class OverlayPlayer {
+  /// The picture, upright, filling its box (turn, mirror and crop are added
+  /// by the screen).
+  Widget buildView(BuildContext context);
+
+  /// Loads the clip's part of its file (from [PreviewSegment.of]).
+  Future<void> open(PreviewSegment segment);
+  Future<void> seek(int offsetUs, {bool exact = true});
+  Future<void> play();
+  Future<void> pause();
+
+  /// 0.0–1.0.
+  Future<void> setVolume(double volume);
   Future<void> dispose();
 }
 
@@ -570,6 +681,10 @@ abstract class MediaEngine {
 
   PreviewPlayer createPreview();
 
+  /// A player for one picture-in-picture clip in the preview (null where
+  /// there's no real video).
+  OverlayPlayer? createOverlayPlayer();
+
   Future<ExportJob> startExport(ExportRequest request);
 
   /// An export that is still running (e.g. after the app was reopened).
@@ -632,6 +747,9 @@ class NoMediaEngine implements MediaEngine {
   @override
   Future<String?> checkExport(Project project, ExportSettings settings) async =>
       'Exporting is not available on this platform.';
+
+  @override
+  OverlayPlayer? createOverlayPlayer() => null;
 
   @override
   PreviewPlayer createPreview() =>

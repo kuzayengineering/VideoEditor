@@ -40,6 +40,41 @@ data class BlendInput(
     }
 }
 
+/** Where and when a picture-in-picture clip shows (fractions of the canvas). */
+data class PipWindow(
+    val startUs: Long,
+    val endUs: Long,
+    val x: Float,
+    val y: Float,
+    val w: Float,
+    val h: Float,
+    val angle: Float,
+    val opacity: Float,
+)
+
+/** One picture-in-picture layer: its pieces (as long as the video) and its clips' places. */
+data class PipLayer(val segments: List<Segment>, val windows: List<PipWindow>) {
+    companion object {
+        @Suppress("UNCHECKED_CAST")
+        fun listFrom(m: Map<*, *>): List<PipLayer> =
+            (m["pips"] as List<*>?)?.map { l ->
+                val layer = l as Map<*, *>
+                PipLayer(
+                    Segment.listFrom(layer["segments"] as List<Map<String, Any?>>),
+                    (layer["windows"] as List<*>).map { w ->
+                        val win = w as Map<*, *>
+                        fun f(k: String) = (win[k] as Number).toFloat()
+                        PipWindow(
+                            (win["startUs"] as Number).toLong(),
+                            (win["endUs"] as Number).toLong(),
+                            f("x"), f("y"), f("w"), f("h"), f("angle"), f("opacity"),
+                        )
+                    },
+                )
+            } ?: emptyList()
+    }
+}
+
 /**
  * Turns the timeline into a Media3 Composition. Used for both the preview and
  * the export, so what you see while editing is what you get.
@@ -62,6 +97,7 @@ object CompositionFactory {
         texts: List<TextLayer> = emptyList(),
         dips: List<Dip> = emptyList(),
         blends: BlendInput? = null,
+        pips: List<PipLayer> = emptyList(),
     ): Composition {
         val items = segments.map { item(it, width, height, maxFrameRate, withGain) }
         val videoLengthUs = segments.sumOf { it.timelineUs }
@@ -75,6 +111,15 @@ object CompositionFactory {
             }
             sequences += layerB.build()
         }
+        // Picture-in-picture layers (silent; their sound is an audio track).
+        for (layer in pips) {
+            val seq = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
+            for (s in layer.segments) {
+                seq.addItem(item(s, width, height, maxFrameRate, withGain = false, silent = true))
+            }
+            sequences += seq.build()
+        }
+        val layered = mixing || pips.isNotEmpty()
         for (track in audioTracks) {
             audioSequence(track, videoLengthUs)?.let { sequences += it }
         }
@@ -83,7 +128,17 @@ object CompositionFactory {
             audioSequence(blends!!.audio, videoLengthUs)?.let { sequences += it }
         }
         val builder = Composition.Builder(sequences)
-        if (mixing) builder.setVideoCompositorSettings(BlendSettings(blends!!.windows))
+        if (layered) {
+            // Video layers come first, so their numbers are their positions.
+            val first = if (mixing) 2 else 1
+            builder.setVideoCompositorSettings(
+                BlendSettings(
+                    if (mixing) blends!!.windows else emptyList(),
+                    pips.mapIndexed { i, layer -> PipDraw(first + i, layer.windows) },
+                    inputCount = first + pips.size,
+                )
+            )
+        }
         if (texts.isNotEmpty() || dips.isNotEmpty()) {
             // Text goes on top of the finished picture, in timeline time.
             builder.setEffects(
@@ -98,7 +153,7 @@ object CompositionFactory {
         // picture layers this is left off: it would give the silent second
         // layer a sound track too, which Media3 can't set up (it crashes);
         // the main layer already has sound and picture tracks of its own.
-        if (!mixing) builder.experimentalSetForceAudioTrack(true)
+        if (!layered) builder.experimentalSetForceAudioTrack(true)
         return builder.build()
     }
 
@@ -214,7 +269,12 @@ object CompositionFactory {
             video += RgbAdjustment.Builder().setRedScale(o).setGreenScale(o).setBlueScale(o).build()
         }
         // Fit into the canvas; black bars where the shapes differ.
-        video += Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
+        // Picture-in-picture pieces get their own box size.
+        video += Presentation.createForWidthAndHeight(
+            if (s.boxW > 0) s.boxW else width,
+            if (s.boxH > 0) s.boxH else height,
+            Presentation.LAYOUT_SCALE_TO_FIT,
+        )
 
         val audio = when {
             silent -> listOf()

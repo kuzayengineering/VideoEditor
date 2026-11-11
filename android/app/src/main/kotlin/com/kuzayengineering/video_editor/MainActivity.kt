@@ -28,11 +28,16 @@ class MainActivity : FlutterActivity() {
     private val preview by lazy { PreviewManager(applicationContext) }
     private val audioPlayers by lazy { ClipAudioPlayers(applicationContext) }
 
+    /** Picture-in-picture players for the preview, by texture id. */
+    private val overlays = HashMap<Long, OverlayPreview>()
+    private var textures: io.flutter.view.TextureRegistry? = null
+
     private var pendingPick: MethodChannel.Result? = null
     private var pendingFolder: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        textures = flutterEngine.renderer
         flutterEngine.platformViewsController.registry
             .registerViewFactory(PreviewViewFactory.VIEW_TYPE, PreviewViewFactory(preview))
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ve/engine")
@@ -43,6 +48,8 @@ class MainActivity : FlutterActivity() {
         // An export keeps running in its own service; only the preview goes.
         preview.release()
         audioPlayers.releaseAll()
+        overlays.values.forEach { it.release() }
+        overlays.clear()
         super.onDestroy()
     }
 
@@ -122,6 +129,46 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "previewPlay" -> { preview.play(); result.success(null) }
+            "overlayCreate" -> {
+                val o = OverlayPreview(applicationContext, textures!!.createSurfaceProducer())
+                overlays[o.textureId] = o
+                result.success(o.textureId)
+            }
+            "overlayOpen" -> {
+                val o = overlays[(call.argument<Number>("id")!!).toLong()]
+                result.success(
+                    o?.open(
+                        call.argument<String>("source")!!,
+                        (call.argument<Number>("inUs")!!).toLong(),
+                        (call.argument<Number>("outUs")!!).toLong(),
+                        (call.argument<Number>("speed") ?: 1.0).toDouble(),
+                    ) ?: 0
+                )
+            }
+            "overlaySeek" -> {
+                overlays[(call.argument<Number>("id")!!).toLong()]?.seek(
+                    (call.argument<Number>("offsetUs")!!).toLong(),
+                    call.argument<Boolean>("exact") ?: true,
+                )
+                result.success(null)
+            }
+            "overlayPlay" -> {
+                overlays[(call.argument<Number>("id")!!).toLong()]?.play()
+                result.success(null)
+            }
+            "overlayPause" -> {
+                overlays[(call.argument<Number>("id")!!).toLong()]?.pause()
+                result.success(null)
+            }
+            "overlayVolume" -> {
+                overlays[(call.argument<Number>("id")!!).toLong()]
+                    ?.setVolume((call.argument<Number>("volume")!!).toDouble())
+                result.success(null)
+            }
+            "overlayRelease" -> {
+                overlays.remove((call.argument<Number>("id")!!).toLong())?.release()
+                result.success(null)
+            }
             "previewScrubbing" -> {
                 preview.setScrubbing(call.argument<Boolean>("on") ?: false)
                 result.success(null)

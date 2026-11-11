@@ -171,4 +171,57 @@ void main() {
     expect(dipsOf(p, blend: true).single.color, 0xFFFFFFFF);
     expect(blendLayersOf(three()), isNull);
   });
+
+  test('picture-in-picture layers line up with the main layer', () {
+    var p = three(); // a, b, c: 4 s each
+    p = p.addOverlay(
+      video('pip', 3).copyWith(
+        startUs: 2 * s,
+        pip: const PipLayout(x: 0.25, y: 0.25, size: 0.5, angle: 10),
+        opacity: 0.8,
+      ),
+    );
+    // One that runs past the end is cut at the end.
+    p = p.addOverlay(video('late', 3).copyWith(startUs: 11 * s));
+    expect(p.overlayTracks.length, 1);
+    final base = segmentsOf(p, blend: true);
+    final layers = pipLayersOf(p, base, canvasWidth: 1920, canvasHeight: 1080);
+    expect(layers.length, 1);
+    final l = layers.single;
+    int total(List<Map<String, Object?>> x) => x.fold(
+      0,
+      (t, e) =>
+          t +
+          (((e['outUs'] as int) - (e['inUs'] as int)) / (e['speed'] as double))
+              .round(),
+    );
+    // As long as the main video (the export's length).
+    expect(total(l.segments), 12 * s);
+    expect(l.windows.length, 2);
+    expect(l.windows[0]['startUs'], 2 * s);
+    expect(l.windows[0]['endUs'], 5 * s);
+    expect(l.windows[0]['w'], 960 / 1920);
+    expect(l.windows[0]['opacity'], 0.8);
+    expect(l.windows[1]['endUs'], 12 * s);
+    // Filler first (from the main video, tiny, silent), then the clip.
+    expect(l.segments.first['boxW'], 32);
+    expect(l.segments.first['silent'], true);
+    expect(l.segments[1]['source'], 'pip.mp4');
+    expect(l.segments[1]['boxW'], 960);
+    expect(l.segments[1]['boxH'], 540);
+    // Saved and loaded with its place.
+    final back = Project.fromJson(
+      (jsonDecode(jsonEncode(p.toJson())) as Map).cast<String, Object?>(),
+    );
+    expect(
+      back.overlayTracks.single.clips.first.pip,
+      p.overlayTracks.single.clips.first.pip,
+    );
+    // Deleting the last clips removes the track.
+    var q = p;
+    for (final c in p.overlayTracks.single.clips) {
+      q = q.deleteClip(c.id);
+    }
+    expect(q.overlayTracks, isEmpty);
+  });
 }

@@ -15,6 +15,7 @@ import 'clip_tools.dart';
 import 'editor_controller.dart';
 import 'export_progress_screen.dart';
 import 'export_sheet.dart';
+import 'pip_view.dart';
 import 'import_media.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
@@ -82,6 +83,8 @@ class _EditorScreenState extends State<_Editor>
   ReverseJobs? _reverses;
   PreviewPlayer? _preview;
   Widget? _previewWidget;
+  PipPlayers? _pipPlayers;
+  PipGestures? _pipGestures;
   Timer? _saveTimer;
   Project? _lastSaved;
 
@@ -115,6 +118,8 @@ class _EditorScreenState extends State<_Editor>
       _previewWidget = preview.buildView(context);
       _mixer = AudioPreviewMixer(_engine);
       c.attachPreview(preview, audio: _mixer);
+      _pipPlayers = PipPlayers(_engine, c);
+      _pipGestures = PipGestures(c);
       // Reconnect to an export that is still running (e.g. the app was
       // closed and reopened during an export).
       _engine.runningExport().then((job) {
@@ -133,6 +138,8 @@ class _EditorScreenState extends State<_Editor>
     _mixer?.dispose();
     _reverses?.dispose();
     _preview?.dispose();
+    _pipPlayers?.dispose();
+    _pipGestures?.dispose();
     super.dispose();
   }
 
@@ -166,6 +173,29 @@ class _EditorScreenState extends State<_Editor>
     c.insertMedia(clips);
     _toast(
       clips.length == 1 ? 'Added 1 video' : 'Added ${clips.length} videos',
+    );
+  }
+
+  /// Adds videos as picture in picture, starting at the playhead (one after
+  /// another if several), and selects the first.
+  Future<void> _addPip() async {
+    c.pause();
+    final clips = await pickAndReadVideos(context, _engine);
+    if (clips.isEmpty || !mounted) return;
+    var project = c.project;
+    var start = c.playheadUs >= project.durationUs ? 0 : c.playheadUs;
+    final firstId = project.nextId;
+    for (final clip in clips) {
+      project = project.addOverlay(
+        clip.copyWith(startUs: start, transition: null, clearTransition: true),
+      );
+      start += clip.durationUs;
+    }
+    c.apply(project);
+    c.select(firstId);
+    _toast(
+      'Drag the picture to move it, pinch to resize, twist to turn. '
+      'It plays on top of the main video.',
     );
   }
 
@@ -567,10 +597,11 @@ class _EditorScreenState extends State<_Editor>
               : null,
         ),
         EditorTool('Text', Icons.text_fields, stage: 4, onTap: _addText),
-        const EditorTool(
+        EditorTool(
           'PiP',
           Icons.picture_in_picture_alt_outlined,
           stage: 4,
+          onTap: _engine.supportsMedia ? _addPip : null,
         ),
         const EditorTool('Filter', Icons.photo_filter_outlined, stage: 5),
         const EditorTool('Captions', Icons.closed_caption_outlined, stage: 7),
@@ -642,6 +673,42 @@ class _EditorScreenState extends State<_Editor>
           Icons.delete_outline,
           stage: 0,
           onTap: c.deleteSelected,
+        ),
+      ];
+    }
+    if (sel.track.kind == TrackKind.overlay) {
+      return [
+        ...common,
+        EditorTool(
+          'Rotate',
+          Icons.rotate_90_degrees_cw_outlined,
+          stage: 2,
+          onTap: c.rotateSelected,
+        ),
+        EditorTool('Mirror', Icons.flip, stage: 2, onTap: c.mirrorSelected),
+        EditorTool('Crop', Icons.crop, stage: 2, onTap: _crop),
+        EditorTool(
+          'Opacity',
+          Icons.opacity,
+          stage: 2,
+          onTap: () => showOpacitySheet(context, c),
+        ),
+        EditorTool(
+          'Full size',
+          Icons.fit_screen_outlined,
+          stage: 4,
+          onTap: () => c.apply(
+            c.project.updateClip(
+              sel.clip.id,
+              (x) => x.copyWith(pip: const PipLayout(x: 0.5, y: 0.5, size: 1)),
+            ),
+          ),
+        ),
+        EditorTool(
+          sel.clip.reversed ? 'Un-reverse' : 'Reverse',
+          Icons.settings_backup_restore,
+          stage: 2,
+          onTap: _toggleReverse,
         ),
       ];
     }
@@ -809,6 +876,8 @@ class _EditorScreenState extends State<_Editor>
                           player: _previewWidget,
                           thumbnails: _thumbs,
                           onEditText: (id) => showTextSheet(context, c, id),
+                          pipPlayers: _pipPlayers,
+                          pipGestures: _pipGestures,
                         ),
                       ),
                       _TransportBar(controller: c),

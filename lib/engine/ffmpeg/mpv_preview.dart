@@ -231,3 +231,65 @@ class MpvAudioPlayer implements ClipAudioPlayer {
   @override
   Future<void> dispose() => _player.dispose();
 }
+
+/// One picture-in-picture clip in the Windows preview (a second mpv player
+/// whose picture the screen places on top of the main one).
+class MpvOverlayPlayer implements OverlayPlayer {
+  MpvOverlayPlayer() {
+    final native = _player.platform;
+    if (native is NativePlayer) {
+      native.setProperty('keep-open', 'yes');
+      native.setProperty('hr-seek', 'yes');
+    }
+  }
+
+  final Player _player = Player(
+    configuration: const PlayerConfiguration(
+      title: 'Video Editor picture in picture',
+      logLevel: MPVLogLevel.error,
+    ),
+  );
+  late final VideoController _video = VideoController(_player);
+  PreviewSegment? _segment;
+
+  @override
+  Widget buildView(BuildContext context) => Video(
+    controller: _video,
+    controls: NoVideoControls,
+    fill: Colors.transparent,
+    fit: BoxFit.fill,
+  );
+
+  @override
+  Future<void> open(PreviewSegment segment) async {
+    final old = _segment;
+    _segment = segment;
+    if (old != null && old.source == segment.source) {
+      await _player.setRate(segment.speed);
+      return;
+    }
+    await _player.open(Media(segment.source), play: false);
+    await _player.setRate(segment.speed);
+  }
+
+  @override
+  Future<void> seek(int offsetUs, {bool exact = true}) async {
+    final s = _segment;
+    if (s == null) return;
+    final media = (offsetUs * s.speed).round().clamp(0, s.lengthUs);
+    await _player.seek(Duration(microseconds: s.inUs + media));
+  }
+
+  @override
+  Future<void> play() => _player.play();
+
+  @override
+  Future<void> pause() => _player.pause();
+
+  @override
+  Future<void> setVolume(double volume) =>
+      _player.setVolume((volume * 100).clamp(0, 100).toDouble());
+
+  @override
+  Future<void> dispose() => _player.dispose();
+}

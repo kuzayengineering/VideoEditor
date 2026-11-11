@@ -211,6 +211,65 @@ class TransitionSpec {
   }
 }
 
+/// Where a picture-in-picture video sits on the canvas.
+class PipLayout {
+  const PipLayout({
+    this.x = 0.72,
+    this.y = 0.3,
+    this.size = 0.4,
+    this.angle = 0,
+  });
+
+  /// Centre of the picture, as fractions of the canvas (0,0 top left).
+  final double x;
+  final double y;
+
+  /// Width of the picture as a fraction of the canvas width.
+  final double size;
+
+  /// Turned clockwise, in degrees.
+  final double angle;
+
+  static const minSize = 0.05;
+  static const maxSize = 1.5;
+
+  PipLayout copyWith({double? x, double? y, double? size, double? angle}) =>
+      PipLayout(
+        x: (x ?? this.x).clamp(-0.5, 1.5),
+        y: (y ?? this.y).clamp(-0.5, 1.5),
+        size: (size ?? this.size).clamp(minSize, maxSize),
+        angle: angle ?? this.angle,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is PipLayout &&
+      other.x == x &&
+      other.y == y &&
+      other.size == size &&
+      other.angle == angle;
+
+  @override
+  int get hashCode => Object.hash(x, y, size, angle);
+
+  Map<String, Object?> toJson() => {
+    'x': x,
+    'y': y,
+    'size': size,
+    if (angle != 0) 'angle': angle,
+  };
+
+  static PipLayout? fromJson(Object? json) {
+    if (json is! Map) return null;
+    return PipLayout(
+      x: (json['x'] as num?)?.toDouble() ?? 0.72,
+      y: (json['y'] as num?)?.toDouble() ?? 0.3,
+      size: ((json['size'] as num?)?.toDouble() ?? 0.4).clamp(minSize, maxSize),
+      angle: (json['angle'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
 /// One piece of media placed on the timeline.
 ///
 /// A clip never changes the original file. It just says "use this part of
@@ -241,7 +300,12 @@ class Clip {
     this.fadeOutUs = 0,
     this.text,
     this.transition,
+    this.pip,
   });
+
+  /// Set for picture-in-picture clips (on an overlay track): where the
+  /// picture sits on top of the main video.
+  final PipLayout? pip;
 
   static const minSpeed = 0.25;
 
@@ -427,6 +491,8 @@ class Clip {
     TextSpec? text,
     TransitionSpec? transition,
     bool clearTransition = false,
+    PipLayout? pip,
+    bool clearPip = false,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -454,6 +520,7 @@ class Clip {
       fadeOutUs: fadeOutUs ?? this.fadeOutUs,
       text: text ?? this.text,
       transition: clearTransition ? null : (transition ?? this.transition),
+      pip: clearPip ? null : (pip ?? this.pip),
     );
   }
 
@@ -481,6 +548,7 @@ class Clip {
     if (fadeOutUs > 0) 'fadeOutUs': fadeOutUs,
     if (text != null) 'text': text!.toJson(),
     if (transition != null) 'transition': transition!.toJson(),
+    if (pip != null) 'pip': pip!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -521,6 +589,7 @@ class Clip {
           ? TextSpec.fromJson((json['text'] as Map).cast<String, Object?>())
           : null,
       transition: TransitionSpec.fromJson(json['transition']),
+      pip: PipLayout.fromJson(json['pip']),
     );
   }
 }

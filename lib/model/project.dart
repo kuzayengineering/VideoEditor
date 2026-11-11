@@ -113,6 +113,10 @@ enum TrackKind {
 
   /// A text track: titles and captions, placed freely like audio.
   text,
+
+  /// Picture in picture: videos shown on top of the main video, placed
+  /// freely in time like audio.
+  overlay,
 }
 
 class Track {
@@ -174,6 +178,7 @@ class Project {
     this.audioTracks = const [],
     this.background = BackgroundFill.black,
     this.textTracks = const [],
+    this.overlayTracks = const [],
   });
 
   /// Creates an empty project.
@@ -212,7 +217,33 @@ class Project {
   /// Text overlays. Later tracks draw on top of earlier ones.
   final List<Track> textTracks;
 
-  List<Track> get tracks => [mainTrack, ...audioTracks, ...textTracks];
+  /// Picture-in-picture videos. Later tracks draw on top of earlier ones
+  /// (and text draws on top of all of them).
+  final List<Track> overlayTracks;
+
+  List<Track> get tracks => [
+    mainTrack,
+    ...overlayTracks,
+    ...audioTracks,
+    ...textTracks,
+  ];
+
+  /// Picture-in-picture clips showing at [timeUs], bottom layer first.
+  List<ClipPlacement> overlaysAt(int timeUs) => [
+    for (final t in overlayTracks)
+      for (final p in placementsOn(t))
+        if (p.contains(timeUs)) p,
+  ];
+
+  /// Adds a picture-in-picture clip at its [Clip.startUs] (it gets a
+  /// default position if it has none), on the first overlay track with room.
+  Project addOverlay(Clip clip) {
+    final placed = clip.copyWith(
+      id: nextId,
+      pip: clip.pip ?? const PipLayout(),
+    );
+    return copyWith(nextId: nextId + 1)._placeOnFreeTrack(placed);
+  }
 
   /// The shortest a clip is allowed to be: one frame.
   int get minClipUs => frameDurationUs(frameRate);
@@ -369,6 +400,7 @@ class Project {
     int? nextId,
     BackgroundFill? background,
     List<Track>? textTracks,
+    List<Track>? overlayTracks,
   }) => Project(
     id: id,
     name: name ?? this.name,
@@ -379,6 +411,7 @@ class Project {
     nextId: nextId ?? this.nextId,
     background: background ?? this.background,
     textTracks: textTracks ?? this.textTracks,
+    overlayTracks: overlayTracks ?? this.overlayTracks,
   );
 
   Project withCanvas(CanvasRatio canvas) =>
@@ -396,6 +429,13 @@ class Project {
     if (track.kind == TrackKind.text) {
       return copyWith(
         textTracks: [for (final t in textTracks) t.id == track.id ? track : t],
+      );
+    }
+    if (track.kind == TrackKind.overlay) {
+      return copyWith(
+        overlayTracks: [
+          for (final t in overlayTracks) t.id == track.id ? track : t,
+        ],
       );
     }
     return copyWith(
@@ -474,8 +514,14 @@ class Project {
   ];
 
   Project _placeOnFreeTrack(Clip clip) {
-    final kind = clip.kind == ClipKind.text ? TrackKind.text : TrackKind.audio;
-    final existing = kind == TrackKind.text ? textTracks : audioTracks;
+    final kind = clip.kind == ClipKind.text
+        ? TrackKind.text
+        : (clip.pip != null ? TrackKind.overlay : TrackKind.audio);
+    final existing = switch (kind) {
+      TrackKind.text => textTracks,
+      TrackKind.overlay => overlayTracks,
+      _ => audioTracks,
+    };
     for (final track in existing) {
       final fits = track.clips.every(
         (c) => clip.endUs <= c.startUs || clip.startUs >= c.endUs,
@@ -491,9 +537,17 @@ class Project {
       kind: kind,
       clips: List.unmodifiable([clip]),
     );
-    return kind == TrackKind.text
-        ? copyWith(textTracks: [...textTracks, track], nextId: nextId + 1)
-        : copyWith(audioTracks: [...audioTracks, track], nextId: nextId + 1);
+    return switch (kind) {
+      TrackKind.text => copyWith(
+        textTracks: [...textTracks, track],
+        nextId: nextId + 1,
+      ),
+      TrackKind.overlay => copyWith(
+        overlayTracks: [...overlayTracks, track],
+        nextId: nextId + 1,
+      ),
+      _ => copyWith(audioTracks: [...audioTracks, track], nextId: nextId + 1),
+    };
   }
 
   /// Cuts a clip in two at [timeUs].
@@ -542,6 +596,14 @@ class Project {
       return copyWith(
         audioTracks: [
           for (final t in audioTracks)
+            if (t.id != p.track.id) t,
+        ],
+      );
+    }
+    if (p.track.kind == TrackKind.overlay && clips.isEmpty) {
+      return copyWith(
+        overlayTracks: [
+          for (final t in overlayTracks)
             if (t.id != p.track.id) t,
         ],
       );
@@ -746,6 +808,8 @@ class Project {
     'audioTracks': [for (final t in audioTracks) t.toJson()],
     'background': background.toJson(),
     'textTracks': [for (final t in textTracks) t.toJson()],
+    if (overlayTracks.isNotEmpty)
+      'overlayTracks': [for (final t in overlayTracks) t.toJson()],
   };
 
   factory Project.fromJson(Map<String, Object?> json) {
@@ -774,6 +838,10 @@ class Project {
       ]),
       audioTracks: List.unmodifiable([
         for (final t in json['audioTracks'] as List? ?? const [])
+          Track.fromJson((t as Map).cast<String, Object?>()),
+      ]),
+      overlayTracks: List.unmodifiable([
+        for (final t in json['overlayTracks'] as List? ?? const [])
           Track.fromJson((t as Map).cast<String, Object?>()),
       ]),
     );

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../model/project.dart';
 import 'editor_controller.dart';
+import 'pip_view.dart';
 import 'text_render.dart';
 
 /// Draws the text overlays on top of the preview, exactly as the export will
@@ -16,9 +17,13 @@ class TextOverlayView extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onEditText,
+    this.below,
   });
 
   final EditorController controller;
+
+  /// Picture-in-picture moving, for touches that miss every text.
+  final PipGestures? below;
 
   /// Opens the text editor for a text clip.
   final void Function(int clipId) onEditText;
@@ -31,6 +36,9 @@ class _TextOverlayViewState extends State<TextOverlayView> {
   EditorController get c => widget.controller;
 
   int? _dragId;
+
+  /// The current drag is moving a picture-in-picture clip.
+  bool _belowDrag = false;
   double _startScale = 1;
   double _startRotation = 0;
   Offset _startPos = Offset.zero;
@@ -99,6 +107,8 @@ class _TextOverlayViewState extends State<TextOverlayView> {
                 if (hit != null) {
                   c.pause();
                   c.select(hit.clip.id);
+                } else if (widget.below?.tap(d.localPosition, box) ?? false) {
+                  // A picture-in-picture clip was tapped.
                 } else if (c.selected?.clip.kind == ClipKind.text) {
                   c.select(null);
                 }
@@ -109,8 +119,10 @@ class _TextOverlayViewState extends State<TextOverlayView> {
               },
               onScaleStart: (d) {
                 final hit = _hit(d.localFocalPoint, box);
+                _belowDrag = false;
                 if (hit == null) {
                   _dragId = null;
+                  _belowDrag = widget.below?.scaleStart(d, box) ?? false;
                   return;
                 }
                 c.pause();
@@ -123,6 +135,10 @@ class _TextOverlayViewState extends State<TextOverlayView> {
                 _focalStart = d.localFocalPoint;
               },
               onScaleUpdate: (d) {
+                if (_belowDrag) {
+                  widget.below!.scaleUpdate(d, box);
+                  return;
+                }
                 final id = _dragId;
                 if (id == null) return;
                 final move = d.localFocalPoint - _focalStart;
@@ -160,6 +176,11 @@ class _TextOverlayViewState extends State<TextOverlayView> {
                 );
               },
               onScaleEnd: (_) {
+                if (_belowDrag) {
+                  _belowDrag = false;
+                  widget.below!.scaleEnd();
+                  return;
+                }
                 if (_dragId != null) c.endLiveEdit();
                 _dragId = null;
                 if (_snapX || _snapY) {

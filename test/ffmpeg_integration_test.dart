@@ -338,6 +338,176 @@ void main() {
         expect(check.isHdr, isFalse);
       });
 
+      test(
+        'picture in picture: placed, timed, see-through and turned',
+        () async {
+          Future<String> solid(
+            String name,
+            String color,
+            double seconds,
+          ) async {
+            final path = '${dir.path}/$name.mp4';
+            await _run([
+              '-f',
+              'lavfi',
+              '-i',
+              'color=c=$color:s=640x360:r=30:d=$seconds',
+              '-f',
+              'lavfi',
+              '-i',
+              'sine=f=440:d=$seconds:r=48000',
+              '-pix_fmt',
+              'yuv420p',
+              '-c:v',
+              'libx264',
+              '-preset',
+              'ultrafast',
+              '-c:a',
+              'aac',
+              '-shortest',
+              path,
+            ]);
+            return path;
+          }
+
+          final red = await solid('pip_red', 'red', 2);
+          final blue = await solid('pip_blue', 'blue', 2);
+          final ri = await _probe(red), bi = await _probe(blue);
+
+          Future<List<int>> rgbAt(String path, double t, int x, int y) async {
+            final r = await Process.run('ffmpeg', [
+              '-hide_banner',
+              '-v',
+              'error',
+              '-ss',
+              '$t',
+              '-i',
+              path,
+              '-frames:v',
+              '1',
+              '-vf',
+              'crop=2:2:$x:$y,scale=1:1,format=rgb24',
+              '-f',
+              'rawvideo',
+              '-',
+            ], stdoutEncoding: null);
+            return (r.stdout as List<int>).take(3).toList();
+          }
+
+          Future<String> export(
+            String name,
+            PipLayout layout, {
+            double opacity = 1,
+          }) async {
+            var project = Project.empty(
+              id: 't',
+              frameRate: 30,
+            ).insertMedia([clipFor(red, ri)]);
+            project = project.addOverlay(
+              clipFor(
+                blue,
+                bi,
+                outUs: 1000000,
+              ).copyWith(startUs: 500000, opacity: opacity, pip: layout),
+            );
+            final out = '${dir.path}/$name.mp4';
+            final plan = buildExportPlan(
+              project: project,
+              settings: const ExportSettings(resolution: ExportResolution.p720)
+                  .copyWith(
+                    dynamicRange: DynamicRange.sdr,
+                    codec: VideoCodec.h264,
+                    frameRate: 30,
+                  ),
+              encoder: VideoEncoder.h264Candidates.firstWhere(
+                (e) => e.name == 'libx264',
+              ),
+              outputPath: out,
+            );
+            final r = await Process.run('ffmpeg', plan.args);
+            expect(r.exitCode, 0, reason: '${r.stderr}');
+            final v = await Process.run('ffprobe', verifyArgs(out));
+            expect(
+              parseVerification(
+                '${v.stdout}',
+                plan.expectedFrames,
+                plan.durationUs,
+              ).actualFrames,
+              60,
+            );
+            return out;
+          }
+
+          // Half the width, centred, from 0.5 s to 1.5 s.
+          final plain = await export(
+            'pip_plain',
+            const PipLayout(x: 0.5, y: 0.5, size: 0.5),
+          );
+          expect(
+            (await rgbAt(plain, 1.0, 639, 359))[2],
+            greaterThan(200),
+          ); // blue
+          expect((await rgbAt(plain, 1.0, 20, 20))[0], greaterThan(200)); // red
+          expect((await rgbAt(plain, 0.2, 639, 359))[0], greaterThan(200));
+          expect((await rgbAt(plain, 1.8, 639, 359))[0], greaterThan(200));
+          // Its right edge is at 960 px (the box is 640 × 360).
+          expect((await rgbAt(plain, 1.0, 950, 359))[2], greaterThan(200));
+          expect((await rgbAt(plain, 1.0, 975, 359))[0], greaterThan(200));
+
+          // Half see-through: a mix.
+          final faded = await export(
+            'pip_faded',
+            const PipLayout(x: 0.5, y: 0.5, size: 0.5),
+            opacity: 0.5,
+          );
+          final mix = await rgbAt(faded, 1.0, 639, 359);
+          expect(mix[0], inInclusiveRange(80, 180));
+          expect(mix[2], inInclusiveRange(80, 180));
+
+          // Turned 45°: the box's corners are now outside it (red shows),
+          // the centre is still blue.
+          final turned = await export(
+            'pip_turned',
+            const PipLayout(x: 0.5, y: 0.5, size: 0.5, angle: 45),
+          );
+          expect((await rgbAt(turned, 1.0, 639, 359))[2], greaterThan(200));
+          expect((await rgbAt(turned, 1.0, 330, 190))[0], greaterThan(200));
+        },
+      );
+
+      test('picture in picture in an HDR export', () async {
+        final info = await _probe(hlg);
+        var project = Project.empty(id: 't').insertMedia([clipFor(hlg, info)]);
+        project = project.addOverlay(
+          clipFor(hlg, info, outUs: 1000000).copyWith(
+            startUs: 200000,
+            opacity: 0.7,
+            rotation: 1,
+            pip: const PipLayout(x: 0.3, y: 0.3, size: 0.3, angle: -20),
+          ),
+        );
+        final out = '${dir.path}/pip_hdr.mp4';
+        final plan = buildExportPlan(
+          project: project,
+          settings: const ExportSettings(resolution: ExportResolution.p720)
+              .copyWith(dynamicRange: DynamicRange.hlg, frameRate: 30),
+          encoder: VideoEncoder.hevcCandidates.firstWhere(
+            (e) => e.name == 'libx265',
+          ),
+          outputPath: out,
+        );
+        final r = await Process.run('ffmpeg', plan.args);
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+        final v = await Process.run('ffprobe', verifyArgs(out));
+        final check = parseVerification(
+          '${v.stdout}',
+          plan.expectedFrames,
+          plan.durationUs,
+        );
+        expect(check.ok, isTrue);
+        expect(check.isHdr, isTrue);
+      });
+
       test('480p export carries the chosen recording date', () async {
         final info = await _probe(hlg);
         final project = Project.empty(id: 't')

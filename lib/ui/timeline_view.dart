@@ -64,6 +64,9 @@ class TimelineView extends StatefulWidget {
   static const mainTrackTop = 30.0;
   static const mainTrackHeight = 60.0;
   static const audioTrackHeight = 34.0;
+
+  /// Picture-in-picture rows (with thumbnails).
+  static const overlayTrackHeight = 44.0;
   static const trackGap = 8.0;
   static const handleWidth = 14.0;
 
@@ -72,6 +75,7 @@ class TimelineView extends StatefulWidget {
       mainTrackHeight +
       (project.audioTracks.length + project.textTracks.length) *
           (audioTrackHeight + trackGap) +
+      project.overlayTracks.length * (overlayTrackHeight + trackGap) +
       trackGap * 2;
 
   @override
@@ -105,6 +109,10 @@ class _TimelineViewState extends State<TimelineView> {
         TimelineView.mainTrackTop +
         TimelineView.mainTrackHeight +
         TimelineView.trackGap;
+    for (final t in project.overlayTracks) {
+      lanes.add((t, y, TimelineView.overlayTrackHeight));
+      y += TimelineView.overlayTrackHeight + TimelineView.trackGap;
+    }
     for (final t in [...project.audioTracks, ...project.textTracks]) {
       lanes.add((t, y, TimelineView.audioTrackHeight));
       y += TimelineView.audioTrackHeight + TimelineView.trackGap;

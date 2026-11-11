@@ -71,7 +71,14 @@ class EditorController extends ChangeNotifier {
   AudioPreviewMixer? _audio;
 
   /// Silences the preview (used while recording a voice-over).
-  set previewMuted(bool value) => _audio?.muted = value;
+  set previewMuted(bool value) {
+    _previewMuted = value;
+    _audio?.muted = value;
+    notifyListeners();
+  }
+
+  bool get previewMuted => _previewMuted;
+  bool _previewMuted = false;
 
   void attachPreview(PreviewPlayer preview, {AudioPreviewMixer? audio}) {
     _preview = preview;

@@ -26,10 +26,15 @@ data class Blend(val startUs: Long, val durationUs: Long, val code: Int) {
  * each clip with its start (see blendLayersOf on the Flutter side), so during
  * a transition layer 0 shows the outgoing clip and layer 1 the incoming one.
  */
-class BlendSettings(private val blends: List<Blend>) : CustomVideoBlender.Provider {
-    override fun createBlender(): CustomVideoBlender = TransitionBlender(blends)
+class BlendSettings(
+    private val blends: List<Blend>,
+    private val pips: List<PipDraw> = emptyList(),
+    private val inputCount: Int = 2,
+) : CustomVideoBlender.Provider {
+    override fun createBlender(): CustomVideoBlender =
+        TransitionBlender(blends, pips, hasLayerB = blends.isNotEmpty())
 
-    override fun getInputCount(): Int = 2
+    override fun getInputCount(): Int = inputCount
 
     // Both layers are already fitted to the canvas.
     override fun getOutputSize(inputSizes: List<Size>): Size = inputSizes[0]
@@ -43,8 +48,16 @@ class BlendSettings(private val blends: List<Blend>) : CustomVideoBlender.Provid
  * by the transition's picture. The maths matches FFmpeg's xfade filter
  * (used by the Windows version), so both look the same.
  */
-class TransitionBlender(private val blends: List<Blend>) : CustomVideoBlender {
+/** A picture-in-picture layer to draw: its input number and clips' places. */
+class PipDraw(val input: Int, val windows: List<PipWindow>)
+
+class TransitionBlender(
+    private val blends: List<Blend>,
+    private val pips: List<PipDraw> = emptyList(),
+    private val hasLayerB: Boolean = true,
+) : CustomVideoBlender {
     private var program: GlProgram? = null
+    private var pipProgram: GlProgram? = null
 
     override fun draw(
         inputs: Array<out GlTextureInfo>,
@@ -54,7 +67,7 @@ class TransitionBlender(private val blends: List<Blend>) : CustomVideoBlender {
         hdr: Boolean,
     ) {
         val a = inputs.getOrNull(0) ?: return
-        var b = inputs.getOrNull(1)
+        var b = if (hasLayerB) inputs.getOrNull(1) else null
         var code = 0
         var t = 0f
         for (blend in blends) {
@@ -87,14 +100,87 @@ class TransitionBlender(private val blends: List<Blend>) : CustomVideoBlender {
         p.bindAttributesAndUniforms()
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GlUtil.checkGlError()
+        drawPips(inputs, presentationTimeUs, outputWidth.toFloat(), outputHeight.toFloat())
+    }
+
+    /** Picture-in-picture clips showing now, each a turned, see-through box. */
+    private fun drawPips(inputs: Array<out GlTextureInfo>, timeUs: Long, cw: Float, ch: Float) {
+        var blending = false
+        for (layer in pips) {
+            val win = layer.windows.firstOrNull { timeUs >= it.startUs && timeUs < it.endUs }
+                ?: continue
+            val tex = inputs.getOrNull(layer.input) ?: continue
+            val p = pipProgram ?: GlProgram(PIP_VERTEX, PIP_FRAGMENT).also { pipProgram = it }
+            // The box's corners in pixels (y down), turned clockwise about
+            // its centre, then in GL's -1…1 space (y up).
+            val cx = win.x * cw
+            val cy = win.y * ch
+            val w = win.w * cw
+            val h = win.h * ch
+            val a = Math.toRadians(win.angle.toDouble())
+            val cos = Math.cos(a).toFloat()
+            val sin = Math.sin(a).toFloat()
+            val corners = floatArrayOf(-0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f)
+            val pos = FloatArray(8)
+            val uv = FloatArray(8)
+            for (i in 0 until 4) {
+                val qx = corners[2 * i]
+                val qy = corners[2 * i + 1]
+                val px = cx + qx * w * cos - qy * h * sin
+                val py = cy + qx * w * sin + qy * h * cos
+                pos[2 * i] = px / cw * 2f - 1f
+                pos[2 * i + 1] = 1f - py / ch * 2f
+                uv[2 * i] = qx + 0.5f
+                uv[2 * i + 1] = 0.5f - qy
+            }
+            if (!blending) {
+                GLES20.glEnable(GLES20.GL_BLEND)
+                GLES20.glBlendFuncSeparate(
+                    GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA,
+                    GLES20.GL_ZERO, GLES20.GL_ONE,
+                )
+                blending = true
+            }
+            p.use()
+            p.setBufferAttribute("aPos", pos, 2)
+            p.setBufferAttribute("aTex", uv, 2)
+            p.setSamplerTexIdUniform("uTex", tex.texId, 0)
+            p.setFloatUniform("uAlpha", win.opacity.coerceIn(0f, 1f))
+            p.bindAttributesAndUniforms()
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+            GlUtil.checkGlError()
+        }
+        if (blending) GLES20.glDisable(GLES20.GL_BLEND)
     }
 
     override fun release() {
         program?.delete()
         program = null
+        pipProgram?.delete()
+        pipProgram = null
     }
 
     private companion object {
+        const val PIP_VERTEX = """#version 100
+attribute vec2 aPos;
+attribute vec2 aTex;
+varying vec2 vTex;
+void main() {
+  gl_Position = vec4(aPos, 0.0, 1.0);
+  vTex = aTex;
+}
+"""
+
+        const val PIP_FRAGMENT = """#version 100
+precision highp float;
+uniform sampler2D uTex;
+uniform float uAlpha;
+varying vec2 vTex;
+void main() {
+  gl_FragColor = vec4(texture2D(uTex, vTex).rgb, uAlpha);
+}
+"""
+
         const val VERTEX = """#version 100
 attribute vec4 aFramePosition;
 varying vec2 vUv;

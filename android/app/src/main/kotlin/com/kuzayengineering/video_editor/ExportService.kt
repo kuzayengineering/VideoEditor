@@ -39,6 +39,7 @@ data class ExportRequest(
     val texts: List<TextLayer>,
     val dips: List<Dip>,
     val blends: BlendInput?,
+    val pips: List<PipLayer>,
     /** If blending the transitions fails: the same video with every
      * transition as a dip through black (what older versions did). */
     val fallbackSegments: List<Segment>?,
@@ -65,6 +66,7 @@ data class ExportRequest(
                 ?.map { TextLayer.from(it) } ?: emptyList(),
             dips = (m["dips"] as List<*>?)?.map { Dip.from(it as Map<*, *>) } ?: emptyList(),
             blends = BlendInput.from(m),
+            pips = PipLayer.listFrom(m),
             fallbackSegments = @Suppress("UNCHECKED_CAST") (m["fallbackSegments"] as List<Map<String, Any?>>?)
                 ?.let { Segment.listFrom(it) },
             fallbackDips = (m["fallbackDips"] as List<*>?)?.map { Dip.from(it as Map<*, *>) },
@@ -155,6 +157,7 @@ object ExportManager {
                 texts = req.texts,
                 dips = req.dips,
                 blends = req.blends,
+                pips = req.pips,
             )
 
             val encoders = DefaultEncoderFactory.Builder(ctx)
@@ -182,18 +185,20 @@ object ExportManager {
                         exportException: ExportException,
                     ) {
                         val fallback = req.fallbackSegments
-                        if (req.blends != null && fallback != null) {
+                        if ((req.blends != null || req.pips.isNotEmpty()) && fallback != null) {
                             // Mixing the clips didn't work on this phone: try
                             // again with simple dips through black.
                             transformer = null
                             fallbackNote = "\n\nTransitions are shown as fades " +
-                                "through black, because mixing the clips failed:\n" +
+                                "through black and picture in picture is left out, " +
+                                "because layering the clips failed:\n" +
                                 TransitionRenderer.describe(exportException)
                             main.post {
                                 run(svc, req.copy(
                                     segments = fallback,
                                     dips = req.fallbackDips ?: emptyList(),
                                     blends = null,
+                                    pips = emptyList(),
                                     fallbackSegments = null,
                                 ))
                             }

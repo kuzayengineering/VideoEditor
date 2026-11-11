@@ -176,7 +176,14 @@ class AndroidMediaEngine implements MediaEngine {
       return 'Colored and blurred backgrounds can\'t be exported on Android '
           'yet. Set the background back to black.';
     }
-    final transfers = {for (final c in clips) c.media!.transfer};
+    // Picture-in-picture videos count too: they're mixed into the same
+    // picture.
+    final transfers = {
+      for (final c in clips) c.media!.transfer,
+      for (final t in project.overlayTracks)
+        for (final c in t.clips)
+          if (c.isMedia) c.media!.transfer,
+    };
     final range = settings.dynamicRange;
     if (range.isHdr) {
       if (transfers.length == 1 && transfers.single == ColorTransfer.sdr) {
@@ -203,6 +210,9 @@ class AndroidMediaEngine implements MediaEngine {
 
   @override
   PreviewPlayer createPreview() => AndroidPreviewPlayer();
+
+  @override
+  OverlayPlayer? createOverlayPlayer() => AndroidOverlayPlayer();
 
   AndroidExportJob? _job;
 
@@ -235,8 +245,17 @@ class AndroidMediaEngine implements MediaEngine {
     await _channel.invokeMethod('startExport', {
       'segments': [for (final seg in segments) seg.toMap()],
       ..._blendArgs(blends),
+      'pips': [
+        for (final l in pipLayersOf(
+          project,
+          segments,
+          canvasWidth: dims.width,
+          canvasHeight: dims.height,
+        ))
+          {'segments': l.segments, 'windows': l.windows},
+      ],
       // If mixing fails on the phone: every transition as a dip instead.
-      if (blends != null) ...{
+      if (blends != null || project.overlayTracks.isNotEmpty) ...{
         'fallbackSegments': [
           for (final seg in segmentsOf(project)) seg.toMap(),
         ],
@@ -255,6 +274,17 @@ class AndroidMediaEngine implements MediaEngine {
       ],
       'texts': textLayersFor(project, request.textImages),
       'audioTracks': [
+        // Picture-in-picture clips' own sound.
+        for (final t in project.overlayTracks)
+          [
+            for (final a in t.clips)
+              if (a.isMedia && (a.media?.hasAudio ?? false))
+                {
+                  ...PreviewSegment.of(a).toMap(),
+                  'startUs': a.startUs,
+                  'hasVideo': true,
+                },
+          ],
         for (final t in project.audioTracks)
           [
             for (final a in t.clips)
@@ -481,4 +511,77 @@ class _AndroidClipAudio implements ClipAudioPlayer {
 
   @override
   Future<void> dispose() => _channel.invokeMethod('audioRelease', {'id': id});
+}
+
+/// One picture-in-picture clip in the Android preview: a separate player
+/// drawing into a Flutter texture, which the screen moves, sizes and turns.
+class AndroidOverlayPlayer implements OverlayPlayer {
+  AndroidOverlayPlayer() {
+    _ready = _channel.invokeMethod<num>('overlayCreate').then((id) {
+      _textureId.value = id?.toInt();
+      return id?.toInt();
+    });
+  }
+
+  late final Future<int?> _ready;
+  final _textureId = ValueNotifier<int?>(null);
+  final _turns = ValueNotifier<int>(0);
+  bool _disposed = false;
+
+  @override
+  Widget buildView(BuildContext context) => ValueListenableBuilder<int?>(
+    valueListenable: _textureId,
+    builder: (context, id, _) => id == null
+        ? const SizedBox.expand()
+        : ValueListenableBuilder<int>(
+            valueListenable: _turns,
+            builder: (context, turns, _) => RotatedBox(
+              quarterTurns: turns,
+              child: Texture(textureId: id),
+            ),
+          ),
+  );
+
+  Future<void> _call(
+    String method, [
+    Map<String, Object?> args = const {},
+  ]) async {
+    final id = await _ready;
+    if (id == null || _disposed) return;
+    await _channel.invokeMethod(method, {'id': id, ...args});
+  }
+
+  @override
+  Future<void> open(PreviewSegment segment) async {
+    final id = await _ready;
+    if (id == null || _disposed) return;
+    final turns = await _channel.invokeMethod<num>('overlayOpen', {
+      'id': id,
+      'source': segment.source,
+      'inUs': segment.inUs,
+      'outUs': segment.outUs,
+      'speed': segment.speed,
+    });
+    _turns.value = turns?.toInt() ?? 0;
+  }
+
+  @override
+  Future<void> seek(int offsetUs, {bool exact = true}) =>
+      _call('overlaySeek', {'offsetUs': offsetUs, 'exact': exact});
+
+  @override
+  Future<void> play() => _call('overlayPlay');
+
+  @override
+  Future<void> pause() => _call('overlayPause');
+
+  @override
+  Future<void> setVolume(double volume) =>
+      _call('overlayVolume', {'volume': volume});
+
+  @override
+  Future<void> dispose() async {
+    await _call('overlayRelease');
+    _disposed = true;
+  }
 }

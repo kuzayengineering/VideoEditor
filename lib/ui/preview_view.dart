@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../engine/media_engine.dart';
 import '../model/project.dart';
 import 'editor_controller.dart';
+import 'pip_view.dart';
 import 'text_overlay_view.dart';
 import 'thumbnail_cache.dart';
 
@@ -17,7 +18,13 @@ class PreviewView extends StatelessWidget {
     this.player,
     this.thumbnails,
     this.onEditText,
+    this.pipPlayers,
+    this.pipGestures,
   });
+
+  /// Picture in picture (null without real video).
+  final PipPlayers? pipPlayers;
+  final PipGestures? pipGestures;
 
   /// Opens the text editor (double-tapping a text in the preview).
   final void Function(int clipId)? onEditText;
@@ -120,6 +127,13 @@ class PreviewView extends StatelessWidget {
                   fit: StackFit.expand,
                   children: [
                     content,
+                    if (pipPlayers != null && pipGestures != null)
+                      PipOverlayView(
+                        controller: controller,
+                        players: pipPlayers!,
+                        gestures: pipGestures!,
+                        thumbnails: thumbnails,
+                      ),
                     if (dip > 0.001)
                       IgnorePointer(
                         child: ColoredBox(
@@ -131,6 +145,7 @@ class PreviewView extends StatelessWidget {
                     TextOverlayView(
                       controller: controller,
                       onEditText: onEditText ?? (_) {},
+                      below: pipGestures,
                     ),
                     if (controller.transitionsPreparing.isNotEmpty)
                       const Positioned(

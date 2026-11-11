@@ -889,6 +889,94 @@ FfmpegExportPlan buildExportPlan({
       inputIndex++;
     }
   }
+  // Picture in picture: each clip is cut and timed like a main clip, given
+  // its turn/mirror/crop and colour conversion, scaled to its size, turned
+  // by its angle (transparent corners), faded by its opacity, and laid on
+  // the video while it plays. Its sound joins the mix.
+  final pipLabels = <String>[];
+  var videoAfterPip = 'vout';
+  var pipNo = 0;
+  final pipFmt = tenBit ? 'yuva420p10le' : 'yuva420p';
+  for (final track in project.overlayTracks) {
+    for (final c in track.clips) {
+      final info = c.media;
+      if (!c.isMedia || info == null || c.pip == null) continue;
+      final startSeconds = c.startUs / usPerSecond;
+      if (startSeconds >= videoSeconds) continue;
+      final String path;
+      final int fromUs;
+      if (c.reversed && c.reverseReady) {
+        path = c.reverseProxy!.path;
+        fromUs = c.reverseProxy!.proxyTimeOf(c.sourceOutUs);
+      } else {
+        path = c.sourcePath!;
+        fromUs = c.sourceInUs;
+      }
+      inputs.addAll([
+        '-ss',
+        _seconds(fromUs),
+        '-t',
+        _seconds(c.sourceLengthUs + 200000),
+        '-i',
+        path,
+      ]);
+      final j = inputIndex++;
+      final frames = math.max(1, (c.durationUs * fps / usPerSecond).round());
+      final pip = c.pip!;
+      final d = c.displaySize;
+      final pw = _even(pip.size * w);
+      final ph = _even(d.width > 0 ? pw * d.height / d.width : pw * 9 / 16);
+      final color = colorConversionFilter(info, range);
+      final angle = pip.angle * math.pi / 180;
+      final turn = angle.abs() < 1e-6
+          ? null
+          : 'rotate=a=${angle.toStringAsFixed(6)}:'
+                'ow=rotw(${angle.toStringAsFixed(6)}):'
+                'oh=roth(${angle.toStringAsFixed(6)}):c=none';
+      final chain = [
+        '[$j:v]${_speedPts(c.speed)}',
+        'fps=$fpsText',
+        ...lookFilters(c),
+        ?color,
+        'scale=$pw:$ph:flags=bicubic',
+        'setsar=1',
+        'format=$pipFmt',
+        if (c.opacity < 0.999) 'lutyuv=a=val*${c.opacity.toStringAsFixed(4)}',
+        ?turn,
+        'tpad=stop_mode=clone:stop_duration=1',
+        'trim=end_frame=$frames',
+        'setpts=N/($fpsText)/TB+${startSeconds.toStringAsFixed(6)}/TB',
+      ];
+      filters.add('${chain.join(',')}[pv$j]');
+      final endSeconds = startSeconds + frames / fps;
+      final next = 'vp${pipNo++}';
+      filters.add(
+        '[$videoAfterPip][pv$j]overlay='
+        'x=${(pip.x * w).toStringAsFixed(2)}-overlay_w/2:'
+        'y=${(pip.y * h).toStringAsFixed(2)}-overlay_h/2:'
+        "enable='between(t,${startSeconds.toStringAsFixed(6)},"
+        "${endSeconds.toStringAsFixed(6)})':eof_action=pass:format=auto[$next]",
+      );
+      videoAfterPip = next;
+      pipLabels.add(next);
+      if ((info.hasAudio) && c.volume > 0) {
+        final lengthSeconds = c.durationUs / usPerSecond;
+        final delayMs = (c.startUs / 1000).round();
+        filters.add(
+          '[$j:a]asetpts=PTS-STARTPTS,${atempoChain(c.speed)}'
+          'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,'
+          'atrim=0:${lengthSeconds.toStringAsFixed(6)}'
+          '${gainFilters(c, lengthSeconds)},'
+          'adelay=$delayMs|$delayMs[t$j]',
+        );
+        mixInputs.add('[t$j]');
+      }
+    }
+  }
+  if (videoAfterPip != 'vout') {
+    filters.add('[$videoAfterPip]format=$pixFmt[vpip]');
+  }
+
   if (mixInputs.length == 1) {
     filters.add('[amain]anull[aout]');
   } else {
@@ -903,7 +991,8 @@ FfmpegExportPlan buildExportPlan({
 
   // Text overlays, drawn on top of the finished picture.
   final sideFiles = <String, String>{};
-  var videoLabel = 'vout';
+  var videoLabel = pipLabels.isEmpty ? 'vout' : 'vpip';
+  final initialVideo = videoLabel;
   final textWork = workDir ?? '.';
   var textNo = 0;
   for (final track in project.textTracks) {
@@ -931,7 +1020,7 @@ FfmpegExportPlan buildExportPlan({
       videoLabel = next;
     }
   }
-  if (videoLabel != 'vout') {
+  if (videoLabel != initialVideo) {
     filters.add('[$videoLabel]format=$pixFmt[vfinal]');
     videoLabel = 'vfinal';
   }
