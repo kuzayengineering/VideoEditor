@@ -27,12 +27,31 @@ class AudioPreviewMixer {
     return (source: c.sourcePath!, map: (int us) => us);
   }
 
-  /// Creates players for new audio clips and removes ones no longer needed.
+  /// The clips whose sound this mixer plays: every audio-track clip, plus
+  /// main and picture-in-picture clips with sound effects (their own
+  /// players are muted meanwhile), with where each starts on the timeline.
+  static List<ClipPlacement> _clipsToPlay(Project project) => [
+    for (final t in project.audioTracks)
+      for (final p in project.placementsOn(t))
+        if (p.clip.isMedia && (p.clip.media?.hasAudio ?? false)) p,
+    for (final t in [project.mainTrack, ...project.overlayTracks])
+      for (final p in project.placementsOn(t))
+        if (hasOwnSound(p.clip)) p,
+  ];
+
+  /// A video clip whose sound plays here (with its effects) instead of
+  /// from its picture's player.
+  static bool hasOwnSound(Clip c) =>
+      c.isMedia &&
+      c.kind == ClipKind.video &&
+      (c.media?.hasAudio ?? false) &&
+      c.activeAudioFx != null;
+
+  /// Creates players for new audio clips and removes ones no longer needed,
+  /// and keeps each player's sound effects up to date (live).
   void sync(Project project) {
     final wanted = <int, Clip>{
-      for (final t in project.audioTracks)
-        for (final c in t.clips)
-          if (c.isMedia && (c.media?.hasAudio ?? false)) c.id: c,
+      for (final p in _clipsToPlay(project)) p.clip.id: p.clip,
     };
     for (final id in _slots.keys.toList()) {
       final c = wanted[id];
@@ -41,10 +60,19 @@ class AudioPreviewMixer {
       }
     }
     for (final entry in wanted.entries) {
-      if (_slots.containsKey(entry.key)) continue;
-      final source = _sourceFor(entry.value).source;
-      final player = engine.createAudioPlayer();
-      _slots[entry.key] = _Slot(player, source, player.open(source));
+      var slot = _slots[entry.key];
+      if (slot == null) {
+        final source = _sourceFor(entry.value).source;
+        final player = engine.createAudioPlayer();
+        slot = _slots[entry.key] = _Slot(player, source, player.open(source));
+      }
+      final fx = entry.value.activeAudioFx;
+      if (fx != slot.fx || !slot.fxSent) {
+        slot.fx = fx;
+        slot.fxSent = true;
+        final s = slot;
+        unawaited(s.ready.then((_) => s.player.setEffects(fx)));
+      }
     }
   }
 
@@ -60,6 +88,8 @@ class AudioPreviewMixer {
       var v = current == null
           ? 1.0
           : current.clip.gainAt(playheadUs - current.startUs);
+      // Its sound plays from a mixer player (with its effects).
+      if (current != null && hasOwnSound(current.clip)) v = 0;
       if (muted) v = 0;
       v = v.clamp(0.0, 1.0);
       if ((v - _mainVolume).abs() > 0.01) {
@@ -67,32 +97,31 @@ class AudioPreviewMixer {
         unawaited(main.setVolume(v));
       }
     }
-    for (final t in project.audioTracks) {
-      for (final c in t.clips) {
-        final slot = _slots[c.id];
-        if (slot == null) continue;
-        final offset = playheadUs - c.startUs;
-        final active = playing && offset >= 0 && offset < c.durationUs;
-        if (active && !slot.playing) {
-          slot.playing = true;
-          final m = _sourceFor(c);
-          final target = m.map(c.sourceTimeAt(offset));
-          unawaited(() async {
-            await slot.ready;
-            await slot.player.setRate(c.speed);
-            await slot.player.seek(target);
-            if (slot.playing) await slot.player.play();
-          }());
-        } else if (!active && slot.playing) {
-          slot.playing = false;
-          unawaited(slot.player.pause());
-        }
-        if (active) {
-          final v = muted ? 0.0 : c.gainAt(offset).clamp(0.0, 1.0);
-          if ((v - slot.volume).abs() > 0.01) {
-            slot.volume = v;
-            unawaited(slot.player.setVolume(v));
-          }
+    for (final p in _clipsToPlay(project)) {
+      final c = p.clip;
+      final slot = _slots[c.id];
+      if (slot == null) continue;
+      final offset = playheadUs - p.startUs;
+      final active = playing && offset >= 0 && offset < c.durationUs;
+      if (active && !slot.playing) {
+        slot.playing = true;
+        final m = _sourceFor(c);
+        final target = m.map(c.sourceTimeAt(offset));
+        unawaited(() async {
+          await slot.ready;
+          await slot.player.setRate(c.speed);
+          await slot.player.seek(target);
+          if (slot.playing) await slot.player.play();
+        }());
+      } else if (!active && slot.playing) {
+        slot.playing = false;
+        unawaited(slot.player.pause());
+      }
+      if (active) {
+        final v = muted ? 0.0 : c.gainAt(offset).clamp(0.0, 1.0);
+        if ((v - slot.volume).abs() > 0.01) {
+          slot.volume = v;
+          unawaited(slot.player.setVolume(v));
         }
       }
     }
@@ -125,6 +154,8 @@ class _Slot {
   final Future<void> ready;
   bool playing = false;
   double volume = -1;
+  AudioFx? fx;
+  bool fxSent = false;
 }
 
 /// Loudness outlines of the sound files, for drawing on the timeline.

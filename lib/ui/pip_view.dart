@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../engine/media_engine.dart';
 import '../model/project.dart';
+import 'audio_preview.dart';
 import 'editor_controller.dart';
 import 'thumbnail_cache.dart';
 
@@ -121,7 +122,10 @@ class _Slot {
       _seekedTo = null;
       _ready = _ready.then((_) => player.open(seg)).catchError((_) {});
     }
-    final volume = muted ? 0.0 : p.clip.volume.clamp(0.0, 1.0);
+    // With sound effects its sound plays from the audio mixer instead.
+    final volume = muted || AudioPreviewMixer.hasOwnSound(p.clip)
+        ? 0.0
+        : p.clip.volume.clamp(0.0, 1.0);
     if (volume != _volume) {
       _volume = volume;
       _ready = _ready.then((_) => player.setVolume(volume)).catchError((_) {});

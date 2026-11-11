@@ -101,6 +101,13 @@ class MainActivity : FlutterActivity() {
                 audioPlayers.rate(call.argument<Int>("id")!!, call.argument<Number>("rate")!!.toDouble())
                 result.success(null)
             }
+            "audioEffects" -> {
+                audioPlayers.effects(
+                    call.argument<Int>("id")!!,
+                    FxSpec.from(call.argument<Map<String, Any?>>("fx")) ?: FxSpec.NONE,
+                )
+                result.success(null)
+            }
             "audioRelease" -> { audioPlayers.release(call.argument<Int>("id")!!); result.success(null) }
             "previewVolume" -> {
                 preview.setVolume(call.argument<Number>("volume")!!.toDouble())

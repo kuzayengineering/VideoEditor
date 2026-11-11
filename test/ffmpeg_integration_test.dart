@@ -8,6 +8,7 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_editor/engine/ffmpeg/ffmpeg_commands.dart';
@@ -680,6 +681,106 @@ void main() {
               );
             }
           }
+        },
+      );
+
+      test(
+        'sound effects: pitch up an octave keeps the length; all run',
+        () async {
+          final tone = '${dir.path}/fx_tone.mp4';
+          await _run([
+            '-f',
+            'lavfi',
+            '-i',
+            'color=c=gray:s=320x180:r=30:d=2',
+            '-f',
+            'lavfi',
+            '-i',
+            'sine=f=440:d=2:r=48000',
+            '-pix_fmt',
+            'yuv420p',
+            '-c:v',
+            'libx264',
+            '-preset',
+            'ultrafast',
+            '-c:a',
+            'aac',
+            '-b:a',
+            '256k',
+            '-shortest',
+            tone,
+          ]);
+          final info = await _probe(tone);
+
+          Future<String> export(AudioFx fx, String name) async {
+            final project = Project.empty(
+              id: 't',
+              frameRate: 30,
+            ).insertMedia([clipFor(tone, info).copyWith(audioFx: fx)]);
+            final out = '${dir.path}/$name.mp4';
+            final plan = buildExportPlan(
+              project: project,
+              settings: const ExportSettings(resolution: ExportResolution.p480)
+                  .copyWith(
+                    dynamicRange: DynamicRange.sdr,
+                    codec: VideoCodec.h264,
+                    frameRate: 30,
+                  ),
+              encoder: VideoEncoder.h264Candidates.firstWhere(
+                (e) => e.name == 'libx264',
+              ),
+              outputPath: out,
+            );
+            final r = await Process.run('ffmpeg', plan.args);
+            expect(r.exitCode, 0, reason: '${r.stderr}');
+            return out;
+          }
+
+          // Counts how often the sound crosses zero (twice per wave).
+          Future<(double hz, double seconds)> measure(String path) async {
+            final r = await Process.run('ffmpeg', [
+              '-v',
+              'error',
+              '-i',
+              path,
+              '-ac',
+              '1',
+              '-ar',
+              '48000',
+              '-f',
+              'f32le',
+              '-',
+            ], stdoutEncoding: null);
+            final bytes = Uint8List.fromList(r.stdout as List<int>);
+            final f = bytes.buffer.asFloat32List(0, bytes.length ~/ 4);
+            var crossings = 0;
+            // Middle second only (no fade edges).
+            for (var i = 24000 + 1; i < 72000; i++) {
+              if ((f[i - 1] < 0) != (f[i] < 0)) crossings++;
+            }
+            return (crossings / 2, f.length / 48000);
+          }
+
+          final up = await measure(
+            await export(const AudioFx(pitch: 12), 'fx_up'),
+          );
+          expect(up.$1, closeTo(880, 15));
+          expect(up.$2, closeTo(2.0, 0.05));
+          final down = await measure(
+            await export(const AudioFx(pitch: -12), 'fx_down'),
+          );
+          expect(down.$1, closeTo(220, 10));
+
+          // Everything at once runs (equalizer, delay, reverb).
+          await export(
+            AudioFx(
+              pitch: 3,
+              eq: EqPreset.voice.gains,
+              reverb: ReverbKind.hall,
+              delayMs: 250,
+            ),
+            'fx_all',
+          );
         },
       );
 

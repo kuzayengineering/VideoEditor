@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../model/audio_fx.dart';
 import '../media_engine.dart';
 
 /// Builds an mpv "EDL" address that plays several pieces of several files
@@ -234,6 +235,18 @@ class MpvAudioPlayer implements ClipAudioPlayer {
 
   @override
   Future<void> setRate(double rate) => _player.setRate(rate);
+
+  /// The same FFmpeg filters as the export, run live by mpv.
+  @override
+  Future<void> setEffects(AudioFx? fx) async {
+    final native = _player.platform;
+    if (native is! NativePlayer) return;
+    final f = fx?.ffmpegFilters();
+    await native.setProperty(
+      'af',
+      f == null ? '' : 'lavfi=[aresample=48000,$f]',
+    );
+  }
 
   @override
   Future<void> dispose() => _player.dispose();

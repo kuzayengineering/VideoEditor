@@ -171,12 +171,33 @@ object Waveform {
 class ClipAudioPlayers(private val context: Context) {
     private val players = HashMap<Int, ExoPlayer>()
 
+    /** Each player's sound effects (changeable while playing). */
+    private val effects = HashMap<Int, FxAudioProcessor>()
+    private val speeds = HashMap<Int, Double>()
+    private val pitches = HashMap<Int, Double>()
+
     fun open(id: Int, source: String) {
         players[id]?.release()
-        val p = ExoPlayer.Builder(context).build()
+        val fx = FxAudioProcessor(FxSpec.NONE)
+        val p = ExoPlayer.Builder(context, FxRenderersFactory(context, fx)).build()
         p.setMediaItem(MediaItem.fromUri(Uri.parse(source)))
         p.prepare()
         players[id] = p
+        effects[id] = fx
+        applyRate(id)
+    }
+
+    /** New sound effects for a player (live, for the sliders). */
+    fun effects(id: Int, spec: FxSpec) {
+        effects[id]?.update(spec)
+        pitches[id] = spec.pitch
+        applyRate(id)
+    }
+
+    private fun applyRate(id: Int) {
+        val speed = speeds[id] ?: 1.0
+        val pitch = pitches[id] ?: 1.0
+        players[id]?.playbackParameters = PlaybackParameters(speed.toFloat(), pitch.toFloat())
     }
 
     fun seek(id: Int, sourceUs: Long) {
@@ -196,15 +217,22 @@ class ClipAudioPlayers(private val context: Context) {
     }
 
     fun rate(id: Int, r: Double) {
-        players[id]?.playbackParameters = PlaybackParameters(r.toFloat())
+        speeds[id] = r
+        applyRate(id)
     }
 
     fun release(id: Int) {
         players.remove(id)?.release()
+        effects.remove(id)
+        speeds.remove(id)
+        pitches.remove(id)
     }
 
     fun releaseAll() {
         players.values.forEach { it.release() }
         players.clear()
+        effects.clear()
+        speeds.clear()
+        pitches.clear()
     }
 }

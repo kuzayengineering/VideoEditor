@@ -182,7 +182,7 @@ object CompositionFactory {
                 .build()
             val b = EditedMediaItem.Builder(mediaItem)
                 .setRemoveVideo(true)
-                .setEffects(Effects(pitchKeeper(clip.speed) + gainProcessors(clip), listOf()))
+                .setEffects(Effects(soundEffects(clip) + gainProcessors(clip), listOf()))
             if (clip.sourceDurationUs > 0) b.setDurationUs(clip.sourceDurationUs)
             applySpeed(b, clip.speed)
             builder.addItem(b.build())
@@ -207,6 +207,14 @@ object CompositionFactory {
      * higher pitch. This shifts the pitch back by the same factor (without
      * changing the length), so voices sound normal at any speed.
      */
+    /** Pitch (kept through speed changes) and the clip's sound effects. */
+    private fun soundEffects(s: Segment): List<AudioProcessor> {
+        val fx = s.fx
+        val list = pitchProcessor(s.speed, fx?.pitch ?: 1.0).toMutableList<AudioProcessor>()
+        if (fx != null && fx.hasFilters) list += FxAudioProcessor(fx)
+        return list
+    }
+
     private fun pitchKeeper(speed: Double): List<AudioProcessor> {
         if (Math.abs(speed - 1.0) < 0.0001) return listOf()
         return listOf(SonicAudioProcessor().apply { setPitch((1.0 / speed).toFloat()) })
@@ -287,7 +295,9 @@ object CompositionFactory {
 
         val audio = when {
             silent -> listOf()
-            withGain -> pitchKeeper(s.speed) + gainProcessors(s)
+            // Export: pitch, equalizer, delay and reverb too. (The preview
+            // plays clips with sound effects through its own small players.)
+            withGain -> soundEffects(s) + gainProcessors(s)
             // Preview: only the fade under a mixing transition (the player's
             // volume does the rest).
             s.blendOutUs > 0 -> pitchKeeper(s.speed) +

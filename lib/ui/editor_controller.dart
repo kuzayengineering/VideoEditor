@@ -498,6 +498,8 @@ class EditorController extends ChangeNotifier {
     _playheadUs = _playheadUs.clamp(0, project.durationUs);
     notifyListeners();
     _liveGrades();
+    // Sound-effect sliders are heard straight away.
+    _audio?.sync(project);
   }
 
   void endLiveEdit() {

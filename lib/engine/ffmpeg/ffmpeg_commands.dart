@@ -391,6 +391,12 @@ String gainFilters(Clip c, double lengthSeconds) {
 
 int _even(double v) => math.max(2, (v / 2).round() * 2);
 
+/// A clip's sound effects as filters followed by a comma (or nothing).
+String _fx(Clip c) {
+  final f = c.activeAudioFx?.ffmpegFilters();
+  return f == null ? '' : '$f,';
+}
+
 String _speedPts(double speed) => (speed - 1).abs() < 0.0001
     ? 'setpts=PTS-STARTPTS'
     : 'setpts=(PTS-STARTPTS)/${speed.toStringAsFixed(4)}';
@@ -833,7 +839,7 @@ FfmpegExportPlan buildExportPlan({
     if (info.hasAudio && c.volume > 0) {
       filters.add(
         '[$i:a]asetpts=PTS-STARTPTS,${atempoChain(c.speed)}aresample=48000,'
-        'aformat=sample_fmts=fltp:channel_layouts=stereo,'
+        'aformat=sample_fmts=fltp:channel_layouts=stereo,${_fx(c)}'
         'apad,atrim=0:$audioLen,asetpts=N/SR/TB${gainFilters(c, segSeconds)}'
         '${dipHead[i] > 0 ? ',afade=t=in:st=0:d=${_f(dipHead[i] / fps)}' : ''}'
         '${dipTail[i] > 0 ? ',afade=t=out:st=${_f((frames - dipTail[i]) / fps)}:d=${_f(dipTail[i] / fps)}' : ''}'
@@ -910,7 +916,7 @@ FfmpegExportPlan buildExportPlan({
       filters.add(
         '[$inputIndex:a]asetpts=PTS-STARTPTS,${atempoChain(a.speed)}'
         'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,'
-        'atrim=0:${lengthSeconds.toStringAsFixed(6)}'
+        '${_fx(a)}atrim=0:${lengthSeconds.toStringAsFixed(6)}'
         '${gainFilters(a, lengthSeconds)},'
         'adelay=$delayMs|$delayMs[t$inputIndex]',
       );
@@ -995,7 +1001,7 @@ FfmpegExportPlan buildExportPlan({
         filters.add(
           '[$j:a]asetpts=PTS-STARTPTS,${atempoChain(c.speed)}'
           'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,'
-          'atrim=0:${lengthSeconds.toStringAsFixed(6)}'
+          '${_fx(c)}atrim=0:${lengthSeconds.toStringAsFixed(6)}'
           '${gainFilters(c, lengthSeconds)},'
           'adelay=$delayMs|$delayMs[t$j]',
         );

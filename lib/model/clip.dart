@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
+import 'audio_fx.dart';
 import 'color_grade.dart';
 import 'media_info.dart';
 import 'text_spec.dart';
 
+export 'audio_fx.dart';
 export 'color_grade.dart';
 export 'media_info.dart';
 export 'text_spec.dart';
@@ -304,7 +306,17 @@ class Clip {
     this.transition,
     this.pip,
     this.grade,
+    this.audioFx,
   });
+
+  /// Sound effects: equalizer, pitch, delay, reverb.
+  final AudioFx? audioFx;
+
+  /// The sound effects, or null when there are none.
+  AudioFx? get activeAudioFx {
+    final f = audioFx;
+    return f == null || f.isNeutral ? null : f;
+  }
 
   /// Filter: a ready-made look and/or brightness, contrast and so on.
   final ColorGrade? grade;
@@ -513,6 +525,7 @@ class Clip {
     bool clearPip = false,
     ColorGrade? grade,
     bool clearGrade = false,
+    AudioFx? audioFx,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -542,6 +555,7 @@ class Clip {
       transition: clearTransition ? null : (transition ?? this.transition),
       pip: clearPip ? null : (pip ?? this.pip),
       grade: clearGrade ? null : (grade ?? this.grade),
+      audioFx: audioFx ?? this.audioFx,
     );
   }
 
@@ -571,6 +585,7 @@ class Clip {
     if (transition != null) 'transition': transition!.toJson(),
     if (pip != null) 'pip': pip!.toJson(),
     if (grade != null && !grade!.isNeutral) 'grade': grade!.toJson(),
+    if (audioFx != null && !audioFx!.isNeutral) 'audioFx': audioFx!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -613,6 +628,7 @@ class Clip {
       transition: TransitionSpec.fromJson(json['transition']),
       pip: PipLayout.fromJson(json['pip']),
       grade: ColorGrade.fromJson(json['grade']),
+      audioFx: AudioFx.fromJson(json['audioFx']),
     );
   }
 }

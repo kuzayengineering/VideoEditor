@@ -119,6 +119,7 @@ class PreviewSegment {
             ? c.effectiveFades.fadeOut
             : dipOutUs,
         if (blendOutUs > 0) 'blendOutUs': blendOutUs,
+        if (c.activeAudioFx != null) 'audioFx': c.activeAudioFx!.toEngineMap(),
         if (c.gradeParams != null) ...{
           'clipId': c.id,
           'grade': c.gradeParams!.values,
@@ -442,6 +443,9 @@ abstract class ClipAudioPlayer {
   /// 0.0–1.0 (preview can't go louder than the file).
   Future<void> setVolume(double volume);
   Future<void> setRate(double rate);
+
+  /// The clip's sound effects (null: none). Can change while playing.
+  Future<void> setEffects(AudioFx? fx);
   Future<void> dispose();
 }
 

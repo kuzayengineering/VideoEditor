@@ -519,6 +519,12 @@ class _AndroidClipAudio implements ClipAudioPlayer {
       _channel.invokeMethod('audioRate', {'id': id, 'rate': rate});
 
   @override
+  Future<void> setEffects(AudioFx? fx) => _channel.invokeMethod(
+    'audioEffects',
+    {'id': id, 'fx': (fx ?? AudioFx.none).toEngineMap()},
+  );
+
+  @override
   Future<void> dispose() => _channel.invokeMethod('audioRelease', {'id': id});
 }
 

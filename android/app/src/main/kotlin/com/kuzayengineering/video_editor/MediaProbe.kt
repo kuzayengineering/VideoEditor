@@ -48,6 +48,8 @@ data class Segment(
     val transfer: String = "sdr",
     /** The clip this piece comes from (for live filter changes). */
     val clipId: Int? = null,
+    /** Sound effects (equalizer, pitch, delay, reverb), if any. */
+    val fx: FxSpec? = null,
 ) {
     val timelineUs: Long get() = Math.round(lengthUs / speed)
 
@@ -85,6 +87,7 @@ data class Segment(
             grade = (map["grade"] as List<*>?)?.map { (it as Number).toDouble() },
             transfer = map["transfer"] as String? ?: "sdr",
             clipId = (map["clipId"] as Number?)?.toInt(),
+            fx = FxSpec.from(map["audioFx"] as Map<*, *>?),
         )
 
         fun listFrom(list: List<Map<String, Any?>>) = list.map(::from)

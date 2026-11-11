@@ -20,6 +20,7 @@ import 'pip_view.dart';
 import 'import_media.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
+import 'sound_sheets.dart';
 import 'reverse_jobs.dart';
 import 'text_render.dart';
 import 'text_sheet.dart';
@@ -662,7 +663,30 @@ class _EditorScreenState extends State<_Editor>
         stage: 2,
         onTap: () => showSpeedSheet(context, c),
       ),
-      const EditorTool('Pitch', Icons.multitrack_audio, stage: 6),
+      EditorTool(
+        'Pitch',
+        Icons.multitrack_audio,
+        stage: 6,
+        onTap: sel.clip.isMedia ? () => showPitchSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Equalizer',
+        Icons.equalizer,
+        stage: 6,
+        onTap: sel.clip.isMedia ? () => showEqualizerSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Reverb',
+        Icons.surround_sound_outlined,
+        stage: 6,
+        onTap: sel.clip.isMedia ? () => showReverbSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Delay',
+        Icons.repeat,
+        stage: 6,
+        onTap: sel.clip.isMedia ? () => showDelaySheet(context, c) : null,
+      ),
     ];
     if (sel.clip.kind == ClipKind.text) {
       return [
@@ -738,10 +762,7 @@ class _EditorScreenState extends State<_Editor>
     if (sel.clip.kind == ClipKind.audio) {
       return [
         ...common,
-        const EditorTool('Equalizer', Icons.equalizer, stage: 6),
         const EditorTool('Noise', Icons.noise_aware, stage: 6),
-        const EditorTool('Reverb', Icons.surround_sound_outlined, stage: 6),
-        const EditorTool('Delay', Icons.repeat, stage: 6),
       ];
     }
     return [
@@ -813,7 +834,6 @@ class _EditorScreenState extends State<_Editor>
       ),
       const EditorTool('Cutout', Icons.person_outline, stage: 7),
       const EditorTool('Smooth slo-mo', Icons.slow_motion_video, stage: 7),
-      const EditorTool('Equalizer', Icons.equalizer, stage: 6),
       const EditorTool('Noise', Icons.noise_aware, stage: 6),
     ];
   }
