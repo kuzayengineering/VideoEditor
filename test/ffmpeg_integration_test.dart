@@ -508,6 +508,181 @@ void main() {
         expect(check.isHdr, isTrue);
       });
 
+      test(
+        'filters: exact on a colour, colourless mono, unchanged when tiny',
+        () async {
+          // A solid colour (SDR) to compare against the filter maths.
+          final orange = '${dir.path}/grade_src.mp4';
+          await _run([
+            '-f',
+            'lavfi',
+            '-i',
+            'color=c=0xC07040:s=320x180:r=30:d=1',
+            '-pix_fmt',
+            'yuv444p',
+            '-c:v',
+            'libx264',
+            '-qp',
+            '0',
+            '-color_primaries',
+            'bt709',
+            '-color_trc',
+            'bt709',
+            '-colorspace',
+            'bt709',
+            orange,
+          ]);
+          final oi = await _probe(orange);
+
+          Future<String> export(
+            String src,
+            MediaInfo info,
+            ColorGrade? grade,
+            String name,
+            DynamicRange range,
+          ) async {
+            final project = Project.empty(
+              id: 't',
+              frameRate: 30,
+            ).insertMedia([clipFor(src, info).copyWith(grade: grade)]);
+            final out = '${dir.path}/$name.mp4';
+            final work = Directory('${dir.path}/work_$name')..createSync();
+            final plan = buildExportPlan(
+              project: project,
+              settings: const ExportSettings(resolution: ExportResolution.p720)
+                  .copyWith(
+                    dynamicRange: range,
+                    codec: range.isHdr ? VideoCodec.hevc : VideoCodec.h264,
+                    frameRate: 30,
+                  ),
+              encoder:
+                  [
+                    ...VideoEncoder.hevcCandidates,
+                    ...VideoEncoder.h264Candidates,
+                  ].firstWhere(
+                    (e) => e.name == (range.isHdr ? 'libx265' : 'libx264'),
+                  ),
+              outputPath: out,
+              workDir: work.path,
+            );
+            for (final f in plan.sideFiles.entries) {
+              File(f.key).writeAsStringSync(f.value);
+            }
+            final r = await Process.run(
+              'ffmpeg',
+              plan.args,
+              workingDirectory: plan.workingDirectory,
+            );
+            expect(r.exitCode, 0, reason: '${r.stderr}');
+            return out;
+          }
+
+          Future<List<int>> rgb(String path) async {
+            final r = await Process.run('ffmpeg', [
+              '-hide_banner',
+              '-v',
+              'error',
+              '-ss',
+              '0.5',
+              '-i',
+              path,
+              '-frames:v',
+              '1',
+              '-vf',
+              'scale=1:1,format=rgb24',
+              '-f',
+              'rawvideo',
+              '-',
+            ], stdoutEncoding: null);
+            return (r.stdout as List<int>).take(3).toList();
+          }
+
+          Future<List<double>> yuvMeans(String path) async {
+            final r = await Process.run('ffmpeg', [
+              '-hide_banner',
+              '-v',
+              'error',
+              '-ss',
+              '0.5',
+              '-i',
+              path,
+              '-frames:v',
+              '1',
+              '-vf',
+              'signalstats,metadata=print:file=-',
+              '-f',
+              'null',
+              '-',
+            ]);
+            double v(String k) => double.parse(
+              RegExp('signalstats.$k=([0-9.]+)')
+                  .firstMatch('${r.stdout}')!
+                  .group(1)!,
+            );
+            return [v('YAVG'), v('UAVG'), v('VAVG')];
+          }
+
+          // The filter's colour matches the maths (within encoding rounding).
+          const warm = ColorGrade(preset: FilterPreset.vintage);
+          final graded = await export(
+            orange,
+            oi,
+            warm,
+            'g_vintage',
+            DynamicRange.sdr,
+          );
+          final got = await rgb(graded);
+          // The colour as it comes out without a filter (video storage
+          // rounds it a little), run through the maths.
+          final plain = await rgb(
+            await export(orange, oi, null, 'g_plain', DynamicRange.sdr),
+          );
+          final want = applyGrade(
+            warm.params,
+            plain[0] / 255,
+            plain[1] / 255,
+            plain[2] / 255,
+          );
+          expect(got[0], closeTo(want.r * 255, 4), reason: '$got from $plain');
+          expect(got[1], closeTo(want.g * 255, 4), reason: '$got from $plain');
+          expect(got[2], closeTo(want.b * 255, 4), reason: '$got from $plain');
+
+          // Black & white has no colour left.
+          final mono = await export(
+            orange,
+            oi,
+            const ColorGrade(preset: FilterPreset.mono),
+            'g_mono',
+            DynamicRange.sdr,
+          );
+          final m = await rgb(mono);
+          expect((m[0] - m[2]).abs(), lessThan(4));
+
+          // A tiny change leaves the picture as it was (no colour shift from
+          // the round trip through the lookup table), in SDR and HLG.
+          const tiny = ColorGrade(adjust: GradeParams(brightness: 0.001));
+          for (final (src, info, range) in [
+            (orange, oi, DynamicRange.sdr),
+            (hlg, await _probe(hlg), DynamicRange.hlg),
+          ]) {
+            final a = await yuvMeans(
+              await export(src, info, null, 'g_none_${range.name}', range),
+            );
+            final b = await yuvMeans(
+              await export(src, info, tiny, 'g_tiny_${range.name}', range),
+            );
+            final scale = range.isHdr ? 4 : 1; // 10-bit numbers are 4× bigger
+            for (var i = 0; i < 3; i++) {
+              expect(
+                (a[i] - b[i]).abs(),
+                lessThan(2.0 * scale),
+                reason: '${range.name} channel $i: $a vs $b',
+              );
+            }
+          }
+        },
+      );
+
       test('480p export carries the chosen recording date', () async {
         final info = await _probe(hlg);
         final project = Project.empty(id: 't')

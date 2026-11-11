@@ -255,7 +255,7 @@ class _LookPreview extends StatelessWidget {
                           ),
                           child: RotatedBox(
                             quarterTurns: clip?.rotation ?? 0,
-                            child: player,
+                            child: _graded(clip, player),
                           ),
                         ),
                       ),
@@ -305,6 +305,17 @@ class _PreparingBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The clip's filter, as close as a live colour mix can show it (the
+/// export uses the exact maths). Android's player draws filters itself.
+Widget _graded(Clip? clip, Widget child) {
+  final g = clip?.gradeParams;
+  if (g == null) return child;
+  return ColorFiltered(
+    colorFilter: ColorFilter.matrix(gradeMatrix(g)),
+    child: child,
+  );
 }
 
 class _Placeholder extends StatelessWidget {

@@ -119,6 +119,10 @@ class PreviewSegment {
             ? c.effectiveFades.fadeOut
             : dipOutUs,
         if (blendOutUs > 0) 'blendOutUs': blendOutUs,
+        if (c.gradeParams != null) ...{
+          'grade': c.gradeParams!.values,
+          'transfer': c.media?.transfer.name ?? 'sdr',
+        },
       },
     };
   }
@@ -137,7 +141,8 @@ class PreviewSegment {
       other.clip?.flipH == clip?.flipH &&
       other.clip?.flipV == clip?.flipV &&
       other.clip?.crop == clip?.crop &&
-      other.clip?.opacity == clip?.opacity;
+      other.clip?.opacity == clip?.opacity &&
+      other.clip?.grade == clip?.grade;
 
   @override
   int get hashCode => Object.hash(source, inUs, outUs, speed);

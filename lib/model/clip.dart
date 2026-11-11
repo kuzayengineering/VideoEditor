@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 
+import 'color_grade.dart';
 import 'media_info.dart';
 import 'text_spec.dart';
 
+export 'color_grade.dart';
 export 'media_info.dart';
 export 'text_spec.dart';
 
@@ -301,7 +303,18 @@ class Clip {
     this.text,
     this.transition,
     this.pip,
+    this.grade,
   });
+
+  /// Filter: a ready-made look and/or brightness, contrast and so on.
+  final ColorGrade? grade;
+
+  /// The filter's combined changes, or null when it changes nothing.
+  GradeParams? get gradeParams {
+    final g = grade;
+    if (g == null || g.isNeutral) return null;
+    return g.params;
+  }
 
   /// Set for picture-in-picture clips (on an overlay track): where the
   /// picture sits on top of the main video.
@@ -411,7 +424,12 @@ class Clip {
 
   /// True when any picture adjustment is applied.
   bool get hasLook =>
-      rotation != 0 || flipH || flipV || !crop.isFull || opacity < 0.999;
+      rotation != 0 ||
+      flipH ||
+      flipV ||
+      !crop.isFull ||
+      opacity < 0.999 ||
+      gradeParams != null;
 
   /// True when the reversed copy is ready for the current in/out points.
   bool get reverseReady =>
@@ -493,6 +511,8 @@ class Clip {
     bool clearTransition = false,
     PipLayout? pip,
     bool clearPip = false,
+    ColorGrade? grade,
+    bool clearGrade = false,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -521,6 +541,7 @@ class Clip {
       text: text ?? this.text,
       transition: clearTransition ? null : (transition ?? this.transition),
       pip: clearPip ? null : (pip ?? this.pip),
+      grade: clearGrade ? null : (grade ?? this.grade),
     );
   }
 
@@ -549,6 +570,7 @@ class Clip {
     if (text != null) 'text': text!.toJson(),
     if (transition != null) 'transition': transition!.toJson(),
     if (pip != null) 'pip': pip!.toJson(),
+    if (grade != null && !grade!.isNeutral) 'grade': grade!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -590,6 +612,7 @@ class Clip {
           : null,
       transition: TransitionSpec.fromJson(json['transition']),
       pip: PipLayout.fromJson(json['pip']),
+      grade: ColorGrade.fromJson(json['grade']),
     );
   }
 }

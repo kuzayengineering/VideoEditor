@@ -176,7 +176,16 @@ Status notes:
   (fade, slide, pop, typewriter, and so on)
 - **Transitions** between clips (fade, dissolve, wipe, slide, zoom, and so on)
 
-### Stage 5 — Filters
+### Stage 5 — Filters *(in testing)*
+
+Status notes:
+- 16 ready-made looks (with strength) and Brightness, Contrast,
+  Saturation, Warmth, Tint and Fade, per clip (main and PiP), with "Use
+  for all". One set of maths runs everywhere: Android applies it in a GPU
+  effect (exact in the preview and the export), the Windows export through
+  a lookup table (tested against the maths), and the Windows preview shows
+  the closest live colour mix.
+
 - **Filter effects** (looks/presets) plus basic adjustments (brightness,
   contrast, saturation, warmth). All of them are HDR-safe, so they don't clip
   your highlights.

@@ -585,9 +585,14 @@ class FfmpegExportPlan {
     required this.expectedFrames,
     required this.durationUs,
     this.sideFiles = const {},
+    this.workingDirectory,
   });
 
   final List<String> args;
+
+  /// Run FFmpeg in this folder: filter lookup tables are named relative to
+  /// it (file paths inside filters are awkward on Windows).
+  final String? workingDirectory;
 
   /// Small text files (lists of pictures) to write before running.
   final Map<String, String> sideFiles;
@@ -636,6 +641,24 @@ FfmpegExportPlan buildExportPlan({
   var totalFrames = 0;
 
   final workFmt = tenBit ? 'yuv420p10le' : 'yuv420p';
+
+  // Filters: one lookup table per filtered clip, run on the video signal
+  // (after conversion to the output's colours), as in the preview.
+  final sideFiles = <String, String>{};
+  String? gradeFilter(Clip c) {
+    final g = c.gradeParams;
+    if (g == null) return null;
+    final name = 'grade_${c.id}.cube';
+    sideFiles['${workDir ?? '.'}/$name'] = gradeCube(g);
+    // To RGB and back with the output's own colour maths (FFmpeg's
+    // guess would shift the colours).
+    final matrix = range.isHdr ? 'bt2020' : 'bt709';
+    final rgb = tenBit ? 'gbrp16le' : 'gbrp';
+    return 'scale=in_color_matrix=$matrix:in_range=tv,format=$rgb,'
+        'lut3d=file=$name:interp=tetrahedral,'
+        'scale=out_color_matrix=$matrix:out_range=tv,format=$workFmt';
+  }
+
   final bg = project.background;
 
   // Transitions, in frames. "Through black/white" trims half its length off
@@ -713,6 +736,7 @@ FfmpegExportPlan buildExportPlan({
     ]);
 
     final color = colorConversionFilter(info, range);
+    final grade = gradeFilter(c);
     final head = [
       '[$i:v]${_speedPts(c.speed)}',
       'fps=$fpsText',
@@ -744,6 +768,7 @@ FfmpegExportPlan buildExportPlan({
           head,
           fit,
           ?color,
+          ?grade,
           'pad=$w:$h:(ow-iw)/2:(oh-ih)/2:color=black',
           tail,
         ].join(','),
@@ -783,7 +808,8 @@ FfmpegExportPlan buildExportPlan({
         ].join(',');
       }
       filters.add(
-        '$fgSource$fit,${color != null ? '$color,' : ''}format=$workFmt[fg$i]',
+        '$fgSource$fit,${color != null ? '$color,' : ''}'
+        '${grade != null ? '$grade,' : ''}format=$workFmt[fg$i]',
       );
       if (c.opacity < 0.999) {
         filters.add('$background,split=2[bga$i][bgb$i]');
@@ -938,6 +964,7 @@ FfmpegExportPlan buildExportPlan({
         'fps=$fpsText',
         ...lookFilters(c),
         ?color,
+        ?gradeFilter(c),
         'scale=$pw:$ph:flags=bicubic',
         'setsar=1',
         'format=$pipFmt',
@@ -990,7 +1017,6 @@ FfmpegExportPlan buildExportPlan({
   }
 
   // Text overlays, drawn on top of the finished picture.
-  final sideFiles = <String, String>{};
   var videoLabel = pipLabels.isEmpty ? 'vout' : 'vpip';
   final initialVideo = videoLabel;
   final textWork = workDir ?? '.';
@@ -1077,6 +1103,7 @@ FfmpegExportPlan buildExportPlan({
     expectedFrames: totalFrames,
     durationUs: (totalFrames * usPerSecond / fps).round(),
     sideFiles: sideFiles,
+    workingDirectory: workDir,
   );
 }
 

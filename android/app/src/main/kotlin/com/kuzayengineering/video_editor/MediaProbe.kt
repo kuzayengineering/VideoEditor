@@ -41,6 +41,11 @@ data class Segment(
     val boxH: Int = 0,
     /** Picture only (its sound is played elsewhere, or not at all). */
     val silent: Boolean = false,
+    /** Filter values (brightness, contrast, saturation, warmth, tint,
+     * fade), or null for none. */
+    val grade: List<Double>? = null,
+    /** The clip's signal: "sdr", "hlg" or "pq". */
+    val transfer: String = "sdr",
 ) {
     val timelineUs: Long get() = Math.round(lengthUs / speed)
 
@@ -48,7 +53,7 @@ data class Segment(
 
     val hasEffects: Boolean
         get() = rotation != 0 || flipH || flipV || opacity < 0.999 ||
-            Math.abs(speed - 1.0) > 0.0001 ||
+            Math.abs(speed - 1.0) > 0.0001 || grade != null ||
             crop[0] > 0.0005 || crop[1] > 0.0005 || crop[2] < 0.9995 || crop[3] < 0.9995
 
     companion object {
@@ -75,6 +80,8 @@ data class Segment(
             boxW = (map["boxW"] as Number?)?.toInt() ?: 0,
             boxH = (map["boxH"] as Number?)?.toInt() ?: 0,
             silent = map["silent"] as Boolean? ?: false,
+            grade = (map["grade"] as List<*>?)?.map { (it as Number).toDouble() },
+            transfer = map["transfer"] as String? ?: "sdr",
         )
 
         fun listFrom(list: List<Map<String, Any?>>) = list.map(::from)

@@ -190,6 +190,7 @@ class FfmpegEngine implements MediaEngine {
     if (await out.exists()) return out.path;
     final encoder = await encoderFor(VideoCodec.h264, tenBit: false);
     if (encoder == null) return null;
+    final work = await Directory('${dir.path}/work').create(recursive: true);
     final fps = ExportSettings.frameRates.reduce(
       (a, b) => (a - project.frameRate).abs() <= (b - project.frameRate).abs()
           ? a
@@ -209,8 +210,16 @@ class FfmpegEngine implements MediaEngine {
           ),
       encoder: encoder,
       outputPath: '${out.path}.part.mp4',
+      workDir: work.path,
     );
-    final r = await Process.run(ffmpeg, plan.args);
+    for (final f in plan.sideFiles.entries) {
+      await File(f.key).writeAsString(f.value);
+    }
+    final r = await Process.run(
+      ffmpeg,
+      plan.args,
+      workingDirectory: plan.workingDirectory,
+    );
     if (r.exitCode != 0) {
       final lines = '${r.stderr}'.trim().split('\n');
       throw Exception(lines.isEmpty ? 'FFmpeg failed' : lines.last);
@@ -434,7 +443,11 @@ class FfmpegExportJob implements ExportJob {
         message: 'Encoding with ${encoder.friendlyName}',
       ),
     );
-    final process = await Process.start(_engine.ffmpeg, _plan.args);
+    final process = await Process.start(
+      _engine.ffmpeg,
+      _plan.args,
+      workingDirectory: _plan.workingDirectory,
+    );
     _process = process;
     process.stdout
         .transform(utf8.decoder)

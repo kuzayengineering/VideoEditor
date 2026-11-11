@@ -423,7 +423,17 @@ class _Look extends StatelessWidget {
                   clip.flipV ? -1 : 1,
                   1,
                 ),
-                child: RotatedBox(quarterTurns: clip.rotation, child: child),
+                child: RotatedBox(
+                  quarterTurns: clip.rotation,
+                  child: clip.gradeParams == null
+                      ? child
+                      : ColorFiltered(
+                          colorFilter: ColorFilter.matrix(
+                            gradeMatrix(clip.gradeParams!),
+                          ),
+                          child: child,
+                        ),
+                ),
               ),
             ),
           ),

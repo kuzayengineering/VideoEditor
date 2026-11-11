@@ -15,6 +15,7 @@ import 'clip_tools.dart';
 import 'editor_controller.dart';
 import 'export_progress_screen.dart';
 import 'export_sheet.dart';
+import 'filter_sheet.dart';
 import 'pip_view.dart';
 import 'import_media.dart';
 import 'preview_view.dart';
@@ -197,6 +198,17 @@ class _EditorScreenState extends State<_Editor>
       'Drag the picture to move it, pinch to resize, twist to turn. '
       'It plays on top of the main video.',
     );
+  }
+
+  /// Filter with nothing selected: picks the main clip at the playhead.
+  void _filterAtPlayhead() {
+    final p = c.project.mainClipAt(c.playheadUs);
+    if (p == null) {
+      _toast('Add a video first.');
+      return;
+    }
+    c.select(p.clip.id);
+    showFilterSheet(context, c, _thumbs);
   }
 
   /// Adds a text at the playhead (3 seconds, or to the end of the video)
@@ -603,7 +615,12 @@ class _EditorScreenState extends State<_Editor>
           stage: 4,
           onTap: _engine.supportsMedia ? _addPip : null,
         ),
-        const EditorTool('Filter', Icons.photo_filter_outlined, stage: 5),
+        EditorTool(
+          'Filter',
+          Icons.photo_filter_outlined,
+          stage: 5,
+          onTap: _filterAtPlayhead,
+        ),
         const EditorTool('Captions', Icons.closed_caption_outlined, stage: 7),
         EditorTool(
           'Background',
@@ -694,6 +711,12 @@ class _EditorScreenState extends State<_Editor>
           onTap: () => showOpacitySheet(context, c),
         ),
         EditorTool(
+          'Filter',
+          Icons.photo_filter_outlined,
+          stage: 5,
+          onTap: () => showFilterSheet(context, c, _thumbs),
+        ),
+        EditorTool(
           'Full size',
           Icons.fit_screen_outlined,
           stage: 4,
@@ -753,7 +776,12 @@ class _EditorScreenState extends State<_Editor>
         stage: 2,
         onTap: sel.clip.isMedia ? () => showOpacitySheet(context, c) : null,
       ),
-      const EditorTool('Filter', Icons.photo_filter_outlined, stage: 5),
+      EditorTool(
+        'Filter',
+        Icons.photo_filter_outlined,
+        stage: 5,
+        onTap: () => showFilterSheet(context, c, _thumbs),
+      ),
       EditorTool(
         'Transition',
         Icons.compare_arrows,
