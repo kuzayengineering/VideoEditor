@@ -580,8 +580,18 @@ class EditorController extends ChangeNotifier {
     _audio?.sync(project);
   }
 
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _restTimer?.cancel();
+    super.dispose();
+  }
+
   void endLiveEdit() {
-    if (!history.inGesture) return;
+    // (A tool panel can close after the editor has gone.)
+    if (_disposed || !history.inGesture) return;
     history.endGesture();
     _afterChange();
   }

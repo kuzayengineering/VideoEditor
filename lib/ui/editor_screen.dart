@@ -895,6 +895,32 @@ class _EditorScreenState extends State<_Editor>
     },
   };
 
+  /// True while a text box has the keyboard (typing must not trigger the
+  /// editor's shortcuts: Backspace in an empty box would delete the clip).
+  bool get _typing {
+    final ctx = FocusManager.instance.primaryFocus?.context;
+    if (ctx == null) return false;
+    return ctx.widget is EditableText ||
+        ctx.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final typing = _typing;
+    for (final entry in _shortcuts.entries) {
+      if (!entry.key.accepts(event, HardwareKeyboard.instance)) continue;
+      // While typing only Escape (close the tool) still works.
+      if (typing && event.logicalKey != LogicalKeyboardKey.escape) {
+        return KeyEventResult.ignored;
+      }
+      entry.value();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
     final panels = ToolPanelScope.watch(context)!;
@@ -910,11 +936,11 @@ class _EditorScreenState extends State<_Editor>
           Navigator.of(context).pop(c.project);
         }
       },
-      child: CallbackShortcuts(
-        bindings: _shortcuts,
-        child: Focus(
-          autofocus: true,
-          child: ListenableBuilder(
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: _onKey,
+        child: Builder(
+          builder: (context) => ListenableBuilder(
             listenable: c,
             builder: (context, _) => Scaffold(
               appBar: AppBar(

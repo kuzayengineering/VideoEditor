@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_editor/main.dart';
 import 'package:video_editor/model/demo.dart';
@@ -6,6 +7,32 @@ import 'package:video_editor/model/timecode.dart';
 import 'package:video_editor/ui/editor_controller.dart';
 
 void main() {
+  testWidgets('Backspace in an empty text box does not delete the text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.6;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const VideoEditorApp());
+    await tester.tap(find.text('Try the demo project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Text').first);
+    await tester.pumpAndSettle();
+
+    final field = find.byType(TextField);
+    expect(field, findsOneWidget);
+    await tester.enterText(field, '');
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.pumpAndSettle();
+    // Still editing the (now empty) text.
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Hello');
+    await tester.pumpAndSettle();
+    expect(find.text('Hello'), findsWidgets);
+  });
+
   testWidgets('home opens the demo project and Split works', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.6;
