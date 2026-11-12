@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../captions/caption_maker.dart';
@@ -155,7 +157,8 @@ class _CaptionsSheetState extends State<_CaptionsSheet> {
     } catch (e) {
       if (!mounted) return;
       if (!isCancellation(e)) {
-        setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
+        final message = e is HttpException ? e.message : '$e';
+        setState(() => _error = message.replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _working = false);

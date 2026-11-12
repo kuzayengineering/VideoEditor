@@ -103,8 +103,16 @@ class SpeechModelStore {
     final part = File('${file.path}.part');
     final client = HttpClient();
     try {
-      final request = await client.getUrl(Uri.parse(m.url));
-      final response = await request.close();
+      final HttpClientResponse response;
+      try {
+        final request = await client.getUrl(Uri.parse(m.url));
+        response = await request.close();
+      } on SocketException {
+        throw const HttpException(
+          'Could not connect to download the speech model. Check that the '
+          'device is online (it is only needed for this one-time download).',
+        );
+      }
       if (response.statusCode != 200) {
         throw HttpException(
           'The speech model could not be downloaded (error '
@@ -116,7 +124,13 @@ class SpeechModelStore {
       final hasher = sha256.startChunkedConversion(digest);
       var got = 0;
       try {
-        await for (final chunk in response) {
+        await for (final chunk in response.handleError(
+          (Object e) => throw const HttpException(
+            'The download of the speech model was interrupted. Please try '
+            'again.',
+          ),
+          test: (e) => e is SocketException,
+        )) {
           if (cancelled?.call() ?? false) throw const _Cancelled();
           out.add(chunk);
           hasher.add(chunk);
