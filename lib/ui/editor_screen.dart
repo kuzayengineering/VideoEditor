@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -925,6 +926,15 @@ class _EditorScreenState extends State<_Editor>
   Widget build(BuildContext context) {
     final panels = ToolPanelScope.watch(context)!;
     final panel = panels.current;
+    // The on-screen keyboard doesn't squeeze the editor (that made the
+    // video and its texts shrink while typing): the tool panel rises above
+    // it instead, over the bottom of the screen.
+    final keyboard = math.max(
+      0.0,
+      MediaQuery.viewInsetsOf(context).bottom -
+          MediaQuery.viewPaddingOf(context).bottom,
+    );
+    final keyboardUp = keyboard > 0;
     return PopScope<Project>(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -943,6 +953,7 @@ class _EditorScreenState extends State<_Editor>
           builder: (context) => ListenableBuilder(
             listenable: c,
             builder: (context, _) => Scaffold(
+              resizeToAvoidBottomInset: false,
               appBar: AppBar(
                 leading: BackButton(
                   onPressed: () => Navigator.of(context).pop(c.project),
@@ -975,55 +986,82 @@ class _EditorScreenState extends State<_Editor>
                 ],
               ),
               body: SafeArea(
+                // The keyboard doesn't move the bottom edge (see below).
+                maintainBottomViewPadding: true,
                 child: LayoutBuilder(
-                  builder: (context, box) => Column(
-                    children: [
-                      Expanded(
-                        child: PreviewView(
-                          controller: c,
-                          player: _previewWidget,
-                          thumbnails: _thumbs,
-                          onEditText: (id) => showTextSheet(context, c, id),
-                          pipPlayers: _pipPlayers,
-                          pipGestures: _pipGestures,
+                  builder: (context, box) {
+                    final panelHeight = (box.maxHeight - 170).clamp(
+                      0.0,
+                      (box.maxHeight * 0.5).clamp(240.0, 330.0),
+                    );
+                    return Stack(
+                      children: [
+                        Column(
+                          children: [
+                            Expanded(
+                              child: PreviewView(
+                                controller: c,
+                                player: _previewWidget,
+                                thumbnails: _thumbs,
+                                onEditText: (id) =>
+                                    showTextSheet(context, c, id),
+                                pipPlayers: _pipPlayers,
+                                pipGestures: _pipGestures,
+                              ),
+                            ),
+                            _TransportBar(controller: c),
+                            const Divider(height: 1),
+                            // A tool's settings take the place of the
+                            // timeline and toolbar, so they never cover the
+                            // video.
+                            if (panel != null)
+                              SizedBox(height: panelHeight)
+                            else ...[
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxHeight: 230,
+                                ),
+                                child: SingleChildScrollView(
+                                  child: TimelineView(
+                                    controller: c,
+                                    thumbnails: _thumbs,
+                                    waveforms: _waves,
+                                    onLongPressClip: _reorder,
+                                    reverseJobs: _reverses,
+                                    onTransitionTap: (i) => showTransitionSheet(
+                                      context,
+                                      c,
+                                      _engine,
+                                      i,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const Divider(height: 1),
+                              ToolBar(tools: _tools()),
+                            ],
+                          ],
                         ),
-                      ),
-                      _TransportBar(controller: c),
-                      const Divider(height: 1),
-                      // A tool's settings take the place of the timeline and
-                      // toolbar, so they never cover the video.
-                      if (panel != null)
-                        SizedBox(
-                          height: (box.maxHeight - 170).clamp(
-                            0.0,
-                            (box.maxHeight * 0.5).clamp(240.0, 330.0),
-                          ),
-                          child: ToolPanelView(
-                            key: ObjectKey(panel),
-                            panel: panel,
-                            onDone: () => panels.close(panel),
-                          ),
-                        )
-                      else ...[
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 230),
-                          child: SingleChildScrollView(
-                            child: TimelineView(
-                              controller: c,
-                              thumbnails: _thumbs,
-                              waveforms: _waves,
-                              onLongPressClip: _reorder,
-                              reverseJobs: _reverses,
-                              onTransitionTap: (i) =>
-                                  showTransitionSheet(context, c, _engine, i),
+                        // The panel always sits in this same place in the
+                        // layout, so a text box in it keeps the keyboard
+                        // while the panel rises above the keyboard.
+                        if (panel != null)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: keyboard,
+                            height: keyboardUp
+                                ? math.min(120.0, panelHeight)
+                                : panelHeight,
+                            child: ToolPanelView(
+                              key: ObjectKey(panel),
+                              panel: panel,
+                              onDone: () => panels.close(panel),
                             ),
                           ),
-                        ),
-                        const Divider(height: 1),
-                        ToolBar(tools: _tools()),
                       ],
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
             ),

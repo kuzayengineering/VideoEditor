@@ -91,10 +91,71 @@ class _TimelineViewState extends State<TimelineView> {
   int _moveClipId = 0;
   int _moveStartUs = 0;
 
+  /// The moment a moving clip's edge has snapped to (shown as a line).
+  int? _snapUs;
+
   EditorController get c => widget.controller;
 
   double _xAtTime(int timeUs, double width) =>
       width / 2 + (timeUs - c.playheadUs) / usPerSecond * c.pixelsPerSecond;
+
+  /// Where a clip moved to [rawStartUs] lands: an edge within a few pixels
+  /// of another clip's start or end (on any track), the playhead or the
+  /// very start snaps onto it, with a small vibration.
+  int _snapped(int clipId, int rawStartUs, int durationUs) {
+    final project = c.project;
+    final targets = <int>{0, c.playheadUs};
+    for (final track in [
+      project.mainTrack,
+      ...project.overlayTracks,
+      ...project.audioTracks,
+      ...project.textTracks,
+    ]) {
+      for (final p in project.placementsOn(track)) {
+        if (p.clip.id == clipId) continue;
+        targets
+          ..add(p.startUs)
+          ..add(p.endUs);
+      }
+    }
+    final reach = (10 / c.pixelsPerSecond * usPerSecond).round();
+    int? best;
+    var bestStart = rawStartUs;
+    var bestGap = reach + 1;
+    for (final t in targets) {
+      for (final (edge, start) in [
+        (rawStartUs, t), // its start on the target
+        (rawStartUs + durationUs, t - durationUs), // its end on the target
+      ]) {
+        final gap = (edge - t).abs();
+        if (gap < bestGap && start >= 0) {
+          bestGap = gap;
+          best = t;
+          bestStart = start;
+        }
+      }
+    }
+    if (best != _snapUs) {
+      if (best != null) HapticFeedback.selectionClick();
+      setState(() => _snapUs = best);
+    }
+    return best == null
+        ? snapToFrame(rawStartUs, project.frameRate)
+        : bestStart;
+  }
+
+  void _moveBy(double dx) {
+    final clip = c.project.placementOf(_moveClipId)?.clip;
+    if (clip == null) return;
+    final delta = (dx / c.pixelsPerSecond * usPerSecond).round();
+    final target = _snapped(_moveClipId, _moveStartUs + delta, clip.durationUs);
+    c.liveEdit((base) => base.moveAudioClip(_moveClipId, target));
+  }
+
+  void _endMove() {
+    c.endLiveEdit();
+    if (_snapUs != null) setState(() => _snapUs = null);
+  }
 
   /// Vertical span of each track.
   List<(Track, double top, double height)> _lanes(Project project) {
@@ -205,9 +266,7 @@ class _TimelineViewState extends State<TimelineView> {
         c.updateTrim((_dragDx / c.pixelsPerSecond * usPerSecond).round());
       case _DragMode.move:
         _dragDx += d.focalPointDelta.dx;
-        final delta = (_dragDx / c.pixelsPerSecond * usPerSecond).round();
-        final target = snapToFrame(_moveStartUs + delta, c.project.frameRate);
-        c.liveEdit((base) => base.moveAudioClip(_moveClipId, target));
+        _moveBy(_dragDx);
       case _DragMode.none:
         break;
     }
@@ -218,7 +277,7 @@ class _TimelineViewState extends State<TimelineView> {
       c.endTrim();
     }
     if (_mode == _DragMode.pan) c.settle();
-    if (_mode == _DragMode.move) c.endLiveEdit();
+    if (_mode == _DragMode.move) _endMove();
     _mode = _DragMode.none;
   }
 
@@ -248,9 +307,27 @@ class _TimelineViewState extends State<TimelineView> {
 
   void _onLongPress(LongPressStartDetails d, double width) {
     final hit = _hitTest(d.localPosition, width);
-    if (hit == null || hit.$1.track.kind != TrackKind.main) return;
+    if (hit == null) return;
     HapticFeedback.mediumImpact();
-    widget.onLongPressClip?.call(hit.$1.clip.id);
+    if (hit.$1.track.kind == TrackKind.main) {
+      widget.onLongPressClip?.call(hit.$1.clip.id);
+      return;
+    }
+    // Text, sound and picture-in-picture clips: hold, then drag to move.
+    c.pause();
+    c.select(hit.$1.clip.id);
+    _mode = _DragMode.move;
+    _moveClipId = hit.$1.clip.id;
+    _moveStartUs = hit.$1.startUs;
+  }
+
+  void _onLongPressMove(LongPressMoveUpdateDetails d) {
+    if (_mode == _DragMode.move) _moveBy(d.offsetFromOrigin.dx);
+  }
+
+  void _onLongPressEnd(LongPressEndDetails d) {
+    if (_mode == _DragMode.move) _endMove();
+    _mode = _DragMode.none;
   }
 
   void _onPointerSignal(PointerSignalEvent e) {
@@ -288,6 +365,8 @@ class _TimelineViewState extends State<TimelineView> {
                 behavior: HitTestBehavior.opaque,
                 onTapUp: (d) => _onTapUp(d, width),
                 onLongPressStart: (d) => _onLongPress(d, width),
+                onLongPressMoveUpdate: _onLongPressMove,
+                onLongPressEnd: _onLongPressEnd,
                 onScaleStart: (d) => _onScaleStart(d, width),
                 onScaleUpdate: _onScaleUpdate,
                 onScaleEnd: _onScaleEnd,
@@ -300,6 +379,7 @@ class _TimelineViewState extends State<TimelineView> {
                       playheadUs: c.playheadUs,
                       pixelsPerSecond: c.pixelsPerSecond,
                       selectedClipId: c.selectedClipId,
+                      snapUs: _snapUs,
                       lanes: _lanes(c.project),
                       colors: Theme.of(context).colorScheme,
                       textStyle: Theme.of(context).textTheme.labelSmall!,
@@ -324,6 +404,7 @@ class _TimelinePainter extends CustomPainter {
     required this.playheadUs,
     required this.pixelsPerSecond,
     required this.selectedClipId,
+    this.snapUs,
     required this.lanes,
     required this.colors,
     required this.textStyle,
@@ -337,6 +418,7 @@ class _TimelinePainter extends CustomPainter {
   final int playheadUs;
   final double pixelsPerSecond;
   final int? selectedClipId;
+  final int? snapUs;
   final List<(Track, double, double)> lanes;
   final ColorScheme colors;
   final TextStyle textStyle;
@@ -356,6 +438,16 @@ class _TimelinePainter extends CustomPainter {
       }
     }
     _paintTransitionButtons(canvas, size);
+    if (snapUs != null) {
+      final x = _x(snapUs!, size);
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        Paint()
+          ..color = colors.tertiary
+          ..strokeWidth = 1.5,
+      );
+    }
     _paintPlayhead(canvas, size);
   }
 
@@ -706,6 +798,7 @@ class _TimelinePainter extends CustomPainter {
       old.playheadUs != playheadUs ||
       old.pixelsPerSecond != pixelsPerSecond ||
       old.selectedClipId != selectedClipId ||
+      old.snapUs != snapUs ||
       old.colors != colors ||
       thumbnails != null; // new pictures arrive in the background
 }

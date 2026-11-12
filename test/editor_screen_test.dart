@@ -5,8 +5,36 @@ import 'package:video_editor/main.dart';
 import 'package:video_editor/model/demo.dart';
 import 'package:video_editor/model/timecode.dart';
 import 'package:video_editor/ui/editor_controller.dart';
+import 'package:video_editor/ui/preview_view.dart';
 
 void main() {
+  testWidgets('the video keeps its size while the keyboard is up', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.625;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const VideoEditorApp());
+    await tester.tap(find.text('Try the demo project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Text').first);
+    await tester.pumpAndSettle();
+    final before = tester.getSize(find.byType(PreviewView));
+
+    // A phone keyboard: about 330 points tall.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 330 * 2.625);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(PreviewView)), before);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    tester.view.resetViewInsets();
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(PreviewView)), before);
+    expect(find.text('Style'), findsOneWidget);
+  });
+
   testWidgets('Backspace in an empty text box does not delete the text', (
     tester,
   ) async {

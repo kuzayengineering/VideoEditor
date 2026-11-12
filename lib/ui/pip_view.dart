@@ -8,6 +8,7 @@ import '../engine/media_engine.dart';
 import '../model/project.dart';
 import 'audio_preview.dart';
 import 'editor_controller.dart';
+import 'frame_snap.dart';
 import 'thumbnail_cache.dart';
 
 /// Where a picture-in-picture clip sits in a canvas of [box] size: centre,
@@ -189,11 +190,10 @@ class PipGestures extends ChangeNotifier {
   late PipLayout _start;
   Offset _focalStart = Offset.zero;
 
-  /// Centre lines being snapped to (shown while dragging).
-  bool snapX = false;
-  bool snapY = false;
-
-  static const _snapPx = 10.0;
+  /// Guide lines being snapped to (shown while dragging): centre lines or
+  /// frame edges, as fractions of the frame.
+  double? snapX;
+  double? snapY;
 
   /// The picture-in-picture clip under [pos] (top-most first).
   ClipPlacement? hit(Offset pos, Size box) {
@@ -245,22 +245,35 @@ class PipGestures extends ChangeNotifier {
     final id = _dragId;
     if (id == null) return;
     final move = d.localFocalPoint - _focalStart;
-    var nx = _start.x + move.dx / box.width;
-    var ny = _start.y + move.dy / box.height;
-    final sx = ((nx - 0.5) * box.width).abs() < _snapPx;
-    final sy = ((ny - 0.5) * box.height).abs() < _snapPx;
-    if (sx) nx = 0.5;
-    if (sy) ny = 0.5;
-    if ((sx && !snapX) || (sy && !snapY)) HapticFeedback.selectionClick();
-    if (sx != snapX || sy != snapY) {
-      snapX = sx;
-      snapY = sy;
-      notifyListeners();
-    }
     var angle = _start.angle + d.rotation * 180 / math.pi;
     // Snap to level when nearly straight.
     final nearest = (angle / 90).round() * 90.0;
     if ((angle - nearest).abs() < 3) angle = nearest;
+    // Snap to the centre lines and the frame's edges.
+    final clip = c.project.placementOf(id)?.clip;
+    final size = clip == null
+        ? Size.zero
+        : pipGeometry(
+            clip.copyWith(pip: _start.copyWith(size: _start.size * d.scale)),
+            box,
+          ).size;
+    final snap = snapInFrame(
+      _start.x + move.dx / box.width,
+      _start.y + move.dy / box.height,
+      size,
+      angle * math.pi / 180,
+      box,
+    );
+    final nx = snap.x, ny = snap.y;
+    if ((snap.guideX != null && snap.guideX != snapX) ||
+        (snap.guideY != null && snap.guideY != snapY)) {
+      HapticFeedback.selectionClick();
+    }
+    if (snap.guideX != snapX || snap.guideY != snapY) {
+      snapX = snap.guideX;
+      snapY = snap.guideY;
+      notifyListeners();
+    }
     final next = _start.copyWith(
       x: nx,
       y: ny,
@@ -275,9 +288,9 @@ class PipGestures extends ChangeNotifier {
   void scaleEnd() {
     if (_dragId != null) c.endLiveEdit();
     _dragId = null;
-    if (snapX || snapY) {
-      snapX = false;
-      snapY = false;
+    if (snapX != null || snapY != null) {
+      snapX = null;
+      snapY = null;
       notifyListeners();
     }
   }
@@ -450,30 +463,13 @@ class _Look extends StatelessWidget {
 class _GuidesPainter extends CustomPainter {
   _GuidesPainter(this.x, this.y, this.color);
 
-  final bool x;
-  final bool y;
+  final double? x;
+  final double? y;
   final Color color;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1.5;
-    if (x) {
-      canvas.drawLine(
-        Offset(size.width / 2, 0),
-        Offset(size.width / 2, size.height),
-        paint,
-      );
-    }
-    if (y) {
-      canvas.drawLine(
-        Offset(0, size.height / 2),
-        Offset(size.width, size.height / 2),
-        paint,
-      );
-    }
-  }
+  void paint(Canvas canvas, Size size) =>
+      paintSnapGuides(canvas, size, x, y, color);
 
   @override
   bool shouldRepaint(_GuidesPainter old) =>
