@@ -475,8 +475,12 @@ class AndroidPreviewPlayer implements PreviewPlayer {
       });
 
   @override
-  Future<void> seek(int timeUs, {bool exact = true}) =>
-      _channel.invokeMethod('previewSeek', {'timeUs': timeUs, 'exact': exact});
+  Future<void> seek(int timeUs, {bool exact = true, int toleranceUs = 0}) =>
+      _channel.invokeMethod('previewSeek', {
+        'timeUs': timeUs,
+        'exact': exact,
+        'toleranceUs': toleranceUs,
+      });
 
   @override
   Future<void> setVolume(double volume) =>

@@ -59,6 +59,19 @@ class CanvasRatio {
     return CanvasRatio('$w:$h', w, h, hint: 'Custom');
   }
 
+  /// The shape of a [width] × [height] picture: a standard shape when it is
+  /// within half a percent of one, otherwise a custom one.
+  factory CanvasRatio.near(double width, double height) {
+    if (width <= 0 || height <= 0) return landscape16x9;
+    final v = width / height;
+    for (final preset in presets) {
+      if ((preset.value / v - 1).abs() < 0.005) return preset;
+    }
+    // Whole even pixel sizes, reduced (e.g. 2160 × 1620 → 4:3).
+    int even(double x) => math.max(2, (x / 2).round() * 2);
+    return CanvasRatio.custom(even(width), even(height));
+  }
+
   Map<String, Object?> toJson() => {'width': width, 'height': height};
 
   factory CanvasRatio.fromJson(Map<String, Object?> json) => CanvasRatio.custom(
@@ -414,8 +427,24 @@ class Project {
     overlayTracks: overlayTracks ?? this.overlayTracks,
   );
 
-  Project withCanvas(CanvasRatio canvas) =>
-      this.canvas.sameShapeAs(canvas) ? this : copyWith(canvas: canvas);
+  /// Changes the frame's shape. Clips set to fill the frame are cut again
+  /// to the new shape.
+  Project withCanvas(CanvasRatio canvas) {
+    if (this.canvas.sameShapeAs(canvas)) return this;
+    return copyWith(
+      canvas: canvas,
+      mainTrack: mainTrack.withClips([
+        for (final c in mainTrack.clips) c.fills ? c.filled(canvas.value) : c,
+      ]),
+    );
+  }
+
+  /// The frame shape that matches [clip]'s picture exactly (after its
+  /// rotation and crop).
+  static CanvasRatio shapeOf(Clip clip) {
+    final d = clip.displaySize;
+    return CanvasRatio.near(d.width, d.height);
+  }
 
   Project renamed(String name) {
     final trimmed = name.trim();

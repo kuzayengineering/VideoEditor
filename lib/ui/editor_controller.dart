@@ -1,5 +1,6 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -209,23 +210,33 @@ class EditorController extends ChangeNotifier {
   bool _seekBusy = false;
   int? _pendingSeekUs;
   bool _pendingExact = true;
+  int _pendingToleranceUs = 0;
+
+  // How fast the timeline is being dragged (timeline time per real second),
+  // to choose between exact frames (slow) and key frames (fast).
+  final _dragClock = Stopwatch()..start();
+  int? _lastDragAtUs;
+  double _dragSpeed = 0;
+  Timer? _restTimer;
 
   /// Moves the player to the playhead. Seeks are queued so that fast
   /// scrubbing never piles up hundreds of requests: only the latest counts.
-  void _seekPreview({required bool exact}) {
+  void _seekPreview({required bool exact, int toleranceUs = 0}) {
     final p = _preview;
     if (p == null || !project.hasMedia) return;
     _pendingSeekUs = _playheadUs;
     _pendingExact = exact;
+    _pendingToleranceUs = toleranceUs;
     if (_seekBusy) return;
     _seekBusy = true;
     () async {
       while (_pendingSeekUs != null) {
         final target = _pendingSeekUs!;
         final ex = _pendingExact;
+        final tol = _pendingToleranceUs;
         _pendingSeekUs = null;
         try {
-          await p.seek(target, exact: ex);
+          await p.seek(target, exact: ex, toleranceUs: tol);
         } catch (_) {}
       }
       _seekBusy = false;
@@ -234,6 +245,8 @@ class EditorController extends ChangeNotifier {
 
   /// Call when a drag on the timeline ends: shows the exact frame.
   void settle() {
+    _restTimer?.cancel();
+    _dragSpeed = 0;
     if (!_playing) _seekPreview(exact: true);
   }
 
@@ -246,9 +259,44 @@ class EditorController extends ChangeNotifier {
   void seek(int timeUs, {bool exact = false}) {
     final clamped = timeUs.clamp(0, project.durationUs);
     if (clamped == _playheadUs) return;
+    final moved = (clamped - _playheadUs).abs();
     _playheadUs = clamped;
-    if (!_playing) _seekPreview(exact: exact);
+    if (!_playing) {
+      if (exact) {
+        _seekPreview(exact: true);
+      } else {
+        _seekPreview(exact: false, toleranceUs: _scrubTolerance(moved));
+        // Finger resting (still held down): show the exact frame.
+        _restTimer?.cancel();
+        _restTimer = Timer(const Duration(milliseconds: 120), () {
+          _dragSpeed = 0;
+          _lastDragAtUs = null;
+          if (!_playing) _seekPreview(exact: true);
+        });
+      }
+    }
     notifyListeners();
+  }
+
+  /// How far from the asked-for frame a scrubbing jump may land, from how
+  /// fast the playhead is moving: none when slow (exact frames), up to a
+  /// second when fast (key frames, which show at once).
+  int _scrubTolerance(int movedUs) {
+    final now = _dragClock.elapsedMicroseconds;
+    final last = _lastDragAtUs;
+    _lastDragAtUs = now;
+    if (last == null || now - last > 250000) {
+      // A new drag: start from exact frames.
+      _dragSpeed = 0;
+      return 0;
+    }
+    final dt = math.max(8000, now - last);
+    final speed = movedUs / dt; // timeline seconds per real second
+    _dragSpeed = 0.6 * _dragSpeed + 0.4 * speed;
+    // Up to 3× real time: exact. Faster: a tenth of a second's worth of
+    // movement, at most one second.
+    if (_dragSpeed < 3) return 0;
+    return (_dragSpeed * 100000).round().clamp(0, 1000000);
   }
 
   /// Moves exactly one frame forward (+1) or back (-1).
@@ -429,30 +477,60 @@ class EditorController extends ChangeNotifier {
     _apply(project.updateClip(id, change));
   }
 
-  void rotateSelected() => updateSelected(
+  void rotateSelected() => updateSelected((c) {
     // Turning swaps the crop's sides around with the picture.
-    (c) => c.copyWith(
+    CropRect turn(CropRect r) =>
+        CropRect(1 - r.bottom, r.left, 1 - r.top, r.right);
+    final next = c.copyWith(
       rotation: c.rotation + 1,
-      crop: CropRect(
-        1 - c.crop.bottom,
-        c.crop.left,
-        1 - c.crop.top,
-        c.crop.right,
-      ),
-    ),
+      crop: turn(c.crop),
+      fillFrom: c.fillFrom == null ? null : turn(c.fillFrom!),
+    );
+    // A clip that fills the frame is cut again for its new shape.
+    return next.fills ? next.filled(project.canvas.value) : next;
+  });
+
+  void mirrorSelected() => updateSelected((c) {
+    CropRect flip(CropRect r) =>
+        CropRect(1 - r.right, r.top, 1 - r.left, r.bottom);
+    return c.copyWith(
+      flipH: !c.flipH,
+      crop: flip(c.crop),
+      fillFrom: c.fillFrom == null ? null : flip(c.fillFrom!),
+    );
+  });
+
+  /// Fill frame: the selected clip covers the whole frame (the edges that
+  /// don't fit are cut off). Fit frame: the whole picture shows, with bars
+  /// or background around it.
+  void toggleFillSelected() => updateSelected(
+    (c) => c.fills ? c.fitted() : c.filled(project.canvas.value),
   );
 
-  void mirrorSelected() => updateSelected(
-    (c) => c.copyWith(
-      flipH: !c.flipH,
-      crop: CropRect(
-        1 - c.crop.right,
-        c.crop.top,
-        1 - c.crop.left,
-        c.crop.bottom,
-      ),
-    ),
-  );
+  /// Sets the selected clip's crop. When it is the only video, the frame
+  /// takes the new shape too (one undo step); returns whether it did.
+  bool cropSelected(CropRect rect) {
+    final id = _selectedClipId;
+    if (id == null) return false;
+    var next = project.updateClip(
+      id,
+      (x) => x.copyWith(crop: rect, clearFill: true),
+    );
+    final only =
+        next.mainTrack.clips.length == 1 && next.mainTrack.clips.first.id == id;
+    if (only) {
+      next = next.withCanvas(Project.shapeOf(next.mainTrack.clips.first));
+    }
+    _apply(next);
+    return only;
+  }
+
+  /// Gives the frame the selected clip's shape.
+  void matchCanvasToSelected() {
+    final clip = selected?.clip;
+    if (clip == null) return;
+    setCanvas(Project.shapeOf(clip));
+  }
 
   /// Moves the selected video clip's sound to an audio track.
   void extractAudioOfSelected() {

@@ -196,14 +196,18 @@ class PreviewManager(private val context: Context) {
         player?.pause()
     }
 
-    fun seek(timeUs: Long, exact: Boolean) {
+    fun seek(timeUs: Long, exact: Boolean, toleranceUs: Long = 0) {
         val p = player ?: return
         if (segments.isEmpty()) return
         if (p is ExoPlayer) {
-            // In scrubbing mode every jump shows the exact frame (fast there);
-            // otherwise the nearest key frame is quicker to reach.
+            // Exact frames when asked (or when moving slowly). While the
+            // timeline is dragged quickly, a key frame up to [toleranceUs]
+            // away is shown instead: no decoding of the frames in between,
+            // so the picture keeps up with the finger (a 4K phone video has
+            // about one key frame per second).
             p.setSeekParameters(
-                if (exact || scrubbing) SeekParameters.EXACT else SeekParameters.CLOSEST_SYNC
+                if (exact || toleranceUs <= 0) SeekParameters.EXACT
+                else SeekParameters(toleranceUs, toleranceUs)
             )
             val (index, offsetMs) = locate(timeUs)
             p.seekTo(index, offsetMs)

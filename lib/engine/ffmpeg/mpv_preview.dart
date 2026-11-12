@@ -158,7 +158,13 @@ class MpvPreviewPlayer implements PreviewPlayer {
   Future<void> pause() => _player.pause();
 
   @override
-  Future<void> seek(int timeUs, {bool exact = true}) async {
+  Future<void> seek(
+    int timeUs, {
+    bool exact = true,
+    int toleranceUs = 0,
+  }) async {
+    // Slow drags still show exact frames; fast ones jump to key frames.
+    exact = exact || toleranceUs < 150000;
     if (exact != _exactSeeks) {
       _exactSeeks = exact;
       final native = _player.platform;

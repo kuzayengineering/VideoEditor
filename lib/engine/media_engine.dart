@@ -503,8 +503,9 @@ abstract class PreviewPlayer {
   Future<void> setGrades(Map<int, List<double>> grades);
 
   /// Jumps to a timeline position. [exact] lands on the exact frame (slower);
-  /// otherwise the nearest quick-to-reach frame is shown (for scrubbing).
-  Future<void> seek(int timeUs, {bool exact = true});
+  /// otherwise a quick-to-reach frame (a key frame) up to [toleranceUs] away
+  /// may be shown instead, for fast scrubbing.
+  Future<void> seek(int timeUs, {bool exact = true, int toleranceUs = 0});
 
   /// Current timeline position.
   Future<int> position();

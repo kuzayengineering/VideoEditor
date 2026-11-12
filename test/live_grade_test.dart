@@ -10,6 +10,7 @@ const s = usPerSecond;
 class _Player implements PreviewPlayer {
   int rebuilds = 0;
   final grades = <Map<int, List<double>>>[];
+  final seeks = <(int, bool, int)>[];
   @override
   Future<void> setTimeline(
     List<PreviewSegment> segments, {
@@ -34,7 +35,11 @@ class _Player implements PreviewPlayer {
   @override
   Future<void> setScrubbing(bool on) async {}
   @override
-  Future<void> seek(int timeUs, {bool exact = true}) async {}
+  Future<void> seek(
+    int timeUs, {
+    bool exact = true,
+    int toleranceUs = 0,
+  }) async => seeks.add((timeUs, exact, toleranceUs));
   @override
   Future<int> position() async => 0;
   @override
@@ -86,4 +91,47 @@ void main() {
     expect(player.rebuilds, 2);
     expect(player.grades.last[id]!.first, closeTo(0.3, 1e-9));
   });
+
+  test(
+    'fast scrubbing jumps to key frames, slow or resting is exact',
+    () async {
+      final clip = Clip(
+        id: 0,
+        kind: ClipKind.video,
+        name: 'v',
+        sourcePath: 'v.mp4',
+        media: const MediaInfo(durationUs: 60 * s, width: 3840, height: 2160),
+        sourceDurationUs: 60 * s,
+        sourceInUs: 0,
+        sourceOutUs: 60 * s,
+      );
+      final c = EditorController(
+        Project.empty(id: 'p', frameRate: 30).insertMedia([clip]),
+      );
+      final player = _Player();
+      c.attachPreview(player);
+      await Future<void>.delayed(Duration.zero);
+
+      Future<List<(int, bool, int)>> drag(int stepUs) async {
+        player.seeks.clear();
+        for (var i = 0; i < 8; i++) {
+          c.seek(c.playheadUs + stepUs);
+          await Future<void>.delayed(const Duration(milliseconds: 16));
+        }
+        return [...player.seeks];
+      }
+
+      // Slow: a frame per screen refresh is real time: exact frames.
+      final slow = await drag(33333);
+      expect(slow.every((x) => x.$3 == 0), isTrue);
+      // Fast: half a second per refresh (30× real time): key frames.
+      final fast = await drag(s ~/ 2);
+      expect(fast.last.$3, greaterThan(500000));
+      // Resting: the exact frame follows.
+      player.seeks.clear();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(player.seeks.single.$2, isTrue);
+      expect(player.seeks.single.$1, c.playheadUs);
+    },
+  );
 }

@@ -296,6 +296,7 @@ class Clip {
     this.flipH = false,
     this.flipV = false,
     this.crop = CropRect.full,
+    this.fillFrom,
     this.opacity = 1.0,
     this.reversed = false,
     this.reverseProxy,
@@ -381,6 +382,47 @@ class Clip {
 
   /// Part of the (rotated, mirrored) picture to keep.
   final CropRect crop;
+
+  /// Set while the clip fills the whole frame ("Fill frame"): the crop it
+  /// had before, which [crop] trims further to the frame's shape. "Fit
+  /// frame" goes back to it.
+  final CropRect? fillFrom;
+
+  bool get fills => fillFrom != null;
+
+  /// True when the picture already has the frame's shape (no bars, nothing
+  /// cut off).
+  bool matchesShape(double canvasAspect) {
+    final d = displaySize;
+    if (d.width <= 0 || d.height <= 0) return true;
+    return ((d.width / d.height) / canvasAspect - 1).abs() < 0.005;
+  }
+
+  /// Fills a frame of shape [canvasAspect] (width / height): the middle of
+  /// the picture, cut to that shape.
+  Clip filled(double canvasAspect) {
+    final m = media;
+    if (m == null) return this;
+    final base = fillFrom ?? crop;
+    final w = (rotation.isOdd ? m.height : m.width) * base.width;
+    final h = (rotation.isOdd ? m.width : m.height) * base.height;
+    if (w <= 0 || h <= 0) return this;
+    var r = base;
+    if (w / h > canvasAspect) {
+      final keep = base.width * (h * canvasAspect / w);
+      final l = base.left + (base.width - keep) / 2;
+      r = CropRect(l, base.top, l + keep, base.bottom);
+    } else {
+      final keep = base.height * (w / canvasAspect / h);
+      final t = base.top + (base.height - keep) / 2;
+      r = CropRect(base.left, t, base.right, t + keep);
+    }
+    return copyWith(crop: r, fillFrom: base);
+  }
+
+  /// Back to showing the whole picture inside the frame.
+  Clip fitted() =>
+      fillFrom == null ? this : copyWith(crop: fillFrom, clearFill: true);
 
   /// 1.0 is fully visible; lower lets the background show through.
   final double opacity;
@@ -509,6 +551,8 @@ class Clip {
     bool? flipH,
     bool? flipV,
     CropRect? crop,
+    CropRect? fillFrom,
+    bool clearFill = false,
     double? opacity,
     bool? reversed,
     ReverseProxy? reverseProxy,
@@ -543,6 +587,7 @@ class Clip {
       flipH: flipH ?? this.flipH,
       flipV: flipV ?? this.flipV,
       crop: crop ?? this.crop,
+      fillFrom: clearFill ? null : (fillFrom ?? this.fillFrom),
       opacity: opacity ?? this.opacity,
       reversed: reversed ?? this.reversed,
       reverseProxy: clearReverseProxy
@@ -575,6 +620,7 @@ class Clip {
     if (flipH) 'flipH': true,
     if (flipV) 'flipV': true,
     if (!crop.isFull) 'crop': crop.toJson(),
+    if (fillFrom != null) 'fillFrom': fillFrom!.toJson(),
     if (opacity < 1) 'opacity': opacity,
     if (reversed) 'reversed': true,
     if (reverseProxy != null) 'reverseProxy': reverseProxy!.toJson(),
@@ -613,6 +659,9 @@ class Clip {
       flipH: json['flipH'] as bool? ?? false,
       flipV: json['flipV'] as bool? ?? false,
       crop: CropRect.fromJson(json['crop']),
+      fillFrom: json['fillFrom'] == null
+          ? null
+          : CropRect.fromJson(json['fillFrom']),
       opacity: ((json['opacity'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 1.0),
       reversed: json['reversed'] as bool? ?? false,
       reverseProxy: ReverseProxy.fromJson(json['reverseProxy']),

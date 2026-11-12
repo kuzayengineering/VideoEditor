@@ -156,6 +156,7 @@ class MainActivity : FlutterActivity() {
                 overlays[(call.argument<Number>("id")!!).toLong()]?.seek(
                     (call.argument<Number>("offsetUs")!!).toLong(),
                     call.argument<Boolean>("exact") ?: true,
+                    (call.argument<Number>("toleranceUs"))?.toLong() ?: 0L,
                 )
                 result.success(null)
             }

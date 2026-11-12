@@ -285,8 +285,32 @@ class _EditorScreenState extends State<_Editor>
             CropScreen(clip: clip, frame: frame, canvas: c.project.canvas),
       ),
     );
-    if (rect != null) {
-      c.updateSelected((x) => x.copyWith(crop: rect));
+    if (rect == null) return;
+    final onMain = sel.track.kind == TrackKind.main;
+    if (!onMain) {
+      c.updateSelected((x) => x.copyWith(crop: rect, clearFill: true));
+      return;
+    }
+    if (c.cropSelected(rect)) {
+      _toast('The video frame now has the cropped shape.');
+      return;
+    }
+    final now = c.selected?.clip;
+    if (now != null && !now.matchesShape(c.project.canvas.value) && mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(
+              'The crop has a different shape from the video frame.',
+            ),
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Use this shape',
+              onPressed: c.matchCanvasToSelected,
+            ),
+          ),
+        );
     }
   }
 
@@ -788,6 +812,14 @@ class _EditorScreenState extends State<_Editor>
         stage: 2,
         onTap: sel.clip.isMedia ? _crop : null,
       ),
+      if (sel.clip.isMedia &&
+          (sel.clip.fills || !sel.clip.matchesShape(c.project.canvas.value)))
+        EditorTool(
+          sel.clip.fills ? 'Fit frame' : 'Fill frame',
+          sel.clip.fills ? Icons.fit_screen_outlined : Icons.fullscreen,
+          stage: 2,
+          onTap: c.toggleFillSelected,
+        ),
       EditorTool(
         sel.clip.reversed ? 'Un-reverse' : 'Reverse',
         Icons.settings_backup_restore,
