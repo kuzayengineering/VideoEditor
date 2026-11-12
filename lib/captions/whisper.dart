@@ -79,8 +79,13 @@ class Whisper {
     });
     final progressAddress = listener.nativeFunction.address;
     try {
-      final json = await Isolate.run(
-        () => _run(lib, modelPath, samples, language, n, progressAddress),
+      final json = await _inBackground(
+        lib,
+        modelPath,
+        samples,
+        language,
+        n,
+        progressAddress,
       );
       final map = jsonDecode(json) as Map<String, Object?>;
       if (map['cancelled'] == true) return null;
@@ -100,6 +105,21 @@ class Whisper {
       listener.close();
     }
   }
+
+  /// Runs the recognizer on another isolate. A separate function on
+  /// purpose: the closure given to Isolate.run may only hold these plain
+  /// values (a closure made inside [transcribe] would also carry [this] and
+  /// the progress callback, which can't be sent to another isolate).
+  static Future<String> _inBackground(
+    String lib,
+    String modelPath,
+    Float32List samples,
+    String language,
+    int threads,
+    int progressAddress,
+  ) => Isolate.run(
+    () => _run(lib, modelPath, samples, language, threads, progressAddress),
+  );
 
   static String _run(
     String libPath,

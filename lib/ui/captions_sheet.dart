@@ -158,7 +158,10 @@ class _CaptionsSheetState extends State<_CaptionsSheet> {
       if (!mounted) return;
       if (!isCancellation(e)) {
         final message = e is HttpException ? e.message : '$e';
-        setState(() => _error = message.replaceFirst('Exception: ', ''));
+        // The first line is enough (details can be very long).
+        var short = message.replaceFirst('Exception: ', '').split('\n').first;
+        if (short.length > 300) short = '${short.substring(0, 300)}…';
+        setState(() => _error = short);
       }
     } finally {
       if (mounted) setState(() => _working = false);

@@ -7,6 +7,7 @@
 library;
 
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -37,12 +38,20 @@ void main() {
       final samples = _wavSamples(
         await File('test/assets/jfk.wav').readAsBytes(),
       );
+      // As in the app: the panel checks the engine first, and progress goes
+      // to something that can't be sent to another isolate.
+      expect(Whisper.instance.available, isTrue);
       final progress = <int>[];
+      final unsendable = ReceivePort();
+      addTearDown(unsendable.close);
       final heard = await Whisper.instance.transcribe(
         model,
         samples,
         language: 'en',
-        onProgress: progress.add,
+        onProgress: (p) {
+          unsendable.hashCode;
+          progress.add(p);
+        },
       );
       final text = heard!.words.map((w) => w.text).join(' ').toLowerCase();
       expect(text, contains('ask not what your country can do for you'));
