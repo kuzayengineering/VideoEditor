@@ -52,6 +52,12 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Auto captions: whisper.cpp speech recognition (native/captions), shipped
+# as vc_captions.dll next to the program.
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/captions"
+  "${CMAKE_BINARY_DIR}/captions")
+add_dependencies(${BINARY_NAME} vc_captions)
+
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
@@ -76,6 +82,9 @@ install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
+  COMPONENT Runtime)
+
+install(FILES "$<TARGET_FILE:vc_captions>" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"

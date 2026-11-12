@@ -11,6 +11,7 @@ import '../engine/media_engine.dart';
 import '../model/project.dart';
 import '../model/timecode.dart';
 import 'canvas_sheet.dart';
+import 'captions_sheet.dart';
 import 'audio_preview.dart';
 import 'clip_tools.dart';
 import 'editor_controller.dart';
@@ -647,7 +648,14 @@ class _EditorScreenState extends State<_Editor>
           stage: 5,
           onTap: _filterAtPlayhead,
         ),
-        const EditorTool('Captions', Icons.closed_caption_outlined, stage: 7),
+        EditorTool(
+          'Captions',
+          Icons.closed_caption_outlined,
+          stage: 7,
+          onTap: _engine.supportsMedia
+              ? () => showCaptionsSheet(context, c, _engine)
+              : null,
+        ),
         EditorTool(
           'Background',
           Icons.wallpaper,

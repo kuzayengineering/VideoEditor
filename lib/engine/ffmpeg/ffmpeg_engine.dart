@@ -132,6 +132,37 @@ class FfmpegEngine implements MediaEngine {
   }
 
   @override
+  Future<void> speechAudio(
+    String source,
+    int inUs,
+    int outUs,
+    String output,
+  ) async {
+    final r = await Process.run(ffmpeg, [
+      '-v',
+      'error',
+      '-y',
+      '-ss',
+      '${inUs / 1e6}',
+      '-t',
+      '${(outUs - inUs) / 1e6}',
+      '-i',
+      source,
+      '-vn',
+      '-ac',
+      '1',
+      '-ar',
+      '16000',
+      '-f',
+      'f32le',
+      output,
+    ]);
+    if (r.exitCode != 0) {
+      throw Exception('Could not read the sound: ${r.stderr}');
+    }
+  }
+
+  @override
   ClipAudioPlayer createAudioPlayer() => MpvAudioPlayer();
 
   Directory? _thumbDir;

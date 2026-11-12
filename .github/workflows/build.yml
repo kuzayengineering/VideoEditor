@@ -51,7 +51,13 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
+      - name: Build the caption engine (for its test)
+        run: |
+          cmake -S native/captions -B build/captions -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/captions -j4
       - run: flutter test
+        env:
+          VC_CAPTIONS_LIB: ${{ github.workspace }}/build/captions/libvc_captions.so
 
   android:
     name: Build Android app
@@ -93,7 +99,7 @@ jobs:
           fi
       - name: Build APK
         run: |
-          flutter build apk --release --split-per-abi \
+          flutter build apk --release --split-per-abi --target-platform android-arm64 \
             --build-name="$VERSION" --build-number="${{ github.run_number }}" \
             --dart-define=APP_VERSION="$VERSION"
           mkdir -p dist

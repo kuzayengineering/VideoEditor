@@ -79,6 +79,16 @@ class MainActivity : FlutterActivity() {
                 }
             }
             "reverseProgress" -> result.success(Reverser.progress)
+            "speechAudio" -> {
+                val source = call.argument<String>("source")!!
+                val inUs = (call.argument<Number>("inUs")!!).toLong()
+                val outUs = (call.argument<Number>("outUs")!!).toLong()
+                val output = call.argument<String>("output")!!
+                background(result) {
+                    SpeechAudio.write(applicationContext, source, inUs, outUs, output)
+                    null
+                }
+            }
             "waveform" -> {
                 val source = call.argument<String>("source")!!
                 background(result) { Waveform.peaks(applicationContext, source) }

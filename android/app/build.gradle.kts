@@ -16,6 +16,14 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    // Auto captions: whisper.cpp speech recognition (native/captions).
+    externalNativeBuild {
+        cmake {
+            path = file("../../native/captions/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

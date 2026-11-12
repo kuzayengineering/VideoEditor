@@ -48,6 +48,15 @@ class AndroidMediaEngine implements MediaEngine {
   }
 
   @override
+  Future<void> speechAudio(String source, int inUs, int outUs, String output) =>
+      _channel.invokeMethod('speechAudio', {
+        'source': source,
+        'inUs': inUs,
+        'outUs': outUs,
+        'output': output,
+      });
+
+  @override
   Future<Uint8List> waveform(String source) async =>
       await _channel.invokeMethod<Uint8List>('waveform', {'source': source}) ??
       Uint8List(0);

@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'captions.dart';
 import 'clip.dart';
 import 'timecode.dart';
 
+export 'captions.dart';
 export 'clip.dart';
 
 /// The shape of the video frame (the "canvas").
@@ -133,24 +135,38 @@ enum TrackKind {
 }
 
 class Track {
-  const Track({required this.id, required this.kind, this.clips = const []});
+  const Track({
+    required this.id,
+    required this.kind,
+    this.clips = const [],
+    this.captions = false,
+  });
 
   final int id;
   final TrackKind kind;
   final List<Clip> clips;
 
-  Track withClips(List<Clip> clips) =>
-      Track(id: id, kind: kind, clips: List.unmodifiable(clips));
+  /// A text row made by Auto captions (made again when captions are redone).
+  final bool captions;
+
+  Track withClips(List<Clip> clips) => Track(
+    id: id,
+    kind: kind,
+    clips: List.unmodifiable(clips),
+    captions: captions,
+  );
 
   Map<String, Object?> toJson() => {
     'id': id,
     'kind': kind.name,
+    if (captions) 'captions': true,
     'clips': [for (final c in clips) c.toJson()],
   };
 
   factory Track.fromJson(Map<String, Object?> json) => Track(
     id: (json['id'] as num).toInt(),
     kind: TrackKind.values.byName(json['kind'] as String),
+    captions: json['captions'] as bool? ?? false,
     clips: List.unmodifiable([
       for (final c in json['clips'] as List)
         Clip.fromJson((c as Map).cast<String, Object?>()),
@@ -541,6 +557,49 @@ class Project {
       for (final p in placementsOn(t))
         if (p.contains(timeUs)) p,
   ];
+
+  /// Puts [lines] (caption texts with their timeline times) on the captions
+  /// row in [style], replacing earlier captions between [fromUs] and [toUs].
+  Project withCaptions(
+    List<CaptionLine> lines,
+    TextSpec style, {
+    required int fromUs,
+    required int toUs,
+  }) {
+    var id = nextId;
+    final existing = textTracks.where((t) => t.captions).firstOrNull;
+    final kept = [
+      for (final c in existing?.clips ?? const <Clip>[])
+        if (c.endUs <= fromUs || c.startUs >= toUs) c,
+    ];
+    final added = [
+      for (final l in lines)
+        Clip.text(
+          style.copyWith(text: l.text),
+          startUs: l.startUs,
+          durationUs: l.endUs - l.startUs,
+        ).copyWith(id: id++),
+    ];
+    // Never on top of each other on the row.
+    final clips = <Clip>[];
+    for (final c in [
+      ...kept,
+      ...added,
+    ]..sort((a, b) => a.startUs.compareTo(b.startUs))) {
+      if (clips.isNotEmpty && c.startUs < clips.last.endUs) continue;
+      clips.add(c);
+    }
+    if (existing != null) {
+      return _withTrack(existing.withClips(clips)).copyWith(nextId: id);
+    }
+    final track = Track(
+      id: id++,
+      kind: TrackKind.text,
+      clips: List.unmodifiable(clips),
+      captions: true,
+    );
+    return copyWith(textTracks: [...textTracks, track], nextId: id);
+  }
 
   Project _placeOnFreeTrack(Clip clip) {
     final kind = clip.kind == ClipKind.text

@@ -655,6 +655,10 @@ abstract class MediaEngine {
   /// 0–255. Empty if the file has no sound.
   Future<Uint8List> waveform(String source);
 
+  /// Writes the sound of [source] from [inUs] to [outUs] to [output] for
+  /// speech recognition: 16,000 samples a second, mono, 32-bit floats.
+  Future<void> speechAudio(String source, int inUs, int outUs, String output);
+
   ClipAudioPlayer createAudioPlayer();
 
   /// Small preview images at the given source times. Returns one file path
@@ -726,6 +730,10 @@ class NoMediaEngine implements MediaEngine {
 
   @override
   Future<Uint8List> waveform(String source) async => Uint8List(0);
+
+  @override
+  Future<void> speechAudio(String s, int inUs, int outUs, String output) =>
+      Future.error(UnsupportedError('No video engine on this platform'));
 
   @override
   ClipAudioPlayer createAudioPlayer() =>
