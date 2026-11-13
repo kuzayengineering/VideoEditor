@@ -311,9 +311,14 @@ object CompositionFactory {
         if (silent) builder.setRemoveAudio(true)
         if (s.sourceDurationUs > 0) builder.setDurationUs(s.sourceDurationUs)
         applySpeed(builder, s.speed)
-        // Never more frames per second than asked for (speeding up a 60 fps
-        // clip would otherwise produce 120 fps).
-        if (maxFrameRate != null) builder.setFrameRate(maxFrameRate)
+        // Big speed-ups would make very high frame rates (a 60 fps clip at
+        // ×2 gives 120 fps): Media3 drops frames down to the export's rate.
+        // Mild ones keep every frame (×1.1 gives 66 fps for that stretch,
+        // which plays fine): Media3's frame dropping has been seen to stall
+        // an export for good at the end of such a clip.
+        if (maxFrameRate != null && s.speed * s.frameRate > maxFrameRate * 1.5) {
+            builder.setFrameRate(maxFrameRate)
+        }
         return builder.build()
     }
 }

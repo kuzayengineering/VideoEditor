@@ -56,6 +56,9 @@ data class ExportRequest(
     val expectedDurationUs: Long,
     /** The recording date to give the video (ms since 1970), if chosen. */
     val createdAtMs: Long?,
+    /** False on the automatic second try after a stall: no frame dropping
+     * at all (see CompositionFactory). */
+    val frameCap: Boolean = true,
 ) {
     companion object {
         fun from(m: Map<String, Any?>) = ExportRequest(
@@ -151,7 +154,7 @@ object ExportManager {
             }
             val composition = CompositionFactory.build(
                 req.segments, req.width, req.height,
-                Math.round(req.frameRate).toInt(), hdrMode,
+                if (req.frameCap) Math.round(req.frameRate).toInt() else null, hdrMode,
                 audioTracks = req.audioTracks,
                 withGain = true,
                 texts = req.texts,
@@ -297,6 +300,17 @@ object ExportManager {
             work?.post { try { t.cancel() } catch (_: Exception) {} }
             exportThread?.quitSafely()
             exportThread = null
+            val req = request
+            val svc = service
+            if (req != null && svc != null && req.frameCap) {
+                // Second try, with no frame dropping at all.
+                transformer = null
+                tRef = null
+                fallbackNote += "\n\n(The first try stalled at $at%; this was the second try.)"
+                message = "Trying again (the first try got stuck at $at%)…"
+                run(svc, req.copy(frameCap = false))
+                return
+            }
             fail(
                 "The export stopped making progress at $at% and was stopped. " +
                     "Please copy these details and send them:\n$details"
@@ -327,6 +341,7 @@ object ExportManager {
             r.audioTracks.forEachIndexed { i, t ->
                 append("sound ${i + 1}: ").append(t.joinToString("; ") { seg(it) }).append("\n")
             }
+            if (!r.frameCap) append("(second try, no frame dropping)\n")
             append("texts ${r.texts.size}, dips ${r.dips.size}, pip ${r.pips.size}, ")
             append("blends ${if (r.blends != null) "yes" else "no"}")
         }
