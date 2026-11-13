@@ -55,12 +55,38 @@ class PreviewManager(private val context: Context) {
         }
     }
 
+    /**
+     * Pieces that carry straight on from the previous one in the same file
+     * (a clip split in two, both kept) play as one: at a cut between two
+     * items the player has to restart decoding from the last key frame,
+     * which shows as a judder or a pause.
+     */
+    private fun joined(list: List<Segment>): List<Segment> {
+        val out = mutableListOf<Segment>()
+        for (s in list) {
+            val last = out.lastOrNull()
+            fun plain(x: Segment) = x.copy(inUs = 0, outUs = 0, fadeInUs = 0, fadeOutUs = 0, clipId = null)
+            if (last != null && last.source == s.source &&
+                Math.abs(s.inUs - last.outUs) <= 1000 &&
+                last.fadeOutUs == 0L && s.fadeInUs == 0L && last.blendOutUs == 0L &&
+                plain(last) == plain(s)
+            ) {
+                out[out.size - 1] = last.copy(outUs = s.outUs, fadeOutUs = s.fadeOutUs)
+            } else {
+                out.add(s)
+            }
+        }
+        return out
+    }
+
     fun setTimeline(
-        newSegments: List<Segment>,
+        given: List<Segment>,
         canvasWidth: Int,
         canvasHeight: Int,
         newBlends: BlendInput? = null,
     ) {
+        // (Mixing transitions refer to pieces by position: keep them as is.)
+        val newSegments = if (newBlends == null) joined(given) else given
         val newCanvas = Pair(canvasWidth, canvasHeight)
         if (newSegments == segments && newCanvas == canvas && newBlends == blends &&
             player != null

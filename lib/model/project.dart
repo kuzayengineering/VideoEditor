@@ -420,6 +420,14 @@ class Project {
   // Editing
   // ---------------------------------------------------------------------------
 
+  /// A copy of the whole project under a new [newId], called
+  /// "(its name) (copy)" unless [name] is given.
+  Project duplicated(String newId, {String? name}) => Project.fromJson({
+    ...toJson(),
+    'id': newId,
+    'name': name ?? '${this.name} (copy)',
+  });
+
   Project copyWith({
     String? name,
     double? frameRate,

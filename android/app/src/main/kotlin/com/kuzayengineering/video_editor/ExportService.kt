@@ -220,6 +220,8 @@ object ExportManager {
             message = if (maxSourceFps + 0.5 < req.frameRate) {
                 "Encoding (your clips are ${"%.0f".format(maxSourceFps)} fps, so that rate is kept)"
             } else "Encoding"
+            lastProgress = -1
+            lastProgressAt = 0L
             t.start(composition, temp.absolutePath)
             pollProgress()
         } catch (e: Exception) {
@@ -232,14 +234,61 @@ object ExportManager {
     /** Added to the result when the transitions had to be simplified. */
     private var fallbackNote = ""
 
+    // Stall watchdog: when the progress hasn't moved for a while, the export
+    // is stopped with a description of what it was making, rather than
+    // sitting at the same percentage for ever.
+    private var lastProgress = -1
+    private var lastProgressAt = 0L
+    private val stallMs = 90_000L
+
     private fun pollProgress() {
         val t = transformer ?: return
         if (state != "running") return
+        val now = android.os.SystemClock.elapsedRealtime()
         if (t.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) {
             fraction = (holder.progress / 100.0).coerceIn(0.0, 0.97)
             service?.updateNotification((fraction * 100).toInt(), "Exporting video")
+            if (holder.progress != lastProgress) {
+                lastProgress = holder.progress
+                lastProgressAt = now
+            }
+        }
+        if (lastProgressAt == 0L) lastProgressAt = now
+        if (now - lastProgressAt > stallMs) {
+            t.cancel()
+            fail(
+                "The export stopped making progress at $lastProgress% and was " +
+                    "stopped. Please copy these details and send them:\n" + describe()
+            )
+            return
         }
         main.postDelayed(::pollProgress, 500)
+    }
+
+    /** What the export was made of (for reports of stuck exports). */
+    private fun describe(): String {
+        val r = request ?: return "(no details)"
+        fun ms(us: Long) = "${us / 1000}ms"
+        fun seg(x: Segment) = buildString {
+            append(x.source.substringAfterLast('/').take(24))
+            append(" ").append(ms(x.inUs)).append("–").append(ms(x.outUs))
+            if (Math.abs(x.speed - 1.0) > 0.001) append(" ×").append(x.speed)
+            if (x.hasEffects) append(" fx")
+            if (x.fx != null) append(" sound-fx")
+            if (x.fadeInUs > 0 || x.fadeOutUs > 0) append(" fade")
+            if (x.startUs > 0) append(" @").append(ms(x.startUs))
+            if (!x.hasAudio) append(" no-sound")
+        }
+        return buildString {
+            append("size ${r.width}x${r.height} ${r.frameRate}fps ${r.codec} ${r.range}; ")
+            append("expected ${ms(r.expectedDurationUs)}, ${r.expectedFrames} frames\n")
+            append("video: ").append(r.segments.joinToString("; ") { seg(it) }).append("\n")
+            r.audioTracks.forEachIndexed { i, t ->
+                append("sound ${i + 1}: ").append(t.joinToString("; ") { seg(it) }).append("\n")
+            }
+            append("texts ${r.texts.size}, dips ${r.dips.size}, pip ${r.pips.size}, ")
+            append("blends ${if (r.blends != null) "yes" else "no"}")
+        }
     }
 
     private fun onEncoded() {

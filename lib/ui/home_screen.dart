@@ -68,6 +68,17 @@ class _HomeScreenState extends State<HomeScreen> {
     await _open(project);
   }
 
+  /// A full copy of a project (same clips and edits; the video files
+  /// themselves aren't copied, both projects use them).
+  Future<void> _duplicate(Project p) async {
+    final copy = p.duplicated(_newId());
+    await _services.store?.save(copy);
+    await _reload();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Made "${copy.name}".')));
+  }
+
   Future<void> _delete(Project p) async {
     final yes = await showDialog<bool>(
       context: context,
@@ -187,10 +198,27 @@ class _HomeScreenState extends State<HomeScreen> {
                             '${d.project.mainTrack.clips.length} clips · '
                             '${_when(d.modified)}',
                           ),
-                          trailing: IconButton(
-                            tooltip: 'Delete project',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () => _delete(d.project),
+                          trailing: PopupMenuButton<String>(
+                            tooltip: 'Project options',
+                            onSelected: (v) => v == 'copy'
+                                ? _duplicate(d.project)
+                                : _delete(d.project),
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'copy',
+                                child: ListTile(
+                                  leading: Icon(Icons.copy_outlined),
+                                  title: Text('Duplicate'),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete_outline),
+                                  title: Text('Delete'),
+                                ),
+                              ),
+                            ],
                           ),
                           onTap: () => _open(d.project),
                         ),

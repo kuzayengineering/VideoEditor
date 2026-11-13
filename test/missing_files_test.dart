@@ -92,4 +92,24 @@ void main() {
     final files = await engine.mediaFilesIn(dir.path);
     expect(files.map((f) => f.displayName).toSet(), {'a.mp4', 'trip.MP4'});
   });
+
+  test('a duplicated project is a full, separate copy', () {
+    final p = Project.empty(
+      id: 'p1',
+      name: 'Trip',
+      frameRate: 30,
+    ).insertMedia([video('Trip', 'trip.mp4', trip)]).splitAt(5 * s);
+    final copy = p.duplicated('p2');
+    expect(copy.id, 'p2');
+    expect(copy.name, 'Trip (copy)');
+    expect(copy.mainTrack.clips.length, 2);
+    expect(
+      copy.toJson()
+        ..remove('id')
+        ..remove('name'),
+      p.toJson()
+        ..remove('id')
+        ..remove('name'),
+    );
+  });
 }
