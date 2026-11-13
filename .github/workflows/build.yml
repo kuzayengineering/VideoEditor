@@ -1,8 +1,10 @@
 # Automatic builds.
 #
-# On every push:  check the code, run the tests, build the Android app and the
-#                 Windows program (downloadable from the run's "Artifacts").
-# On the main (default) branch: also publish a GitHub Release with both files
+# On every push:  check the code, run the tests and build the Android app.
+#                 The Windows program is built only when asked for ("[windows]"
+#                 in the commit message, or "Run workflow" by hand), because
+#                 Windows build time counts double towards the free minutes.
+# On the main (default) branch: also publish a GitHub Release with the files
 #                 attached. Obtainium watches these releases and offers each
 #                 new one as an update on your phone.
 #
@@ -40,6 +42,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.version.outputs.publish }}
+      windows: ${{ steps.version.outputs.windows }}
     steps:
       - uses: actions/checkout@v4
       - id: version
@@ -57,6 +60,15 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The Windows build counts double towards GitHub's free minutes,
+          # so it only runs when asked for: "[windows]" in the commit
+          # message, or a build started by hand.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || \
+             printf '%s' "$MESSAGE" | grep -qF '[windows]'; then
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "windows=false" >> "$GITHUB_OUTPUT"
           fi
       - uses: subosito/flutter-action@v2
         with:
@@ -154,6 +166,7 @@ jobs:
   windows:
     name: Build Windows program
     needs: check
+    if: needs.check.outputs.windows == 'true'
     runs-on: windows-latest
     permissions:
       # To store the pinned FFmpeg copy the first time, and to attach the
@@ -229,7 +242,13 @@ jobs:
     # Only from the main (default) branch, and only with the real signing key,
     # so every release can update the previous one. A commit message with
     # "[no release]" builds and tests without publishing (work in progress).
+    # (Runs when the Windows build was skipped too: then the release has
+    # just the Android app.)
     if: >-
+      always() &&
+      needs.check.result == 'success' &&
+      needs.android.result == 'success' &&
+      (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
       needs.check.outputs.publish == 'true' &&
       needs.android.outputs.signed == 'true'
     runs-on: ubuntu-latest
@@ -249,7 +268,11 @@ jobs:
             echo
             echo "---"
             echo "- **Android:** \`VideoEditor-$VERSION-android-arm64.apk\` (Obtainium installs this automatically)"
-            echo "- **Windows:** download the \`.zip\`, unzip it, and run \`video_editor.exe\`"
+            if [ "${{ needs.windows.result }}" = "success" ]; then
+              echo "- **Windows:** download the \`.zip\`, unzip it, and run \`video_editor.exe\`"
+            else
+              echo "- **Windows:** not built this time (see an earlier release, or build it on request)"
+            fi
           } > notes.md
           gh release edit "v$VERSION" --draft=false --latest \
             --title "Video Editor $VERSION" \
