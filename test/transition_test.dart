@@ -224,4 +224,32 @@ void main() {
     }
     expect(q.overlayTracks, isEmpty);
   });
+
+  test('a clip at a changed speed plays from its ready-made copy', () {
+    var p = three();
+    final slow = p.mainTrack.clips[1];
+    p = p.updateClip(slow.id, (c) => c.copyWith(speed: 0.5));
+    expect(p.speedKey(0), '');
+    final key = p.speedKey(1);
+    expect(key, isNotEmpty);
+    // Before the copy is ready: the clip itself, at its speed.
+    var segs = segmentsOf(p);
+    expect(segs[1].speed, 0.5);
+    expect(segs[1].hasEffects, isTrue);
+    // Ready: the copy, from its start to the clip's length on the timeline.
+    segs = segmentsOf(p, transitionFiles: {key: 'slow.mp4'});
+    expect(segs[1].source, 'slow.mp4');
+    expect((segs[1].inUs, segs[1].outUs), (0, 8 * s));
+    expect(segs[1].hasEffects, isFalse);
+    expect(segs.length, 3);
+    // Its sound level isn't part of the copy (the mixer handles it)...
+    final quieter = p.updateClip(slow.id, (c) => c.copyWith(volume: 0.5));
+    expect(quieter.speedKey(1), key);
+    // ...but anything about its picture is: a new copy is needed.
+    final cropped = p.updateClip(
+      slow.id,
+      (c) => c.copyWith(crop: const CropRect(0.1, 0, 1, 1)),
+    );
+    expect(cropped.speedKey(1), isNot(key));
+  });
 }

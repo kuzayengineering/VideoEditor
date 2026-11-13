@@ -193,14 +193,30 @@ List<PreviewSegment> segmentsOf(
   for (var i = 0; i < n; i++) {
     final c = clips[i];
     if (!c.isMedia) continue;
-    out.add(
-      PreviewSegment.of(
-        c.trimmedBy(headUs: head[i], tailUs: tail[i]),
-        dipInUs: dipHead[i],
-        dipOutUs: dipTail[i],
-        blendOutUs: blendOut[i],
-      ),
-    );
+    final atSpeed = (c.speed - 1).abs() < 0.0001
+        ? null
+        : transitionFiles[project.speedKey(i)];
+    if (atSpeed != null) {
+      // A ready-made copy at its speed (preview only): the part between
+      // any transitions.
+      out.add(
+        PreviewSegment(
+          atSpeed,
+          head[i],
+          c.durationUs - tail[i],
+          fileDurationUs: c.durationUs,
+        ),
+      );
+    } else {
+      out.add(
+        PreviewSegment.of(
+          c.trimmedBy(headUs: head[i], tailUs: tail[i]),
+          dipInUs: dipHead[i],
+          dipOutUs: dipTail[i],
+          blendOutUs: blendOut[i],
+        ),
+      );
+    }
     final r = rendered[i];
     // The pre-made file holds the transition with a little either side
     // (three times its length); its middle third plays here.

@@ -370,7 +370,9 @@ object Reverser {
         // Fast way: the decoder draws into an image queue we control, so a
         // batch of frames can be held and passed to the encoder backwards.
         val bytesPerFrame = width.toLong() * height * (if (hdr) 3 else 2)
-        val batch = if (fast) (300L * 1024 * 1024 / bytesPerFrame).toInt().coerceIn(4, 60) else 0
+        // Up to about 400 MB of frames, enough for a whole second of 1080p
+        // (a typical phone video has a key frame every second).
+        val batch = if (fast) (400L * 1024 * 1024 / bytesPerFrame).toInt().coerceIn(4, 120) else 0
         var reader: ImageReader? = null
         var writer: ImageWriter? = null
         var readerThread: HandlerThread? = null
@@ -448,7 +450,14 @@ object Reverser {
                 var end = n // frames [start, end) form the next batch, last batch first
                 var done = 0
                 while (end > 0) {
-                    val start = max(0, end - batch)
+                    // Batches follow the key frames: each batch is (the end
+                    // of) one stretch from a key frame, so every frame is
+                    // decoded once, instead of decoding up to a second of
+                    // frames before each batch just to throw them away.
+                    val gopKey = keyFrames.lastOrNull { it <= frameTimes[end - 1] } ?: keyFrames.first()
+                    var gopStart = frameTimes.binarySearch(gopKey).let { if (it >= 0) it else -(it + 1) }
+                    gopStart = gopStart.coerceIn(0, end - 1)
+                    val start = max(gopStart, end - batch)
                     val first = frameTimes[start]
                     val last = frameTimes[end - 1]
                     val key = keyFrames.lastOrNull { it <= first } ?: keyFrames.first()

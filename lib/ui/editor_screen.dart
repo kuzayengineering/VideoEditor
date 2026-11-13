@@ -377,6 +377,7 @@ class _EditorScreenState extends State<_Editor>
   /// background. Until one is ready the preview dips through black.
   void _renderTransitions(Project project) {
     if (!_engine.supportsAllTransitions || !_engine.supportsMedia) return;
+    if (Platform.isAndroid) _renderSpeedClips(project);
     for (var i = 0; i + 1 < project.mainTrack.clips.length; i++) {
       if (project.transitionUsAfter(i) <= 0) continue;
       final key = project.transitionKey(i);
@@ -401,6 +402,36 @@ class _EditorScreenState extends State<_Editor>
         } catch (e) {
           // The preview keeps the dip-through-black stand-in.
           if (mounted) c.setTransitionError(key, _reason(e));
+        }
+      });
+    }
+  }
+
+  /// Android: clips at a changed speed get a ready-to-play copy made in the
+  /// background (like transitions), so the preview's simple player can play
+  /// them, without the hitch the effects player shows at their cuts.
+  void _renderSpeedClips(Project project) {
+    for (var i = 0; i < project.mainTrack.clips.length; i++) {
+      final key = project.speedKey(i);
+      if (key.isEmpty ||
+          c.transitionFiles.containsKey(key) ||
+          !_transitionsInFlight.add(key)) {
+        continue;
+      }
+      final mini = project.speedPreviewProject(i)!;
+      c.setTransitionPreparing(key, true);
+      _transitionQueue = _transitionQueue.then((_) async {
+        try {
+          final path = await _engine.renderPreviewClip(mini, key);
+          if (!mounted) return;
+          if (path != null) {
+            c.addTransitionFile(key, path);
+          } else {
+            c.setTransitionPreparing(key, false);
+          }
+        } catch (e) {
+          // It keeps playing through the effects player.
+          if (mounted) c.setTransitionPreparing(key, false);
         }
       });
     }

@@ -362,6 +362,47 @@ class Project {
     );
   }
 
+  /// A small project holding just main clip [index] at its changed speed
+  /// (with its other changes), to make a ready-to-play preview copy of: the
+  /// phone's simple player then plays it with no hitch at the cuts. Null
+  /// for clips at normal speed. Sound levels and fades stay with the
+  /// preview's mixer, so the copy has them neutral.
+  Project? speedPreviewProject(int index) {
+    final c = mainTrack.clips[index];
+    if (!c.isMedia || (c.speed - 1).abs() < 0.0001) return null;
+    final solo = c.copyWith(
+      id: 1,
+      startUs: 0,
+      clearTransition: true,
+      volume: 1,
+      fadeInUs: 0,
+      fadeOutUs: 0,
+    );
+    return Project(
+      id: '$id-speed-$index',
+      name: name,
+      frameRate: frameRate,
+      canvas: canvas,
+      background: background,
+      mainTrack: Track(
+        id: 2,
+        kind: TrackKind.main,
+        clips: List.unmodifiable([solo]),
+      ),
+      nextId: 3,
+    );
+  }
+
+  /// Identifies a [speedPreviewProject] copy ('' for normal speed).
+  String speedKey(int index) {
+    final mini = speedPreviewProject(index);
+    if (mini == null) return '';
+    final j = mini.toJson()
+      ..remove('id')
+      ..remove('name');
+    return 's${jsonEncode(j).hashCode.toUnsigned(32).toRadixString(16)}';
+  }
+
   /// Identifies a transition's look (its clips, settings and the canvas), so
   /// a pre-rendered copy is reused only while nothing about it changed.
   String transitionKey(int index) {

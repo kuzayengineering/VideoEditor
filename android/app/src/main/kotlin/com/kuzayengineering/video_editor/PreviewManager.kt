@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.effect.DefaultVideoFrameProcessor
 import androidx.media3.effect.MultipleInputVideoGraph
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.CompositionPlayer
@@ -120,7 +121,13 @@ class PreviewManager(private val context: Context) {
             } else if (wantComposition) {
                 CompositionPlayer.Builder(context).build()
             } else {
-                ExoPlayer.Builder(context).build()
+                // A second decoder gets the next piece ready during playback
+                // ("pre-warming"), so cuts play without a hitch.
+                ExoPlayer.Builder(
+                    context,
+                    DefaultRenderersFactory(context)
+                        .experimentalSetEnableMediaCodecVideoRendererPrewarming(true),
+                ).build()
             }
             usingComposition = wantComposition
             usingLayers = wantLayers
