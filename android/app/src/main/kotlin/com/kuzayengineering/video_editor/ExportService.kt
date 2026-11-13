@@ -170,13 +170,22 @@ object ExportManager {
                 .setEnableFallback(true)
                 .build()
 
+            // Media3 is driven from a thread of its own (not the app's main
+            // thread): its progress question waits for an answer, so if the
+            // export ever got stuck the whole app would freeze with it.
+            val thread = android.os.HandlerThread("export").apply { start() }
+            exportThread?.quitSafely()
+            exportThread = thread
+            val work = Handler(thread.looper)
+            this.work = work
             val t = Transformer.Builder(ctx)
+                .setLooper(thread.looper)
                 .setVideoMimeType(if (req.codec == "h264") MimeTypes.VIDEO_H264 else MimeTypes.VIDEO_H265)
                 .setAudioMimeType(MimeTypes.AUDIO_AAC)
                 .setEncoderFactory(encoders)
                 .addListener(object : Transformer.Listener {
                     override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        onEncoded()
+                        main.post { if (transformer != null && transformer === tRef) onEncoded() }
                     }
 
                     override fun onError(
@@ -184,6 +193,10 @@ object ExportManager {
                         exportResult: ExportResult,
                         exportException: ExportException,
                     ) {
+                        main.post { if (transformer != null && transformer === tRef) failedWith(exportException) }
+                    }
+
+                    fun failedWith(exportException: ExportException) {
                         val fallback = req.fallbackSegments
                         if ((req.blends != null || req.pips.isNotEmpty()) && fallback != null) {
                             // Mixing the clips didn't work on this phone: try
@@ -215,21 +228,34 @@ object ExportManager {
                     }
                 })
                 .build()
+            tRef = t
             transformer = t
             state = "running"
             message = if (maxSourceFps + 0.5 < req.frameRate) {
                 "Encoding (your clips are ${"%.0f".format(maxSourceFps)} fps, so that rate is kept)"
             } else "Encoding"
             lastProgress = -1
-            lastProgressAt = 0L
-            t.start(composition, temp.absolutePath)
-            pollProgress()
+            lastProgressAt = android.os.SystemClock.elapsedRealtime()
+            work.post {
+                try {
+                    t.start(composition, temp.absolutePath)
+                } catch (e: Exception) {
+                    main.post { fail("Export could not start: ${e.message ?: e}") }
+                    return@post
+                }
+                pollProgress(t)
+            }
+            main.postDelayed(::watchdog, 2000)
         } catch (e: Exception) {
             fail("Export could not start: ${e.message ?: e}")
         }
     }
 
     private val holder = ProgressHolder()
+    private var exportThread: android.os.HandlerThread? = null
+    @Volatile private var work: Handler? = null
+    /** The current export's Transformer, for its callbacks to check against. */
+    @Volatile private var tRef: Transformer? = null
 
     /** Added to the result when the transitions had to be simplified. */
     private var fallbackNote = ""
@@ -237,32 +263,47 @@ object ExportManager {
     // Stall watchdog: when the progress hasn't moved for a while, the export
     // is stopped with a description of what it was making, rather than
     // sitting at the same percentage for ever.
-    private var lastProgress = -1
-    private var lastProgressAt = 0L
+    @Volatile private var lastProgress = -1
+    @Volatile private var lastProgressAt = 0L
     private val stallMs = 90_000L
 
-    private fun pollProgress() {
-        val t = transformer ?: return
-        if (state != "running") return
-        val now = android.os.SystemClock.elapsedRealtime()
+    /** On the export's own thread: asks Media3 how far it is. */
+    private fun pollProgress(t: Transformer) {
+        if (tRef !== t || state != "running") return
         if (t.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) {
-            fraction = (holder.progress / 100.0).coerceIn(0.0, 0.97)
-            service?.updateNotification((fraction * 100).toInt(), "Exporting video")
-            if (holder.progress != lastProgress) {
-                lastProgress = holder.progress
-                lastProgressAt = now
+            val p = holder.progress
+            fraction = (p / 100.0).coerceIn(0.0, 0.97)
+            if (p != lastProgress) {
+                lastProgress = p
+                lastProgressAt = android.os.SystemClock.elapsedRealtime()
+                main.post { service?.updateNotification((fraction * 100).toInt(), "Exporting video") }
             }
         }
-        if (lastProgressAt == 0L) lastProgressAt = now
-        if (now - lastProgressAt > stallMs) {
-            t.cancel()
+        work?.postDelayed({ pollProgress(t) }, 500)
+    }
+
+    /**
+     * On the main thread: when the progress hasn't moved for a while (or
+     * Media3 stopped answering), the export is stopped with a description
+     * of what it was making, instead of sitting there for ever.
+     */
+    private fun watchdog() {
+        val t = transformer ?: return
+        if (state != "running") return
+        if (android.os.SystemClock.elapsedRealtime() - lastProgressAt > stallMs) {
+            val details = describe()
+            val at = lastProgress
+            // Stop it on its own thread (it may never answer); forget it here.
+            work?.post { try { t.cancel() } catch (_: Exception) {} }
+            exportThread?.quitSafely()
+            exportThread = null
             fail(
-                "The export stopped making progress at $lastProgress% and was " +
-                    "stopped. Please copy these details and send them:\n" + describe()
+                "The export stopped making progress at $at% and was stopped. " +
+                    "Please copy these details and send them:\n$details"
             )
             return
         }
-        main.postDelayed(::pollProgress, 500)
+        main.postDelayed(::watchdog, 2000)
     }
 
     /** What the export was made of (for reports of stuck exports). */
@@ -390,7 +431,8 @@ object ExportManager {
     fun cancel() {
         main.post {
             if (!isBusy) return@post
-            transformer?.cancel()
+            val t = transformer
+            work?.post { try { t?.cancel() } catch (_: Exception) {} }
             transformer = null
             tempFile?.delete()
             finish("cancelled", "Export cancelled.")
@@ -399,6 +441,7 @@ object ExportManager {
 
     internal fun fail(text: String) {
         transformer = null
+        tRef = null
         tempFile?.delete()
         finish("failed", text)
     }

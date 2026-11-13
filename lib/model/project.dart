@@ -7,6 +7,7 @@ import 'timecode.dart';
 
 export 'captions.dart';
 export 'clip.dart';
+export 'layer_anchors.dart';
 
 /// The shape of the video frame (the "canvas").
 class CanvasRatio {
@@ -649,6 +650,9 @@ class Project {
     );
     return copyWith(textTracks: [...textTracks, track], nextId: id);
   }
+
+  /// Puts [clip] on the first row of its kind with room (a new row if none).
+  Project placeOnFreeTrack(Clip clip) => _placeOnFreeTrack(clip);
 
   Project _placeOnFreeTrack(Clip clip) {
     final kind = clip.kind == ClipKind.text

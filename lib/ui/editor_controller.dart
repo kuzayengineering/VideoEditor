@@ -14,7 +14,8 @@ import 'audio_preview.dart';
 /// Holds everything the editor screen shows: the project (with undo/redo),
 /// the playhead position, the selected clip and the timeline zoom.
 class EditorController extends ChangeNotifier {
-  EditorController(Project project) : history = EditHistory(project);
+  EditorController(Project project)
+    : history = EditHistory(project.withAnchorsRecorded());
 
   final EditHistory history;
 
@@ -438,7 +439,8 @@ class EditorController extends ChangeNotifier {
   void apply(Project next) => _apply(next);
 
   void _apply(Project next) {
-    history.apply(next);
+    // Sound, text and picture-in-picture stay with their video frames.
+    history.apply(settleLayers(project, next));
     _afterChange();
   }
 
@@ -600,7 +602,7 @@ class EditorController extends ChangeNotifier {
   /// one undo step.
   void liveEdit(Project Function(Project base) change) {
     final base = history.beginGesture();
-    history.updateGesture(change(base));
+    history.updateGesture(settleLayers(base, change(base)));
     _playheadUs = _playheadUs.clamp(0, project.durationUs);
     notifyListeners();
     _liveGrades();
@@ -667,7 +669,7 @@ class EditorController extends ChangeNotifier {
     final next = _trimStart
         ? base.trimStart(id, snapped)
         : base.trimEnd(id, snapped);
-    history.updateGesture(next);
+    history.updateGesture(settleLayers(base, next));
 
     // When the start of a main-track clip is trimmed, everything after it
     // slides left. Moving the playhead back by the same amount keeps the

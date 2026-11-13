@@ -279,6 +279,39 @@ class PipLayout {
 /// A clip never changes the original file. It just says "use this part of
 /// that file": from [sourceInUs] to [sourceOutUs], played at [speed], with
 /// these adjustments.
+/// The video frame a clip off the main track starts on: main clip [clipId]
+/// at moment [sourceUs] of its file [source].
+class ClipAnchor {
+  const ClipAnchor(this.clipId, this.source, this.sourceUs);
+
+  final int clipId;
+  final String source;
+  final int sourceUs;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ClipAnchor &&
+      other.clipId == clipId &&
+      other.source == source &&
+      other.sourceUs == sourceUs;
+
+  @override
+  int get hashCode => Object.hash(clipId, source, sourceUs);
+
+  Map<String, Object?> toJson() => {
+    'clip': clipId,
+    'source': source,
+    'at': sourceUs,
+  };
+
+  static ClipAnchor? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final id = json['clip'], src = json['source'], at = json['at'];
+    if (id is! num || src is! String || at is! num) return null;
+    return ClipAnchor(id.toInt(), src, at.toInt());
+  }
+}
+
 class Clip {
   const Clip({
     required this.id,
@@ -308,7 +341,13 @@ class Clip {
     this.pip,
     this.grade,
     this.audioFx,
+    this.anchor,
   });
+
+  /// For clips off the main track (sound, text, picture-in-picture): the
+  /// video frame they start on, so they move with it when the main video
+  /// is edited.
+  final ClipAnchor? anchor;
 
   /// Sound effects: equalizer, pitch, delay, reverb.
   final AudioFx? audioFx;
@@ -426,6 +465,14 @@ class Clip {
 
   /// 1.0 is fully visible; lower lets the background show through.
   final double opacity;
+
+  /// Where in this clip (timeline time from its start) its file's moment
+  /// [sourceUs] shows, or null if that moment isn't part of the clip.
+  int? offsetOfSource(int sourceUs) {
+    if (sourceUs < sourceInUs || sourceUs > sourceOutUs) return null;
+    final s = reversed ? sourceOutUs - sourceUs : sourceUs - sourceInUs;
+    return (s / speed).round().clamp(0, durationUs);
+  }
 
   /// Text clips can be any length (up to an hour).
   static const textSourceUs = 3600 * 1000000;
@@ -570,6 +617,8 @@ class Clip {
     ColorGrade? grade,
     bool clearGrade = false,
     AudioFx? audioFx,
+    ClipAnchor? anchor,
+    bool clearAnchor = false,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -601,6 +650,7 @@ class Clip {
       pip: clearPip ? null : (pip ?? this.pip),
       grade: clearGrade ? null : (grade ?? this.grade),
       audioFx: audioFx ?? this.audioFx,
+      anchor: clearAnchor ? null : (anchor ?? this.anchor),
     );
   }
 
@@ -632,6 +682,7 @@ class Clip {
     if (pip != null) 'pip': pip!.toJson(),
     if (grade != null && !grade!.isNeutral) 'grade': grade!.toJson(),
     if (audioFx != null && !audioFx!.isNeutral) 'audioFx': audioFx!.toJson(),
+    if (anchor != null) 'anchor': anchor!.toJson(),
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -678,6 +729,7 @@ class Clip {
       pip: PipLayout.fromJson(json['pip']),
       grade: ColorGrade.fromJson(json['grade']),
       audioFx: AudioFx.fromJson(json['audioFx']),
+      anchor: ClipAnchor.fromJson(json['anchor']),
     );
   }
 }
