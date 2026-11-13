@@ -5,9 +5,10 @@ import com.google.common.collect.ImmutableList
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.SpeedParameters
 import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.audio.SpeedProvider
+import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.effect.Crop
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
@@ -202,33 +203,32 @@ object CompositionFactory {
         )
     }
 
-    /**
-     * Media3's speed change works like a tape machine: faster also means
-     * higher pitch. This shifts the pitch back by the same factor (without
-     * changing the length), so voices sound normal at any speed.
-     */
-    /** Pitch (kept through speed changes) and the clip's sound effects. */
+    /** The clip's sound effects (its pitch setting included; speed changes
+     * keep the pitch by themselves, see [applySpeed]). */
     private fun soundEffects(s: Segment): List<AudioProcessor> {
         val fx = s.fx
         val list = mutableListOf<AudioProcessor>()
         fx?.noise?.let { list += NoiseReducer(it) }
-        list += pitchProcessor(s.speed, fx?.pitch ?: 1.0)
+        list += pitchProcessor(1.0, fx?.pitch ?: 1.0)
         if (fx != null && fx.hasFilters) list += FxAudioProcessor(fx)
         return list
     }
 
-    private fun pitchKeeper(speed: Double): List<AudioProcessor> {
-        if (Math.abs(speed - 1.0) < 0.0001) return listOf()
-        return listOf(SonicAudioProcessor().apply { setPitch((1.0 / speed).toFloat()) })
-    }
-
+    /**
+     * Plays the clip faster or slower, keeping the sound's pitch (Media3's
+     * own pitch-keeping time stretch). This used to be a tape-style speed
+     * change followed by a second pitch shift of our own; with that, exports
+     * of sped-up clips got stuck for good at the end of the clip.
+     */
+    @androidx.annotation.OptIn(markerClass = [ExperimentalApi::class])
     private fun applySpeed(builder: EditedMediaItem.Builder, speed: Double) {
         if (Math.abs(speed - 1.0) > 0.0001) {
             val f = speed.toFloat()
-            builder.setSpeed(object : SpeedProvider {
+            val provider = object : SpeedProvider {
                 override fun getSpeed(timeUs: Long): Float = f
                 override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
-            })
+            }
+            builder.setSpeed(SpeedParameters(provider, /* shouldMaintainPitch= */ true))
         }
     }
 
@@ -302,23 +302,18 @@ object CompositionFactory {
             withGain -> soundEffects(s) + gainProcessors(s)
             // Preview: only the fade under a mixing transition (the player's
             // volume does the rest).
-            s.blendOutUs > 0 -> pitchKeeper(s.speed) +
-                GainEnvelopeProcessor(1f, 0, s.blendOutUs, s.timelineUs)
-            else -> pitchKeeper(s.speed)
+            s.blendOutUs > 0 ->
+                listOf(GainEnvelopeProcessor(1f, 0, s.blendOutUs, s.timelineUs))
+            else -> listOf()
         }
         val builder = EditedMediaItem.Builder(mediaItem)
             .setEffects(Effects(audio, video))
         if (silent) builder.setRemoveAudio(true)
         if (s.sourceDurationUs > 0) builder.setDurationUs(s.sourceDurationUs)
         applySpeed(builder, s.speed)
-        // Big speed-ups would make very high frame rates (a 60 fps clip at
-        // ×2 gives 120 fps): Media3 drops frames down to the export's rate.
-        // Mild ones keep every frame (×1.1 gives 66 fps for that stretch,
-        // which plays fine): Media3's frame dropping has been seen to stall
-        // an export for good at the end of such a clip.
-        if (maxFrameRate != null && s.speed * s.frameRate > maxFrameRate * 1.5) {
-            builder.setFrameRate(maxFrameRate)
-        }
+        // Never more frames per second than asked for (speeding up a 60 fps
+        // clip would otherwise produce 120 fps).
+        if (maxFrameRate != null) builder.setFrameRate(maxFrameRate)
         return builder.build()
     }
 }

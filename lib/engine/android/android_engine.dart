@@ -270,9 +270,11 @@ class AndroidMediaEngine implements MediaEngine {
     var frames = 0;
     var durationUs = 0;
     for (final seg in segments) {
-      final fps = seg.clip!.media!.frameRate < s.frameRate
-          ? seg.clip!.media!.frameRate
-          : s.frameRate;
+      // Slowed down, a clip shows its frames for longer (×0.5 of a 60 fps
+      // video gives 30 new frames a second); sped up, frames beyond the
+      // export's rate are dropped.
+      final own = seg.clip!.media!.frameRate * seg.speed;
+      final fps = own < s.frameRate ? own : s.frameRate;
       frames += (seg.timelineUs * fps / 1000000).round();
       durationUs += seg.timelineUs;
     }
