@@ -1,31 +1,31 @@
 # Turns a scrambled Android error report (from the app's "Copy the details")
-# back into readable code locations, using the code map saved by a build.
+# back into readable code locations, using the code map attached to the
+# version's release (mapping.txt).
 name: Read error report
 
 on:
   workflow_dispatch:
     inputs:
-      run_id:
-        description: Build run whose code map to use
+      version:
+        description: App version the report came from (for example 0.3.41)
         required: true
       trace:
         description: The copied error text
         required: true
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
   retrace:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: android-mapping
-          run-id: ${{ inputs.run_id }}
-          github-token: ${{ github.token }}
-          path: map
+      - name: Get the code map
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v${{ inputs.version }}" \
+            --repo "${{ github.repository }}" --pattern mapping.txt --dir map
       - name: Decode
         env:
           TRACE: ${{ inputs.trace }}
