@@ -32,7 +32,11 @@ class MediaInfo {
     this.codec,
     this.wideGamut = false,
     this.createdAtMs,
+    this.videoBitRate,
   });
+
+  /// The picture's own data rate (bits per second), if the file says.
+  final int? videoBitRate;
 
   /// When the video was recorded (from the file's own information), in
   /// milliseconds since 1970 (UTC), if known.
@@ -82,6 +86,7 @@ class MediaInfo {
     'codec': codec,
     'wideGamut': wideGamut,
     if (createdAtMs != null) 'createdAtMs': createdAtMs,
+    if (videoBitRate != null) 'videoBitRate': videoBitRate,
   };
 
   factory MediaInfo.fromJson(Map<String, Object?> json) => MediaInfo(
@@ -99,6 +104,7 @@ class MediaInfo {
     codec: json['codec'] as String?,
     wideGamut: json['wideGamut'] as bool? ?? false,
     createdAtMs: (json['createdAtMs'] as num?)?.toInt(),
+    videoBitRate: (json['videoBitRate'] as num?)?.toInt(),
   );
 }
 

@@ -335,7 +335,7 @@ class AndroidMediaEngine implements MediaEngine {
       'width': dims.width,
       'height': dims.height,
       'frameRate': s.frameRate,
-      'bitrate': s.videoBitrateFor(project.canvas),
+      'bitrate': s.videoBitrateFor(project.canvas, project: project),
       'codec': s.codec.name,
       'range': s.dynamicRange.name,
       'folder': s.outputFolder,

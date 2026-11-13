@@ -412,23 +412,40 @@ object ExportManager {
         val folder = req.folder
         if (folder != null) {
             val tree = Uri.parse(folder)
-            val parent = DocumentsContract.buildDocumentUriUsingTree(
-                tree, DocumentsContract.getTreeDocumentId(tree))
-            val target = DocumentsContract.createDocument(resolver, parent, "video/mp4", req.fileName)
+            val parentId = DocumentsContract.getTreeDocumentId(tree)
+            val parent = DocumentsContract.buildDocumentUriUsingTree(tree, parentId)
+            // Never overwrite: a number on the end if the name is taken.
+            val taken = mutableSetOf<String>()
+            resolver.query(
+                DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId),
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null,
+            )?.use { c -> while (c.moveToNext()) c.getString(0)?.let { taken += it } }
+            val fileName = freeName(req.fileName) { it in taken }
+            val target = DocumentsContract.createDocument(resolver, parent, "video/mp4", fileName)
                 ?: throw IllegalStateException("The chosen folder can't be written to.")
             resolver.openOutputStream(target)!!.use { out -> file.inputStream().use { it.copyTo(out, 1 shl 20) } }
-            val name = Uri.decode(DocumentsContract.getTreeDocumentId(tree)).substringAfter(':')
-            return "$name/${req.fileName}"
+            val name = Uri.decode(parentId).substringAfter(':')
+            return "$name/$fileName"
         }
         val relative = "${Environment.DIRECTORY_MOVIES}/Video Editor"
+        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        // Never overwrite: a number on the end if the name is taken.
+        val fileName = freeName(req.fileName) { candidate ->
+            resolver.query(
+                collection,
+                arrayOf(MediaStore.Video.Media._ID),
+                "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ? AND ${MediaStore.Video.Media.DISPLAY_NAME} = ?",
+                arrayOf("$relative%", candidate),
+                null,
+            )?.use { it.count > 0 } ?: false
+        }
         val values = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, req.fileName)
+            put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             put(MediaStore.Video.Media.RELATIVE_PATH, relative)
             put(MediaStore.Video.Media.IS_PENDING, 1)
             req.createdAtMs?.let { put(MediaStore.Video.Media.DATE_TAKEN, it) }
         }
-        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val uri = resolver.insert(collection, values)
             ?: throw IllegalStateException("Couldn't create the file in Movies.")
         try {
@@ -440,7 +457,18 @@ object ExportManager {
             resolver.delete(uri, null, null)
             throw e
         }
-        return "$relative/${req.fileName}"
+        return "$relative/$fileName"
+    }
+
+    /** [name], or "name_2.mp4", "name_3.mp4"… : the first not [taken]. */
+    private fun freeName(name: String, taken: (String) -> Boolean): String {
+        if (!taken(name)) return name
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var n = 2
+        while (taken("${stem}_$n$ext")) n++
+        return "${stem}_$n$ext"
     }
 
     fun cancel() {

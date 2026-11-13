@@ -208,8 +208,10 @@ class _ExportSheetState extends State<_ExportSheet> {
               ),
               note:
                   'Variable bit rate: about '
-                  '${formatBitrate(s.videoBitrateFor(canvas))} on average, '
-                  'up to ${formatBitrate(s.peakBitrateFor(canvas))} in busy scenes.',
+                  '${formatBitrate(s.videoBitrateFor(canvas, project: project))} '
+                  'on average, up to '
+                  '${formatBitrate(s.peakBitrateFor(canvas, project: project))} '
+                  'in busy scenes.',
             ),
             section(
               'Format',
@@ -281,7 +283,7 @@ class _ExportSheetState extends State<_ExportSheet> {
                 Expanded(
                   child: Text(
                     'Estimated size: about '
-                    '${formatBytes(s.estimatedBytes(canvas, project.durationUs))}',
+                    '${formatBytes(s.estimatedBytes(canvas, project.durationUs, project: project))}',
                     style: theme.textTheme.bodyMedium?.copyWith(color: muted),
                   ),
                 ),

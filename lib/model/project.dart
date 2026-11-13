@@ -7,6 +7,7 @@ import 'timecode.dart';
 
 export 'captions.dart';
 export 'clip.dart';
+export 'file_naming.dart';
 export 'layer_anchors.dart';
 
 /// The shape of the video frame (the "canvas").

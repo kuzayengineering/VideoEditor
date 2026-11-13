@@ -30,10 +30,11 @@ enum VideoCodec {
 
 /// Quality level. Higher means bigger files and finer detail.
 enum ExportQuality {
-  standard('Standard', 0.06),
-  high('High', 0.10),
-  veryHigh('Very high', 0.15),
-  maximum('Maximum', 0.22);
+  // (High matches Lockbox's "High": hard to tell apart from the original.)
+  standard('Standard', 0.05),
+  high('High', 0.08),
+  veryHigh('Very high', 0.12),
+  maximum('Maximum', 0.18);
 
   const ExportQuality(this.label, this.bitsPerPixel);
   final String label;
@@ -193,23 +194,45 @@ class ExportSettings {
     return (width: short, height: even(short / canvas.value));
   }
 
-  /// Average video bit rate in bits per second.
-  int videoBitrateFor(CanvasRatio canvas) {
+  /// Average video bit rate in bits per second: pixels × frames × the
+  /// quality's bits per pixel, but never more than the source videos' own
+  /// rate (scaled to the export's size and frame rate) when [project] is
+  /// given: spending more than the original can't add quality, only size.
+  int videoBitrateFor(CanvasRatio canvas, {Project? project}) {
     final d = dimensionsFor(canvas);
     var bpp = quality.bitsPerPixel;
     if (codec == VideoCodec.h264) bpp *= 1.4; // H.264 is less efficient
-    if (dynamicRange.isHdr) bpp *= 1.1; // 10-bit needs a little more
-    return (d.width * d.height * frameRate * bpp).round();
+    var rate = (d.width * d.height * frameRate * bpp).round();
+    if (project != null) {
+      int? cap;
+      for (final c in project.mainTrack.clips) {
+        final m = c.media;
+        final src = m?.videoBitRate;
+        if (m == null || src == null || m.width <= 0 || m.height <= 0) continue;
+        var scaled = src * (d.width * d.height) / (m.width * m.height);
+        if (m.frameRate > 0 && frameRate < m.frameRate) {
+          scaled *= frameRate / m.frameRate;
+        }
+        // H.264 from an HEVC original needs more for the same picture.
+        if (codec == VideoCodec.h264 && m.codec == 'hevc') scaled *= 1.4;
+        final s = scaled.round();
+        if (cap == null || s > cap) cap = s;
+      }
+      if (cap != null && cap < rate) rate = math.max(cap, 500000);
+    }
+    return rate;
   }
 
-  int peakBitrateFor(CanvasRatio canvas) =>
-      (videoBitrateFor(canvas) * vbrPeakFactor).round();
+  int peakBitrateFor(CanvasRatio canvas, {Project? project}) =>
+      (videoBitrateFor(canvas, project: project) * vbrPeakFactor).round();
 
   /// Rough file size. It's an estimate because variable bit rate spends
   /// more on busy scenes and less on calm ones.
-  int estimatedBytes(CanvasRatio canvas, int durationUs) {
+  int estimatedBytes(CanvasRatio canvas, int durationUs, {Project? project}) {
     final bits =
-        (videoBitrateFor(canvas) + audioBitrateBps) * durationUs / usPerSecond;
+        (videoBitrateFor(canvas, project: project) + audioBitrateBps) *
+        durationUs /
+        usPerSecond;
     return math.max(0, (bits / 8).round());
   }
 

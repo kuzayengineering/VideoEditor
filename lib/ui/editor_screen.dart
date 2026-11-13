@@ -575,7 +575,7 @@ class _EditorScreenState extends State<_Editor>
         ExportRequest(
           project: c.project,
           settings: c.exportSettings,
-          fileName: _exportFileName(c.project.name),
+          fileName: exportFileName(c.project),
           textImages: textImages,
         ),
       );
@@ -593,14 +593,6 @@ class _EditorScreenState extends State<_Editor>
       builder: (_) => ExportProgressScreen(job: job),
     ),
   );
-
-  static String _exportFileName(String projectName) {
-    final now = DateTime.now();
-    String two(int v) => v.toString().padLeft(2, '0');
-    final safe = projectName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
-    return '${safe.isEmpty ? 'Video' : safe} '
-        '${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}${two(now.minute)}.mp4';
-  }
 
   Future<void> _alert(String title, String text) => showDialog<void>(
     context: context,

@@ -321,6 +321,7 @@ MediaInfo parseProbeJson(String text) {
     codec: v['codec_name'] as String?,
     wideGamut: v['color_primaries'] == 'bt2020',
     createdAtMs: createdAtMs,
+    videoBitRate: int.tryParse('${v['bit_rate']}'),
   );
 }
 
@@ -1075,8 +1076,8 @@ FfmpegExportPlan buildExportPlan({
     '-map',
     '[aout]',
     ...encoder.args(
-      bitrate: settings.videoBitrateFor(project.canvas),
-      maxrate: settings.peakBitrateFor(project.canvas),
+      bitrate: settings.videoBitrateFor(project.canvas, project: project),
+      maxrate: settings.peakBitrateFor(project.canvas, project: project),
       tenBit: tenBit,
       range: range,
       fps: fps,

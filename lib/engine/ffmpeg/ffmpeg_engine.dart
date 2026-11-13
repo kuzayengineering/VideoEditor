@@ -463,13 +463,13 @@ class FfmpegEngine implements MediaEngine {
   }
 
   static Future<String> _uniquePath(Directory folder, String fileName) async {
-    final dot = fileName.lastIndexOf('.');
-    final stem = dot > 0 ? fileName.substring(0, dot) : fileName;
-    final ext = dot > 0 ? fileName.substring(dot) : '.mp4';
-    var candidate = '${folder.path}${Platform.pathSeparator}$stem$ext';
+    // Never overwrite: a number goes on the end ("…_2.mp4") if taken.
+    var candidate = '${folder.path}${Platform.pathSeparator}$fileName';
     var n = 2;
     while (await File(candidate).exists()) {
-      candidate = '${folder.path}${Platform.pathSeparator}$stem ($n)$ext';
+      candidate =
+          '${folder.path}${Platform.pathSeparator}'
+          '${numberedFileName(fileName, n)}';
       n++;
     }
     return candidate;

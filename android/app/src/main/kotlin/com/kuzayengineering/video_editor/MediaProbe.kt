@@ -123,6 +123,7 @@ object MediaProbe {
             var wideGamut = false
             var bitDepth = 8
             var codec: String? = null
+            var bitRate: Int? = null
             val extractor = MediaExtractor()
             try {
                 extractor.setDataSource(context, uri, null)
@@ -140,6 +141,9 @@ object MediaProbe {
                     }
                     if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) {
                         fps = f.getNumber(MediaFormat.KEY_FRAME_RATE)?.toDouble() ?: 0.0
+                    }
+                    if (f.containsKey(MediaFormat.KEY_BIT_RATE)) {
+                        bitRate = f.getNumber(MediaFormat.KEY_BIT_RATE)?.toInt()
                     }
                     if (f.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
                         transfer = when (f.getInteger(MediaFormat.KEY_COLOR_TRANSFER)) {
@@ -179,6 +183,7 @@ object MediaProbe {
                 "codec" to codec,
                 "wideGamut" to wideGamut,
                 "createdAtMs" to recordedAt(meta(MediaMetadataRetriever.METADATA_KEY_DATE)),
+                "videoBitRate" to bitRate,
             )
         } finally {
             retriever.release()
