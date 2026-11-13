@@ -794,6 +794,39 @@ class Project {
   }
 
   /// Changes one clip. [change] returns the new version of the clip.
+  /// Every media file the project uses (video, sound and picture-in-picture
+  /// clips), with the names of the clips that use it.
+  Map<String, List<String>> get mediaSources {
+    final out = <String, List<String>>{};
+    for (final t in [mainTrack, ...overlayTracks, ...audioTracks]) {
+      for (final c in t.clips) {
+        final s = c.sourcePath;
+        if (s == null || !c.isMedia) continue;
+        (out[s] ??= []).add(c.name);
+      }
+    }
+    return out;
+  }
+
+  /// A file was found somewhere else: every clip that used [from] now uses
+  /// [to] (same file, new place).
+  Project relinkSource(String from, String to) {
+    if (from == to) return this;
+    Track fix(Track t) {
+      if (!t.clips.any((c) => c.sourcePath == from)) return t;
+      return t.withClips([
+        for (final c in t.clips)
+          c.sourcePath == from ? c.copyWith(sourcePath: to) : c,
+      ]);
+    }
+
+    return copyWith(
+      mainTrack: fix(mainTrack),
+      overlayTracks: [for (final t in overlayTracks) fix(t)],
+      audioTracks: [for (final t in audioTracks) fix(t)],
+    );
+  }
+
   Project updateClip(int clipId, Clip Function(Clip clip) change) {
     final p = placementOf(clipId);
     if (p == null) return this;

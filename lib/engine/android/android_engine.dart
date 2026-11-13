@@ -164,6 +164,31 @@ class AndroidMediaEngine implements MediaEngine {
       _channel.invokeMethod<String>('pickFolder');
 
   @override
+  Future<Set<String>> missingSources(Iterable<String> sources) async {
+    final list = await _channel.invokeListMethod<String>('missingSources', {
+      'sources': sources.toList(),
+    });
+    return {...?list};
+  }
+
+  @override
+  Future<String?> pickSearchFolder() =>
+      _channel.invokeMethod<String>('pickFolder');
+
+  @override
+  Future<List<PickedMedia>> mediaFilesIn(String folder) async {
+    final list =
+        await _channel.invokeListMethod<Map>('mediaFilesIn', {
+          'folder': folder,
+        }) ??
+        const [];
+    return [
+      for (final m in list)
+        PickedMedia(m['source'] as String, m['name'] as String),
+    ];
+  }
+
+  @override
   String describeFolder(String? folder) {
     if (folder == null) return 'Movies / Video Editor';
     // content://…/tree/primary%3AMovies%2FTrips → "Movies/Trips"

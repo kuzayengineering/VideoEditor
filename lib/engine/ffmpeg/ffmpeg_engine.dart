@@ -321,6 +321,40 @@ class FfmpegEngine implements MediaEngine {
   Future<String?> pickOutputFolder() =>
       getDirectoryPath(confirmButtonText: 'Save here');
 
+  @override
+  Future<Set<String>> missingSources(Iterable<String> sources) async => {
+    for (final s in sources)
+      if (!await File(s).exists()) s,
+  };
+
+  @override
+  Future<String?> pickSearchFolder() =>
+      getDirectoryPath(confirmButtonText: 'Look here');
+
+  @override
+  Future<List<PickedMedia>> mediaFilesIn(String folder) async {
+    final kinds = {
+      ...?_videoTypes.extensions,
+      ...?_audioTypes.extensions,
+    }.map((e) => e.toLowerCase()).toSet();
+    final out = <PickedMedia>[];
+    try {
+      await for (final e in Directory(folder).list(recursive: true)) {
+        if (e is! File) continue;
+        final name = e.uri.pathSegments.last;
+        final dot = name.lastIndexOf('.');
+        if (dot < 0 || !kinds.contains(name.substring(dot + 1).toLowerCase())) {
+          continue;
+        }
+        out.add(PickedMedia(e.path, name));
+        if (out.length >= 5000) break;
+      }
+    } on FileSystemException {
+      // Unreadable subfolders: keep what was found.
+    }
+    return out;
+  }
+
   String get _defaultFolder {
     final home =
         Platform.environment['USERPROFILE'] ??

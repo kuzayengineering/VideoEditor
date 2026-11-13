@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +21,7 @@ import 'export_sheet.dart';
 import 'filter_sheet.dart';
 import 'pip_view.dart';
 import 'import_media.dart';
+import 'missing_files.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
 import 'sound_sheets.dart';
@@ -124,6 +126,8 @@ class _EditorScreenState extends State<_Editor>
       c.attachPreview(preview, audio: _mixer);
       _pipPlayers = PipPlayers(_engine, c);
       _pipGestures = PipGestures(c);
+      unawaited(_checkMissing());
+      c.addListener(_sourcesChanged);
       // Reconnect to an export that is still running (e.g. the app was
       // closed and reopened during an export).
       _engine.runningExport().then((job) async {
@@ -473,8 +477,44 @@ class _EditorScreenState extends State<_Editor>
     }
   }
 
+  /// Media files the project uses that can't be found (moved or deleted).
+  List<MissingFile> _missing = const [];
+
+  Set<String> _sources = const {};
+
+  /// Clips added or removed (or an undo): check the files again.
+  void _sourcesChanged() {
+    final now = c.project.mediaSources.keys.toSet();
+    if (setEquals(now, _sources)) return;
+    _sources = now;
+    unawaited(_checkMissing());
+  }
+
+  Future<void> _checkMissing() async {
+    _sources = c.project.mediaSources.keys.toSet();
+    final missing = await findMissing(_engine, c.project);
+    if (mounted) setState(() => _missing = missing);
+  }
+
+  Future<void> _findMissing() async {
+    c.pause();
+    final left = await findMovedFiles(context, c, _engine, _missing);
+    if (!mounted) return;
+    setState(() => _missing = left);
+    // Check again (another clip may have used the same place).
+    await _checkMissing();
+  }
+
   Future<void> _export() async {
     c.pause();
+    if (_missing.isNotEmpty) {
+      await _alert(
+        'Some files are missing',
+        'Find the missing files first (the "Find" button above the video): '
+            'the export needs every clip\'s file.',
+      );
+      return;
+    }
     if (!await showExportSheet(context, c, _engine) || !mounted) return;
     if (!await _ensureReversesReady() || !mounted) return;
     final problem = await _engine.checkExport(c.project, c.exportSettings);
@@ -1012,6 +1052,11 @@ class _EditorScreenState extends State<_Editor>
                       children: [
                         Column(
                           children: [
+                            if (_missing.isNotEmpty)
+                              MissingFilesBar(
+                                missing: _missing,
+                                onFind: _findMissing,
+                              ),
                             Expanded(
                               child: PreviewView(
                                 controller: c,

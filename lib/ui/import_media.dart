@@ -63,7 +63,7 @@ Future<List<Clip>> pickAndReadVideos(
         Clip(
           id: 0,
           kind: ClipKind.video,
-          name: _niceName(p.displayName),
+          name: niceFileName(p.displayName),
           sourcePath: p.source,
           media: info,
           sourceDurationUs: info.durationUs,
@@ -88,7 +88,8 @@ Future<List<Clip>> pickAndReadVideos(
   return clips;
 }
 
-String _niceName(String fileName) {
+/// A file name without its extension ("Trip.mp4" → "Trip").
+String niceFileName(String fileName) {
   final dot = fileName.lastIndexOf('.');
   return dot > 0 ? fileName.substring(0, dot) : fileName;
 }
@@ -137,7 +138,7 @@ Future<List<Clip>> pickAndReadAudio(
         Clip(
           id: 0,
           kind: ClipKind.audio,
-          name: _niceName(p.displayName),
+          name: niceFileName(p.displayName),
           sourcePath: p.source,
           media: info,
           sourceDurationUs: info.durationUs,

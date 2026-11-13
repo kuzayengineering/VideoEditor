@@ -124,6 +124,14 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "pickFolder" -> pickFolder(result)
+            "missingSources" -> {
+                val sources = call.argument<List<String>>("sources") ?: emptyList()
+                background(result) { MediaFiles.missing(applicationContext, sources) }
+            }
+            "mediaFilesIn" -> {
+                val folder = call.argument<String>("folder")!!
+                background(result) { MediaFiles.list(applicationContext, folder) }
+            }
             "probe" -> {
                 val source = call.argument<String>("source")!!
                 background(result) { MediaProbe.probe(applicationContext, source) }

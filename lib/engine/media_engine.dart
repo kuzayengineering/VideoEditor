@@ -696,6 +696,15 @@ abstract class MediaEngine {
   /// Returns an opaque folder reference, or null if cancelled.
   Future<String?> pickOutputFolder();
 
+  /// Which of [sources] can no longer be opened (moved, renamed or deleted).
+  Future<Set<String>> missingSources(Iterable<String> sources);
+
+  /// Asks the user to choose a folder to look for missing files in.
+  Future<String?> pickSearchFolder();
+
+  /// The video and sound files in [folder] and its subfolders.
+  Future<List<PickedMedia>> mediaFilesIn(String folder);
+
   /// Human-readable name for a folder reference (null = default folder).
   String describeFolder(String? folder);
 
@@ -753,6 +762,15 @@ class NoMediaEngine implements MediaEngine {
 
   @override
   Future<String?> pickOutputFolder() async => null;
+
+  @override
+  Future<Set<String>> missingSources(Iterable<String> sources) async => {};
+
+  @override
+  Future<String?> pickSearchFolder() async => null;
+
+  @override
+  Future<List<PickedMedia>> mediaFilesIn(String folder) async => const [];
 
   @override
   Future<ReverseProxy> prepareReverse(
