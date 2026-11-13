@@ -502,6 +502,10 @@ abstract class PreviewPlayer {
   bool get gradesLive;
   Future<void> setGrades(Map<int, List<double>> grades);
 
+  /// Frees the player's decoders (while exporting). The next [setTimeline]
+  /// starts it again.
+  Future<void> suspend();
+
   /// Jumps to a timeline position. [exact] lands on the exact frame (slower);
   /// otherwise a quick-to-reach frame (a key frame) up to [toleranceUs] away
   /// may be shown instead, for fast scrubbing.

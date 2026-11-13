@@ -6,14 +6,24 @@ import '../engine/media_engine.dart';
 import '../model/project.dart';
 
 /// Plays the audio-track clips (music, voice-overs, extracted sound) in step
-/// with the preview, one small player per clip, and keeps every volume and
-/// fade up to date as the playhead moves.
+/// with the preview, one small player per clip near the playhead, and keeps
+/// every volume and fade up to date as the playhead moves.
 class AudioPreviewMixer {
   AudioPreviewMixer(this.engine);
 
   final MediaEngine engine;
   final Map<int, _Slot> _slots = {};
   double _mainVolume = -1;
+
+  /// Players exist only for clips from a second before the playhead to a
+  /// few seconds after it (each holds a decoder; phones have few).
+  static const behindUs = 1000000;
+  static const aheadUs = 5000000;
+  int _centerUs = 0;
+  Project? _project;
+
+  /// While exporting: no players at all (the export needs the decoders).
+  bool _suspended = false;
 
   /// While recording a voice-over, other sound is silenced so it isn't
   /// picked up by the microphone.
@@ -49,9 +59,14 @@ class AudioPreviewMixer {
 
   /// Creates players for new audio clips and removes ones no longer needed,
   /// and keeps each player's sound effects up to date (live).
-  void sync(Project project) {
+  void sync(Project project, [int? playheadUs]) {
+    _project = project;
+    if (playheadUs != null) _centerUs = playheadUs;
     final wanted = <int, Clip>{
-      for (final p in _clipsToPlay(project)) p.clip.id: p.clip,
+      if (!_suspended)
+        for (final p in _clipsToPlay(project))
+          if (p.endUs > _centerUs - behindUs && p.startUs < _centerUs + aheadUs)
+            p.clip.id: p.clip,
     };
     for (final id in _slots.keys.toList()) {
       final c = wanted[id];
@@ -76,6 +91,32 @@ class AudioPreviewMixer {
     }
   }
 
+  /// The playhead moved: open players for clips coming up, close ones left
+  /// behind.
+  void follow(Project project, int playheadUs) {
+    if (!identical(project, _project) ||
+        (playheadUs - _centerUs).abs() >= 500000) {
+      sync(project, playheadUs);
+    }
+  }
+
+  /// Number of players open right now.
+  int get openPlayers => _slots.length;
+
+  /// Closes every player until [resume] (while exporting).
+  void suspend() {
+    _suspended = true;
+    for (final s in _slots.values) {
+      unawaited(s.player.dispose());
+    }
+    _slots.clear();
+  }
+
+  void resume(Project project, int playheadUs) {
+    _suspended = false;
+    sync(project, playheadUs);
+  }
+
   /// Called on every display refresh: starts, stops and adjusts players.
   void update(
     Project project,
@@ -83,6 +124,7 @@ class AudioPreviewMixer {
     bool playing,
     PreviewPlayer? main,
   ) {
+    follow(project, playheadUs);
     final current = project.mainClipAt(playheadUs);
     if (main != null) {
       var v = current == null

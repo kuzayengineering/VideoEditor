@@ -126,8 +126,11 @@ class _EditorScreenState extends State<_Editor>
       _pipGestures = PipGestures(c);
       // Reconnect to an export that is still running (e.g. the app was
       // closed and reopened during an export).
-      _engine.runningExport().then((job) {
-        if (job != null && mounted) _showProgress(job);
+      _engine.runningExport().then((job) async {
+        if (job == null || !mounted) return;
+        await c.suspendPreview();
+        if (mounted) await _showProgress(job);
+        if (mounted) c.resumePreview();
       });
     }
   }
@@ -494,6 +497,9 @@ class _EditorScreenState extends State<_Editor>
         textDir,
       );
       if (!mounted) return;
+      // The export gets the phone's video decoders; the preview comes back
+      // when the progress screen closes.
+      await c.suspendPreview();
       final job = await _engine.startExport(
         ExportRequest(
           project: c.project,
@@ -502,20 +508,20 @@ class _EditorScreenState extends State<_Editor>
           textImages: textImages,
         ),
       );
-      if (mounted) _showProgress(job);
+      if (mounted) await _showProgress(job);
     } catch (e) {
       if (mounted) await _alert('Export could not start', '$e');
+    } finally {
+      if (mounted) c.resumePreview();
     }
   }
 
-  void _showProgress(ExportJob job) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ExportProgressScreen(job: job),
-      ),
-    );
-  }
+  Future<void> _showProgress(ExportJob job) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => ExportProgressScreen(job: job),
+    ),
+  );
 
   static String _exportFileName(String projectName) {
     final now = DateTime.now();

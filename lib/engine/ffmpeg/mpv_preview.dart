@@ -157,6 +157,10 @@ class MpvPreviewPlayer implements PreviewPlayer {
   @override
   Future<void> pause() => _player.pause();
 
+  /// (FFmpeg exports don't compete with the preview for decoders.)
+  @override
+  Future<void> suspend() => pause();
+
   @override
   Future<void> seek(
     int timeUs, {

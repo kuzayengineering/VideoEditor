@@ -79,6 +79,33 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// True while an export runs: the preview's players are closed so the
+  /// export can have the phone's video decoders.
+  bool get previewSuspended => _previewSuspended;
+  bool _previewSuspended = false;
+
+  Future<void> suspendPreview() async {
+    if (_previewSuspended) return;
+    pause();
+    _previewSuspended = true;
+    _audio?.suspend();
+    notifyListeners();
+    try {
+      await _preview?.suspend();
+    } catch (_) {}
+  }
+
+  void resumePreview() {
+    if (!_previewSuspended) return;
+    _previewSuspended = false;
+    _audio?.resume(project, _playheadUs);
+    // Build the player again from scratch.
+    _previewSegments = const [];
+    _previewShape = null;
+    _syncPreviewTimeline();
+    notifyListeners();
+  }
+
   bool get previewMuted => _previewMuted;
   bool _previewMuted = false;
 
@@ -86,7 +113,7 @@ class EditorController extends ChangeNotifier {
     _preview = preview;
     // Paused: ready for quick scrubbing and frame stepping.
     unawaited(preview.setScrubbing(true));
-    _audio = audio?..sync(project);
+    _audio = audio?..sync(project, _playheadUs);
     _syncPreviewTimeline();
   }
 
@@ -261,6 +288,7 @@ class EditorController extends ChangeNotifier {
     if (clamped == _playheadUs) return;
     final moved = (clamped - _playheadUs).abs();
     _playheadUs = clamped;
+    _audio?.follow(project, _playheadUs);
     if (!_playing) {
       if (exact) {
         _seekPreview(exact: true);
@@ -422,7 +450,7 @@ class EditorController extends ChangeNotifier {
     _playheadUs = _playheadUs.clamp(0, project.durationUs);
     if (!history.inGesture) {
       _syncPreviewTimeline();
-      _audio?.sync(project);
+      _audio?.sync(project, _playheadUs);
       _audio?.stopAll();
     }
     notifyListeners();
@@ -577,7 +605,7 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
     _liveGrades();
     // Sound-effect sliders are heard straight away.
-    _audio?.sync(project);
+    _audio?.sync(project, _playheadUs);
   }
 
   bool _disposed = false;

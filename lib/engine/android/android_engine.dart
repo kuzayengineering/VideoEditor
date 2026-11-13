@@ -484,6 +484,9 @@ class AndroidPreviewPlayer implements PreviewPlayer {
       });
 
   @override
+  Future<void> suspend() => _channel.invokeMethod('previewSuspend');
+
+  @override
   Future<void> seek(int timeUs, {bool exact = true, int toleranceUs = 0}) =>
       _channel.invokeMethod('previewSeek', {
         'timeUs': timeUs,

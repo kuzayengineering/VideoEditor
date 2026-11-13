@@ -182,6 +182,14 @@ class ClipAudioPlayers(private val context: Context) {
         val fx = FxAudioProcessor(FxSpec.NONE)
         val noise = NoiseReducer(NoiseSpec.NONE)
         val p = ExoPlayer.Builder(context, FxRenderersFactory(context, noise, fx)).build()
+        // Sound only. Many of these play video files (extracted sound, clips
+        // with sound effects); without this each would also decode the
+        // picture in the background, using up the phone's video decoders.
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+            .setTrackTypeDisabled(C.TRACK_TYPE_IMAGE, true)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
         noises[id] = noise
         p.setMediaItem(MediaItem.fromUri(Uri.parse(source)))
         p.prepare()

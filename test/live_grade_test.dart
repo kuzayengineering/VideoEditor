@@ -41,6 +41,8 @@ class _Player implements PreviewPlayer {
     int toleranceUs = 0,
   }) async => seeks.add((timeUs, exact, toleranceUs));
   @override
+  Future<void> suspend() async {}
+  @override
   Future<int> position() async => 0;
   @override
   Future<void> setVolume(double volume) async {}

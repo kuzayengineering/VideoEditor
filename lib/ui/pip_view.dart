@@ -46,6 +46,19 @@ class PipPlayers {
 
   void _sync() {
     if (_disposed) return;
+    if (c.previewSuspended) {
+      // Exporting: close every player (the export needs the decoders).
+      for (final slot in _slots.values) {
+        slot.retire();
+        unawaited(slot.player.dispose());
+      }
+      _slots.clear();
+      for (final p in _spare) {
+        unawaited(p.dispose());
+      }
+      _spare.clear();
+      return;
+    }
     final project = c.project;
     final t = c.playheadUs;
     final wanted = <int, ClipPlacement>{};

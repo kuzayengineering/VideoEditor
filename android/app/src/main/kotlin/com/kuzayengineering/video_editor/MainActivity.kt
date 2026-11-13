@@ -200,6 +200,9 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "previewPause" -> { preview.pause(); result.success(null) }
+            // While exporting: free the preview's video decoders (the editor
+            // sends its timeline again afterwards).
+            "previewSuspend" -> { preview.release(); result.success(null) }
             "previewSeek" -> {
                 preview.seek(
                     (call.argument<Number>("timeUs")!!).toLong(),
