@@ -35,15 +35,29 @@ jobs:
   check:
     name: Check code and run tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to start the (draft) release the builds attach to
     outputs:
       version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
       - id: version
         name: Work out version number
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           base=$(grep -E '^version:' pubspec.yaml | sed -E 's/^version: *([0-9]+\.[0-9]+)\..*/\1/')
           echo "version=${base}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          # Releases come only from the main (default) branch, and not when
+          # the commit message says "[no release]" (work in progress).
+          if [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] && \
+             ! printf '%s' "$MESSAGE" | grep -qF '[no release]'; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -58,11 +72,32 @@ jobs:
       - run: flutter test
         env:
           VC_CAPTIONS_LIB: ${{ github.workspace }}/build/captions/libvc_captions.so
+      # The builds attach their files straight to a draft release (hidden
+      # from Obtainium until published), instead of storing them as Actions
+      # artifacts: the free account has only 500 MB for those.
+      - name: Start the draft release
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Remove drafts left behind by failed builds (over 3 hours old).
+          cutoff=$(date -u -d '3 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh release list --limit 50 --json tagName,isDraft,createdAt \
+            --jq ".[] | select(.isDraft and .createdAt < \"$cutoff\") | .tagName" |
+            while read -r tag; do gh release delete "$tag" --yes || true; done
+          gh release create "v$VERSION" --draft \
+            --target "${{ github.sha }}" \
+            --title "Video Editor $VERSION" \
+            --notes "Being built…"
 
   android:
     name: Build Android app
     needs: check
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to attach the app to the release
     outputs:
       signed: ${{ steps.key.outputs.signed }}
     env:
@@ -105,30 +140,25 @@ jobs:
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "dist/VideoEditor-$VERSION-android-arm64.apk"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android
-          # Only needed until the release step copies it (releases keep
-          # the files for good and don't count towards Actions storage).
-          retention-days: 1
-          path: dist/*.apk
-          if-no-files-found: error
-      # The key for reading Android error reports (crash locations).
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-mapping
-          # Only needed until the release step copies it (releases keep
-          # the files for good and don't count towards Actions storage).
-          retention-days: 1
-          path: build/app/outputs/mapping/release/mapping.txt
-          if-no-files-found: warn
+      - name: Attach to the release
+        if: needs.check.outputs.publish == 'true' && steps.key.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release upload "v$VERSION" "dist/VideoEditor-$VERSION-android-arm64.apk" --clobber
+          # The key for reading Android error reports (crash locations).
+          map=build/app/outputs/mapping/release/mapping.txt
+          if [ -f "$map" ]; then gh release upload "v$VERSION" "$map" --clobber; fi
 
   windows:
     name: Build Windows program
     needs: check
     runs-on: windows-latest
     permissions:
-      contents: write # to store the pinned FFmpeg copy the first time
+      # To store the pinned FFmpeg copy the first time, and to attach the
+      # program to the release.
+      contents: write
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
@@ -185,14 +215,13 @@ jobs:
           $folder = "VideoEditor-$env:VERSION-windows-x64"
           Copy-Item -Recurse build/windows/x64/runner/Release "dist/$folder"
           Compress-Archive -Path "dist/$folder" -DestinationPath "dist/$folder.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          # Only needed until the release step copies it (releases keep
-          # the files for good and don't count towards Actions storage).
-          retention-days: 1
-          path: dist/*.zip
-          if-no-files-found: error
+      - name: Attach to the release
+        if: needs.check.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "v$env:VERSION" "dist/VideoEditor-$env:VERSION-windows-x64.zip" --clobber
 
   release:
     name: Publish release
@@ -201,20 +230,15 @@ jobs:
     # so every release can update the previous one. A commit message with
     # "[no release]" builds and tests without publishing (work in progress).
     if: >-
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
-      needs.android.outputs.signed == 'true' &&
-      !contains(github.event.head_commit.message, '[no release]')
+      needs.check.outputs.publish == 'true' &&
+      needs.android.outputs.signed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - name: Create GitHub release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -227,7 +251,6 @@ jobs:
             echo "- **Android:** \`VideoEditor-$VERSION-android-arm64.apk\` (Obtainium installs this automatically)"
             echo "- **Windows:** download the \`.zip\`, unzip it, and run \`video_editor.exe\`"
           } > notes.md
-          gh release create "v$VERSION" dist/* \
-            --target "${{ github.sha }}" \
+          gh release edit "v$VERSION" --draft=false --latest \
             --title "Video Editor $VERSION" \
             --notes-file notes.md
