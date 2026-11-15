@@ -712,6 +712,9 @@ abstract class MediaEngine {
   /// Returns an opaque folder reference, or null if cancelled.
   Future<String?> pickOutputFolder();
 
+  /// Removes the timeline pictures made for [sources].
+  Future<void> deleteThumbnails(Set<String> sources);
+
   /// Which of [sources] can no longer be opened (moved, renamed or deleted).
   Future<Set<String>> missingSources(Iterable<String> sources);
 
@@ -778,6 +781,9 @@ class NoMediaEngine implements MediaEngine {
 
   @override
   Future<String?> pickOutputFolder() async => null;
+
+  @override
+  Future<void> deleteThumbnails(Set<String> sources) async {}
 
   @override
   Future<Set<String>> missingSources(Iterable<String> sources) async => {};

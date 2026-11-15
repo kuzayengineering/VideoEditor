@@ -164,6 +164,10 @@ class AndroidMediaEngine implements MediaEngine {
       _channel.invokeMethod<String>('pickFolder');
 
   @override
+  Future<void> deleteThumbnails(Set<String> sources) =>
+      _channel.invokeMethod('deleteThumbnails', {'sources': sources.toList()});
+
+  @override
   Future<Set<String>> missingSources(Iterable<String> sources) async {
     final list = await _channel.invokeListMethod<String>('missingSources', {
       'sources': sources.toList(),

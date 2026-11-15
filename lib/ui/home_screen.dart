@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_services.dart';
+import '../data/project_files.dart';
 import '../data/project_store.dart';
 import '../model/demo.dart';
 import '../model/project.dart';
@@ -35,20 +36,27 @@ class _HomeScreenState extends State<HomeScreen> {
     _reload();
   }
 
-  Future<void> _reload() async {
+  Future<void> _reload({Project? justClosed}) async {
     final drafts = await _services.store?.list() ?? const <ProjectSummary>[];
     if (mounted) setState(() => _drafts = drafts);
+    // No project is open here: clear out files nothing uses any more.
+    if (_services.store != null && _services.engine.supportsMedia) {
+      try {
+        await ProjectFiles(_services.engine)
+            .sweep([for (final d in drafts) d.project, ?justClosed]);
+      } catch (_) {}
+    }
   }
 
   String _newId() => 'p${DateTime.now().microsecondsSinceEpoch}-${_counter++}';
 
   Future<void> _open(Project project, {bool autosave = true}) async {
-    await Navigator.of(context).push<Project>(
+    final closed = await Navigator.of(context).push<Project>(
       MaterialPageRoute(
         builder: (_) => EditorScreen(project: project, autosave: autosave),
       ),
     );
-    if (mounted) await _reload();
+    if (mounted) await _reload(justClosed: autosave ? closed : null);
   }
 
   Future<void> _newProject() async {
@@ -102,6 +110,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (yes != true) return;
     await _services.store?.delete(p.id);
+    // Its reversed copies, voice-overs, preview copies and pictures too
+    // (unless another project uses them).
+    final rest = [
+      for (final d in _drafts)
+        if (d.project.id != p.id) d.project,
+    ];
+    await ProjectFiles(_services.engine).deleteFilesOf(p, rest);
     await _reload();
   }
 

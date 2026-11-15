@@ -322,6 +322,23 @@ class FfmpegEngine implements MediaEngine {
       getDirectoryPath(confirmButtonText: 'Save here');
 
   @override
+  Future<void> deleteThumbnails(Set<String> sources) async {
+    final dir = await _thumbnailDirectory();
+    final keys = {
+      for (final s in sources)
+        '${s.hashCode.toUnsigned(32).toRadixString(16)}_',
+    };
+    await for (final e in dir.list()) {
+      final name = e.uri.pathSegments.last;
+      if (e is File && keys.any(name.startsWith)) {
+        try {
+          await e.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  @override
   Future<Set<String>> missingSources(Iterable<String> sources) async => {
     for (final s in sources)
       if (!await File(s).exists()) s,

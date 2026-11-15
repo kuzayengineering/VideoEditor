@@ -126,6 +126,15 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "pickFolder" -> pickFolder(result)
+            "deleteThumbnails" -> {
+                val sources = call.argument<List<String>>("sources") ?: emptyList()
+                background(result) {
+                    val dir = java.io.File(cacheDir, "thumbnails")
+                    val keys = sources.map { Integer.toHexString(it.hashCode()) + "_" }
+                    dir.listFiles()?.forEach { f -> if (keys.any { f.name.startsWith(it) }) f.delete() }
+                    null
+                }
+            }
             "missingSources" -> {
                 val sources = call.argument<List<String>>("sources") ?: emptyList()
                 background(result) { MediaFiles.missing(applicationContext, sources) }
