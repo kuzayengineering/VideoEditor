@@ -342,6 +342,24 @@ class _EditorScreenState extends State<_Editor>
     }
   }
 
+  /// Loop: a copy of the selected clip right after it, playing the other
+  /// way, so the video ends where it started (plays as an endless loop).
+  void _makeLoop() {
+    final sel = c.selected;
+    if (sel == null || !sel.clip.isMedia) return;
+    c.pause();
+    final id = c.loopSelected();
+    if (id == null) return;
+    final copy = c.project.placementOf(id)?.clip;
+    if (copy != null && copy.reversed && !copy.reverseReady) {
+      _toast(
+        'Loop added: the copy plays backwards once its reversed version is '
+        'made (in the background).',
+      );
+      _startReverse(copy);
+    }
+  }
+
   /// Starts (or joins) the background reversal for [clip].
   void _startReverse(Clip clip) {
     final jobs = _reverses;
@@ -903,6 +921,12 @@ class _EditorScreenState extends State<_Editor>
         Icons.settings_backup_restore,
         stage: 2,
         onTap: sel.clip.isMedia ? _toggleReverse : null,
+      ),
+      EditorTool(
+        'Loop',
+        Icons.all_inclusive,
+        stage: 2,
+        onTap: sel.clip.isMedia ? _makeLoop : null,
       ),
       EditorTool(
         'Opacity',

@@ -71,7 +71,8 @@ object Reverser {
         val fastOk = try {
             expected = writeReversed(context, uri, inUs, outUs, part, rotation, audio, fast = true)
             countVideoFrames(part) == expected
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Including running out of memory: the slower way needs little.
             false
         }
         if (!fastOk) {
@@ -370,9 +371,9 @@ object Reverser {
         // Fast way: the decoder draws into an image queue we control, so a
         // batch of frames can be held and passed to the encoder backwards.
         val bytesPerFrame = width.toLong() * height * (if (hdr) 3 else 2)
-        // Up to about 400 MB of frames, enough for a whole second of 1080p
-        // (a typical phone video has a key frame every second).
-        val batch = if (fast) (400L * 1024 * 1024 / bytesPerFrame).toInt().coerceIn(4, 120) else 0
+        // Up to about 250 MB of frames at a time (more ran phones out of
+        // memory and closed the app).
+        val batch = if (fast) (250L * 1024 * 1024 / bytesPerFrame).toInt().coerceIn(4, 60) else 0
         var reader: ImageReader? = null
         var writer: ImageWriter? = null
         var readerThread: HandlerThread? = null

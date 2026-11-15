@@ -562,6 +562,23 @@ class EditorController extends ChangeNotifier {
     setCanvas(Project.shapeOf(clip));
   }
 
+  /// Loop: a copy of the selected main clip right after it, playing the
+  /// other way, so the video ends where it started. The join is a straight
+  /// cut; any transition into the next clip moves to the copy. Returns the
+  /// copy's id.
+  int? loopSelected() {
+    final sel = selected;
+    if (sel == null || !sel.clip.isMedia) return null;
+    final id = project.nextId;
+    _apply(
+      project
+          .duplicateClip(sel.clip.id)
+          .updateClip(id, (x) => x.copyWith(reversed: !sel.clip.reversed))
+          .updateClip(sel.clip.id, (x) => x.copyWith(clearTransition: true)),
+    );
+    return id;
+  }
+
   /// Moves the selected video clip's sound to an audio track.
   void extractAudioOfSelected() {
     final id = _selectedClipId;

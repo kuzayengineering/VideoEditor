@@ -108,4 +108,21 @@ void main() {
     final back = Project.fromJson(c.project.toJson());
     expect(back.textTracks.single.clips.single.anchor, text.anchor);
   });
+
+  test('Loop adds a backwards copy right after the clip', () {
+    final c = setUp();
+    final a = idOf(c, 'a');
+    c.select(a);
+    final copy = c.loopSelected()!;
+    final clips = c.project.mainTrack.clips;
+    expect(clips.map((x) => x.id).take(2), [a, copy]);
+    expect(clips[1].reversed, isTrue);
+    expect(clips[1].sourceInUs, clips[0].sourceInUs);
+    expect(c.project.durationUs, 12 * s);
+    // Layers after it moved along with their frames.
+    expect(startOf(c, 'Hi'), 9 * s);
+    // One undo step.
+    c.undo();
+    expect(c.project.mainTrack.clips.length, 2);
+  });
 }

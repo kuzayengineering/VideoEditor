@@ -58,7 +58,9 @@ class MainActivity : FlutterActivity() {
             try {
                 val value = work()
                 main.post { result.success(value) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Anything at all (out of memory included) is reported to the
+                // app as an error message instead of closing it.
                 main.post { result.error("engine", e.message ?: e.toString(), null) }
             }
         }
