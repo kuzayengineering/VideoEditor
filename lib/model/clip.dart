@@ -456,7 +456,7 @@ class PipLayout {
   final double angle;
 
   static const minSize = 0.05;
-  static const maxSize = 1.5;
+  static const maxSize = 4.0;
 
   PipLayout copyWith({
     double? x,

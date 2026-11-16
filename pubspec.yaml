@@ -69,6 +69,7 @@ flutter:
   assets:
     - assets/branding/logo_512.png
     - assets/transitions/
+    - assets/overlays/
   fonts:
     - family: Roboto
       fonts:

@@ -22,6 +22,7 @@ import 'filter_sheet.dart';
 import 'pip_view.dart';
 import 'import_media.dart';
 import 'missing_files.dart';
+import 'effects_sheet.dart';
 import 'pip_sheets.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
@@ -729,6 +730,14 @@ class _EditorScreenState extends State<_Editor>
           Icons.picture_in_picture_alt_outlined,
           stage: 4,
           onTap: _engine.supportsMedia ? _addPip : null,
+        ),
+        EditorTool(
+          'Effects',
+          Icons.auto_awesome_outlined,
+          stage: 4,
+          onTap: _engine.supportsMedia
+              ? () => showEffectsSheet(context, c, _engine)
+              : null,
         ),
         EditorTool(
           'Filter',
