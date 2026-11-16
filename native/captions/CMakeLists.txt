@@ -5,6 +5,11 @@ cmake_minimum_required(VERSION 3.18)
 project(vc_captions C CXX)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# At most two C++ compiles at once (each can take a gigabyte or more of
+# memory; the build machines also run the Android tools meanwhile).
+set_property(GLOBAL PROPERTY JOB_POOLS compile_pool=2)
+set(CMAKE_JOB_POOL_COMPILE compile_pool)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
