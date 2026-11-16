@@ -43,6 +43,8 @@ jobs:
   check:
     name: Check code and run tests
     runs-on: ubuntu-latest
+    # A stuck build machine can't use up more than this.
+    timeout-minutes: 30
     permissions:
       contents: write # to start the (draft) release the builds attach to
     outputs:
@@ -115,6 +117,8 @@ jobs:
     name: Build Android app
     needs: check
     runs-on: ubuntu-latest
+    # A stuck build machine can't use up more than this.
+    timeout-minutes: 30
     permissions:
       contents: write # to attach the app to the release
     outputs:
@@ -175,6 +179,8 @@ jobs:
     needs: check
     if: needs.check.outputs.windows == 'true'
     runs-on: windows-latest
+    # A stuck build machine can't use up more than this.
+    timeout-minutes: 30
     permissions:
       # To store the pinned FFmpeg copy the first time, and to attach the
       # program to the release.
@@ -259,6 +265,8 @@ jobs:
       needs.check.outputs.publish == 'true' &&
       needs.android.outputs.signed == 'true'
     runs-on: ubuntu-latest
+    # A stuck build machine can't use up more than this.
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
