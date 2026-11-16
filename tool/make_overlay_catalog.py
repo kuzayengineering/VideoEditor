@@ -6,7 +6,7 @@ Usage: python3 tool/make_overlay_catalog.py <folder with videos> <output folder>
 For each video (sorted into a kind by words in its file name, e.g.
 "fire", "spark", "smoke", "light leak", "dust", "snow"):
   * a copy at most 1920 px wide and 15 s long, H.264 without sound, goes in
-    <output folder> (these are uploaded to the "overlays-v1" release);
+    <output folder> (these go on the "overlays" branch);
   * a small picture goes in assets/overlays/;
   * an entry goes in assets/overlays/catalog.json.
 Effects filmed on white (dust, scratches, paper) get Multiply; the rest

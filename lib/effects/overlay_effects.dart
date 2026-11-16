@@ -76,9 +76,10 @@ class OverlayLibrary {
   OverlayLibrary._();
   static final instance = OverlayLibrary._();
 
-  /// Where the effect files are kept online.
+  /// Where the effect files are kept online: the project's separate
+  /// "overlays" branch (no app code in it), fetched only when used.
   static const baseUrl =
-      'https://github.com/kuzayengineering/VideoEditor/releases/download/overlays-v1/';
+      'https://raw.githubusercontent.com/kuzayengineering/VideoEditor/overlays/';
 
   List<OverlayEffect>? _catalog;
 
