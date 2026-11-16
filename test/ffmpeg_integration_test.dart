@@ -902,6 +902,76 @@ void main() {
         },
       );
 
+      test('smooth slow motion makes new in-between frames', () async {
+        // Moving test picture at 30 fps.
+        final moving = '${dir.path}/moving.mp4';
+        await _run([
+          '-f',
+          'lavfi',
+          '-i',
+          'testsrc2=s=320x180:r=30:d=2',
+          '-pix_fmt',
+          'yuv420p',
+          '-c:v',
+          'libx264',
+          '-preset',
+          'ultrafast',
+          moving,
+        ]);
+        final info = await _probe(moving);
+
+        Future<int> repeats(bool smooth) async {
+          final project = Project.empty(id: 't', frameRate: 30).insertMedia([
+            clipFor(moving, info).copyWith(speed: 0.5, smoothSlowMo: smooth),
+          ]);
+          final out = '${dir.path}/slow_$smooth.mp4';
+          final plan = buildExportPlan(
+            project: project,
+            settings: const ExportSettings(resolution: ExportResolution.p480)
+                .copyWith(
+                  dynamicRange: DynamicRange.sdr,
+                  codec: VideoCodec.h264,
+                  frameRate: 30,
+                ),
+            encoder: VideoEncoder.h264Candidates.firstWhere(
+              (e) => e.name == 'libx264',
+            ),
+            outputPath: out,
+          );
+          final r = await Process.run('ffmpeg', plan.args);
+          expect(r.exitCode, 0, reason: '${r.stderr}');
+          // Count frames (nearly) the same as the one before: the average
+          // difference between neighbours is tiny for a repeated frame.
+          final h = await Process.run('ffmpeg', [
+            '-v',
+            'error',
+            '-i',
+            out,
+            '-an',
+            '-vf',
+            'tblend=all_mode=difference,signalstats,'
+                'metadata=print:key=lavfi.signalstats.YAVG:file=-',
+            '-f',
+            'null',
+            '-',
+          ]);
+          final diffs = RegExp(r'YAVG=([0-9.]+)')
+              .allMatches('${h.stdout}')
+              .map((m) => double.parse(m.group(1)!))
+              .toList();
+          expect(diffs, isNotEmpty);
+          final same = diffs.where((d) => d < 1.0).length;
+          return same;
+        }
+
+        // Plain slow motion shows each frame twice: about half repeat.
+        final plain = await repeats(false);
+        expect(plain, greaterThan(40));
+        // Smooth: (almost) every frame is new (a few at the very ends,
+        // where there's no neighbour to make frames from).
+        expect(await repeats(true), lessThan(plain ~/ 5));
+      }, timeout: const Timeout(Duration(minutes: 3)));
+
       test('480p export carries the chosen recording date', () async {
         final info = await _probe(hlg);
         final project = Project.empty(id: 't')

@@ -10,6 +10,7 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.effect.Crop
+import androidx.media3.effect.MotionInterpolation
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.RgbAdjustment
@@ -294,6 +295,14 @@ object CompositionFactory {
             if (s.boxH > 0) s.boxH else height,
             Presentation.LAYOUT_SCALE_TO_FIT,
         )
+        // Smooth slow motion (exports only): enough in-between frames to
+        // reach the export's frame rate (×0.5 of 60 fps: one between each
+        // pair), made at the export's size.
+        if (withGain && s.smooth && s.speed < 0.99) {
+            val target = (maxFrameRate ?: 60).toDouble()
+            val factor = Math.ceil(target / (s.frameRate * s.speed) - 0.01).toInt().coerceIn(1, 4)
+            if (factor > 1) video += MotionInterpolation(factor)
+        }
 
         val audio = when {
             silent -> listOf()

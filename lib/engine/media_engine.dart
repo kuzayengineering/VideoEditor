@@ -111,6 +111,7 @@ class PreviewSegment {
         'flipV': c.flipV,
         'crop': c.crop.toJson(),
         'opacity': c.opacity,
+        if (c.smoothsSlowMo) 'smooth': true,
         'volume': c.volume,
         'fadeInUs': c.effectiveFades.fadeIn > dipInUs
             ? c.effectiveFades.fadeIn

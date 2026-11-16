@@ -277,7 +277,10 @@ class AndroidMediaEngine implements MediaEngine {
       // Slowed down, a clip shows its frames for longer (×0.5 of a 60 fps
       // video gives 30 new frames a second); sped up, frames beyond the
       // export's rate are dropped.
-      final own = seg.clip!.media!.frameRate * seg.speed;
+      // (Smooth slow motion makes in-between frames up to the full rate.)
+      final own = seg.clip!.smoothsSlowMo
+          ? s.frameRate
+          : seg.clip!.media!.frameRate * seg.speed;
       final fps = own < s.frameRate ? own : s.frameRate;
       frames += (seg.timelineUs * fps / 1000000).round();
       durationUs += seg.timelineUs;

@@ -749,6 +749,10 @@ FfmpegExportPlan buildExportPlan({
     final grade = gradeFilter(c);
     final head = [
       '[$i:v]${_speedPts(c.speed)}',
+      // Smooth slow motion: in-between frames made from the motion
+      // (instead of showing each frame for longer).
+      if (c.smoothsSlowMo)
+        'minterpolate=fps=$fpsText:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1',
       'fps=$fpsText',
       ...lookFilters(c),
     ].join(',');

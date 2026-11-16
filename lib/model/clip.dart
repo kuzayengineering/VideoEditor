@@ -342,7 +342,15 @@ class Clip {
     this.grade,
     this.audioFx,
     this.anchor,
+    this.smoothSlowMo = false,
   });
+
+  /// Slowed down: new in-between frames are made when exporting, so slow
+  /// motion plays smoothly instead of showing each frame for longer.
+  final bool smoothSlowMo;
+
+  /// True when [smoothSlowMo] applies (the clip is slowed down).
+  bool get smoothsSlowMo => smoothSlowMo && speed < 0.99;
 
   /// For clips off the main track (sound, text, picture-in-picture): the
   /// video frame they start on, so they move with it when the main video
@@ -619,6 +627,7 @@ class Clip {
     AudioFx? audioFx,
     ClipAnchor? anchor,
     bool clearAnchor = false,
+    bool? smoothSlowMo,
   }) {
     return Clip(
       id: id ?? this.id,
@@ -651,6 +660,7 @@ class Clip {
       grade: clearGrade ? null : (grade ?? this.grade),
       audioFx: audioFx ?? this.audioFx,
       anchor: clearAnchor ? null : (anchor ?? this.anchor),
+      smoothSlowMo: smoothSlowMo ?? this.smoothSlowMo,
     );
   }
 
@@ -683,6 +693,7 @@ class Clip {
     if (grade != null && !grade!.isNeutral) 'grade': grade!.toJson(),
     if (audioFx != null && !audioFx!.isNeutral) 'audioFx': audioFx!.toJson(),
     if (anchor != null) 'anchor': anchor!.toJson(),
+    if (smoothSlowMo) 'smooth': true,
   };
 
   factory Clip.fromJson(Map<String, Object?> json) {
@@ -730,6 +741,7 @@ class Clip {
       grade: ColorGrade.fromJson(json['grade']),
       audioFx: AudioFx.fromJson(json['audioFx']),
       anchor: ClipAnchor.fromJson(json['anchor']),
+      smoothSlowMo: json['smooth'] as bool? ?? false,
     );
   }
 }

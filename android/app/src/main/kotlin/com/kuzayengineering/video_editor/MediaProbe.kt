@@ -27,6 +27,8 @@ data class Segment(
     /** left, top, right, bottom as fractions of the turned picture. */
     val crop: List<Double> = listOf(0.0, 0.0, 1.0, 1.0),
     val opacity: Double = 1.0,
+    /** Make in-between frames when exporting (slowed-down clips). */
+    val smooth: Boolean = false,
     val volume: Double = 1.0,
     val fadeInUs: Long = 0,
     val fadeOutUs: Long = 0,
@@ -75,6 +77,7 @@ data class Segment(
             crop = (map["crop"] as List<*>?)?.map { (it as Number).toDouble() }
                 ?: listOf(0.0, 0.0, 1.0, 1.0),
             opacity = (map["opacity"] as Number?)?.toDouble() ?: 1.0,
+            smooth = map["smooth"] as Boolean? ?: false,
             volume = (map["volume"] as Number?)?.toDouble() ?: 1.0,
             fadeInUs = (map["fadeInUs"] as Number?)?.toLong() ?: 0L,
             fadeOutUs = (map["fadeOutUs"] as Number?)?.toLong() ?: 0L,

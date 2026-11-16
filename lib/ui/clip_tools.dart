@@ -87,12 +87,21 @@ Future<void> showSpeedSheet(BuildContext context, EditorController c) {
               ),
           ],
         ),
+        if (clip.speed < 0.99 && clip.isMedia)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Smooth slow motion'),
+            subtitle: const Text(
+              'Makes new in-between frames from the movement when exporting, '
+              'so slow motion plays smoothly. Exports take longer.',
+            ),
+            value: clip.smoothSlowMo,
+            onChanged: (v) => c.apply(
+              c.project.updateClip(id, (x) => x.copyWith(smoothSlowMo: v)),
+            ),
+          ),
         const SizedBox(height: 8),
-        Text(
-          'Sound keeps its normal pitch. Smooth slow motion (made-up '
-          'in-between frames) arrives in Stage 7.',
-          style: theme.textTheme.bodySmall,
-        ),
+        Text('Sound keeps its normal pitch.', style: theme.textTheme.bodySmall),
       ],
     );
   });
