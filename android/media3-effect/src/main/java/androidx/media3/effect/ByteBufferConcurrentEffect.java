@@ -25,6 +25,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.GlObjectsProvider;
 import androidx.media3.common.GlTextureInfo;
 import androidx.media3.common.VideoFrameProcessingException;
+import androidx.media3.common.util.GlProgram;
 import androidx.media3.common.util.GlRect;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Size;
@@ -55,6 +56,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   private final Queue<TexturePixelBuffer> mappedPixelBuffers;
   private final PixelBufferObjectProvider pixelBufferObjectProvider;
 
+  private final boolean useHdr;
+  private @MonotonicNonNull GlProgram hdrCopyProgram;
   private int inputWidth;
   private int inputHeight;
   private @MonotonicNonNull GlTextureInfo effectInputTexture;
@@ -68,6 +71,12 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
    */
   public ByteBufferConcurrentEffect(
       int pendingPixelBufferQueueSize, ByteBufferGlEffect.Processor<T> processor) {
+    this(pendingPixelBufferQueueSize, processor, /* useHdr= */ false);
+  }
+
+  public ByteBufferConcurrentEffect(
+      int pendingPixelBufferQueueSize, ByteBufferGlEffect.Processor<T> processor, boolean useHdr) {
+    this.useHdr = useHdr;
     this.processor = processor;
     this.pendingPixelBufferQueueSize = pendingPixelBufferQueueSize;
     unmappedPixelBuffers = new ArrayDeque<>();
@@ -105,11 +114,18 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
                 texId, effectInputSize.getWidth(), effectInputSize.getHeight());
       }
 
-      GlUtil.blitFrameBuffer(
-          textureInfo.fboId,
-          processor.getScaledRegion(presentationTimeUs),
-          effectInputTexture.fboId,
-          new GlRect(effectInputTexture.width, effectInputTexture.height));
+      GlRect region = processor.getScaledRegion(presentationTimeUs);
+      if (useHdr) {
+        // Float pictures can't be copied into an 8-bit one: draw it,
+        // brightened from linear light to a normal-looking picture.
+        drawHdrInput(textureInfo, region);
+      } else {
+        GlUtil.blitFrameBuffer(
+            textureInfo.fboId,
+            region,
+            effectInputTexture.fboId,
+            new GlRect(effectInputTexture.width, effectInputTexture.height));
+      }
 
       TexturePixelBuffer texturePixelBuffer = new TexturePixelBuffer(effectInputTexture);
       texturePixelBuffer.schedulePixelBufferRead(pixelBufferObjectProvider);
@@ -120,6 +136,46 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     } catch (GlUtil.GlException | VideoFrameProcessingException e) {
       return immediateFailedFuture(e);
     }
+  }
+
+  private static final String HDR_COPY_VERTEX =
+      "attribute vec4 aFramePosition;\n"
+          + "uniform vec4 uRegion;\n"
+          + "varying vec2 vTex;\n"
+          + "void main() {\n"
+          + "  gl_Position = aFramePosition;\n"
+          + "  vec2 t = aFramePosition.xy * 0.5 + 0.5;\n"
+          + "  vTex = uRegion.xy + t * (uRegion.zw - uRegion.xy);\n"
+          + "}\n";
+  private static final String HDR_COPY_FRAGMENT =
+      "precision mediump float;\n"
+          + "uniform sampler2D uTex;\n"
+          + "varying vec2 vTex;\n"
+          + "void main() {\n"
+          + "  vec4 c = texture2D(uTex, vTex);\n"
+          + "  gl_FragColor = vec4(pow(clamp(c.rgb, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);\n"
+          + "}\n";
+
+  private void drawHdrInput(GlTextureInfo textureInfo, GlRect region) throws GlUtil.GlException {
+    GlTextureInfo target = checkNotNull(effectInputTexture);
+    if (hdrCopyProgram == null) {
+      hdrCopyProgram = new GlProgram(HDR_COPY_VERTEX, HDR_COPY_FRAGMENT);
+      hdrCopyProgram.setBufferAttribute(
+          "aFramePosition",
+          GlUtil.getNormalizedCoordinateBounds(),
+          GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE);
+    }
+    GlUtil.focusFramebufferUsingCurrentContext(target.fboId, target.width, target.height);
+    hdrCopyProgram.use();
+    hdrCopyProgram.setSamplerTexIdUniform("uTex", textureInfo.texId, /* texUnitIndex= */ 0);
+    float w = textureInfo.width;
+    float h = textureInfo.height;
+    hdrCopyProgram.setFloatsUniform(
+        "uRegion",
+        new float[] {region.left / w, region.bottom / h, region.right / w, region.top / h});
+    hdrCopyProgram.bindAttributesAndUniforms();
+    GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, /* first= */ 0, /* count= */ 4);
+    GlUtil.checkGlError();
   }
 
   @Override
@@ -158,6 +214,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     try {
       unmapAndRecyclePixelBuffers();
       pixelBufferObjectProvider.release();
+      if (hdrCopyProgram != null) {
+        hdrCopyProgram.delete();
+      }
     } catch (GlUtil.GlException e) {
       throw new VideoFrameProcessingException(e);
     }

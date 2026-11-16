@@ -401,6 +401,7 @@ List<PipLayerPlan> pipLayersOf(
         'boxW': w,
         'boxH': h,
         'silent': true,
+        if (pip.cutout) 'cutout': true,
       });
       windows.add({
         'startUs': clip.startUs,
@@ -475,7 +476,8 @@ abstract class OverlayPlayer {
   Widget buildView(BuildContext context);
 
   /// Loads the clip's part of its file (from [PreviewSegment.of]).
-  Future<void> open(PreviewSegment segment);
+  /// [cutout]: hide all but the people (where supported).
+  Future<void> open(PreviewSegment segment, {bool cutout = false});
   Future<void> seek(int offsetUs, {bool exact = true});
   Future<void> play();
   Future<void> pause();

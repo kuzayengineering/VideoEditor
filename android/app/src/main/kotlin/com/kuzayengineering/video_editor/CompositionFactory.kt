@@ -86,6 +86,8 @@ data class PipLayer(val segments: List<Segment>, val windows: List<PipWindow>) {
  * the export, so what you see while editing is what you get.
  */
 object CompositionFactory {
+    /** The app (for effects that load files, like the person cutout). */
+    var context: android.content.Context? = null
 
     /**
      * [audioTracks]: each list is one audio track (clips in time order, with
@@ -307,6 +309,9 @@ object CompositionFactory {
             val factor = Math.ceil(target / (s.frameRate * s.speed) - 0.01).toInt().coerceIn(1, 4)
             if (factor > 1) video += MotionInterpolation(factor)
         }
+        // Person cutout last, so nothing after it makes the picture solid again.
+        val ctx = context
+        if (s.cutout && ctx != null) video += PersonCutout.effect(ctx)
 
         val audio = when {
             silent -> listOf()

@@ -617,7 +617,7 @@ class AndroidOverlayPlayer implements OverlayPlayer {
   }
 
   @override
-  Future<void> open(PreviewSegment segment) async {
+  Future<void> open(PreviewSegment segment, {bool cutout = false}) async {
     final id = await _ready;
     if (id == null || _disposed) return;
     final turns = await _channel.invokeMethod<num>('overlayOpen', {
@@ -626,6 +626,7 @@ class AndroidOverlayPlayer implements OverlayPlayer {
       'inUs': segment.inUs,
       'outUs': segment.outUs,
       'speed': segment.speed,
+      'cutout': cutout,
     });
     _turns.value = turns?.toInt() ?? 0;
   }

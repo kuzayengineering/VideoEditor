@@ -868,6 +868,12 @@ class _EditorScreenState extends State<_Editor>
           onTap: () => showBlendSheet(context, c),
         ),
         EditorTool(
+          'Cutout',
+          Icons.person_outline,
+          stage: 4,
+          onTap: () => showCutoutSheet(context, c),
+        ),
+        EditorTool(
           'Filter',
           Icons.photo_filter_outlined,
           stage: 5,

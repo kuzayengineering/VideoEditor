@@ -37,6 +37,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CompositionFactory.context = applicationContext
         textures = flutterEngine.renderer
         flutterEngine.platformViewsController.registry
             .registerViewFactory(PreviewViewFactory.VIEW_TYPE, PreviewViewFactory(preview))
@@ -178,6 +179,7 @@ class MainActivity : FlutterActivity() {
                         (call.argument<Number>("inUs")!!).toLong(),
                         (call.argument<Number>("outUs")!!).toLong(),
                         (call.argument<Number>("speed") ?: 1.0).toDouble(),
+                        call.argument<Boolean>("cutout") ?: false,
                     ) ?: 0
                 )
             }

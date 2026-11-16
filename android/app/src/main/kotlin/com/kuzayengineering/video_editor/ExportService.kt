@@ -509,6 +509,7 @@ class ExportService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        CompositionFactory.context = applicationContext
         val req = ExportManager.pending
         ExportManager.pending = null
         startInForeground()

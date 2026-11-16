@@ -82,6 +82,8 @@ dependencies {
     // Our patched copy (HDR-capable blending), used everywhere in place of
     // the published media3-effect.
     implementation(project(":media3-effect"))
+    // Runs the person-cutout model (Google's MediaPipe selfie segmenter).
+    implementation("com.google.ai.edge.litert:litert:1.4.0")
 }
 
 configurations.configureEach {

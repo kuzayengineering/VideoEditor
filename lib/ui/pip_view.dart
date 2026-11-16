@@ -118,6 +118,7 @@ class _Slot {
   double? _volume;
   int? _pendingSeek;
   bool _seeking = false;
+  bool _cutout = false;
   Widget? _view;
 
   Widget view(BuildContext context) => _view ??= player.buildView(context);
@@ -129,12 +130,17 @@ class _Slot {
 
   void update(ClipPlacement p, int t, bool playing, {required bool muted}) {
     final seg = PreviewSegment.of(p.clip);
+    final cutout = p.clip.pip?.cutout ?? false;
     if (seg != _segment ||
         seg.source != _segment?.source ||
-        seg.speed != _segment?.speed) {
+        seg.speed != _segment?.speed ||
+        cutout != _cutout) {
       _segment = seg;
+      _cutout = cutout;
       _seekedTo = null;
-      _ready = _ready.then((_) => player.open(seg)).catchError((_) {});
+      _ready = _ready
+          .then((_) => player.open(seg, cutout: cutout))
+          .catchError((_) {});
     }
     // With sound effects its sound plays from the audio mixer instead.
     final volume = muted || AudioPreviewMixer.hasOwnSound(p.clip)

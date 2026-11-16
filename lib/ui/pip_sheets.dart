@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../model/project.dart';
@@ -46,6 +48,52 @@ Future<void> showBlendSheet(BuildContext context, EditorController c) {
               'For effects filmed on black (fire, sparks, smoke, light leaks) '
               'use Screen. The preview shows an approximation; the exported '
               'video mixes exactly.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// Cutout: hides everything but the people in a picture-in-picture clip, so
+/// the person shows over the clips below.
+Future<void> showCutoutSheet(BuildContext context, EditorController c) {
+  final id = c.selectedClipId;
+  if (id == null) return Future.value();
+  c.pause();
+  return showToolPanel(
+    context,
+    title: 'Cutout',
+    builder: (context) => ListenableBuilder(
+      listenable: c,
+      builder: (context, _) {
+        final clip = c.project.placementOf(id)?.clip;
+        final pip = clip?.pip;
+        if (pip == null) return const SizedBox.shrink();
+        final theme = Theme.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Remove background'),
+              subtitle: const Text('Keep only the people'),
+              value: pip.cutout,
+              onChanged: (v) => c.apply(
+                c.project.updateClip(
+                  id,
+                  (x) => x.copyWith(pip: pip.copyWith(cutout: v)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Works best when the person is fairly close to the camera and '
+              'stands out from the background.'
+              '${Platform.isAndroid ? '' : ' On Windows the cutout is not '
+                        'available yet: the clip shows with its background.'}',
               style: theme.textTheme.bodySmall,
             ),
           ],

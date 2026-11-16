@@ -193,12 +193,14 @@ public class ByteBufferGlEffect<T> implements GlEffect {
   @Override
   public GlShaderProgram toGlShaderProgram(Context context, boolean useHdr)
       throws VideoFrameProcessingException {
-    // TODO: b/361286064 - Implement HDR support.
-    checkArgument(!useHdr, "HDR support not yet implemented.");
+    // Patched (video editor): HDR pictures are drawn, not copied, into the
+    // small 8-bit picture that is read back (see ByteBufferConcurrentEffect).
     return new QueuingGlShaderProgram<>(
         /* useHighPrecisionColorComponents= */ useHdr,
         /* queueSize= */ DEFAULT_QUEUE_SIZE,
         new ByteBufferConcurrentEffect<>(
-            /* pendingPixelBufferQueueSize= */ DEFAULT_PENDING_PIXEL_BUFFER_QUEUE_SIZE, processor));
+            /* pendingPixelBufferQueueSize= */ DEFAULT_PENDING_PIXEL_BUFFER_QUEUE_SIZE,
+            processor,
+            useHdr));
   }
 }

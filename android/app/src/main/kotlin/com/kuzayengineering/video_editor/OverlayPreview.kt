@@ -25,6 +25,7 @@ class OverlayPreview(
     private var source: String? = null
     private var inUs = 0L
     private var outUs = 0L
+    private var cutout = false
 
     /** Quarter turns the screen must add (when the texture doesn't). */
     var rotationCorrection = 0
@@ -54,10 +55,16 @@ class OverlayPreview(
     }
 
     /** Returns the quarter turns the screen must add to show it upright. */
-    fun open(source: String, inUs: Long, outUs: Long, speed: Double): Int {
+    fun open(source: String, inUs: Long, outUs: Long, speed: Double, cutout: Boolean = false): Int {
         if (source == this.source && inUs == this.inUs && outUs == this.outUs &&
-            speed == this.speed
+            speed == this.speed && cutout == this.cutout
         ) return rotationCorrection
+        if (cutout != this.cutout) {
+            // Person cutout: the background becomes see-through, and the
+            // screen shows the clips below through it.
+            player.setVideoEffects(if (cutout) listOf(PersonCutout.effect(context)) else listOf())
+            this.cutout = cutout
+        }
         if (source != this.source) {
             // Phone videos are often stored sideways with a "turn" note;
             // some texture kinds don't apply that note themselves.

@@ -291,7 +291,7 @@ class MpvOverlayPlayer implements OverlayPlayer {
   );
 
   @override
-  Future<void> open(PreviewSegment segment) async {
+  Future<void> open(PreviewSegment segment, {bool cutout = false}) async {
     final old = _segment;
     _segment = segment;
     if (old != null && old.source == segment.source) {

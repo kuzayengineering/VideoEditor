@@ -14,7 +14,8 @@ class _FakePlayer implements OverlayPlayer {
   Widget buildView(BuildContext context) =>
       const ColoredBox(color: Colors.blue);
   @override
-  Future<void> open(PreviewSegment segment) async => calls.add('open');
+  Future<void> open(PreviewSegment segment, {bool cutout = false}) async =>
+      calls.add('open');
   @override
   Future<void> seek(int offsetUs, {bool exact = true}) async =>
       calls.add('seek $offsetUs');
