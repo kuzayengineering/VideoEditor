@@ -982,7 +982,8 @@ FfmpegExportPlan buildExportPlan({
         'scale=$pw:$ph:flags=bicubic',
         'setsar=1',
         'format=$pipFmt',
-        if (c.opacity < 0.999) 'lutyuv=a=val*${c.opacity.toStringAsFixed(4)}',
+        if (c.opacity < 0.999 && pip.blend == PipBlend.normal)
+          'lutyuv=a=val*${c.opacity.toStringAsFixed(4)}',
         ?turn,
         'tpad=stop_mode=clone:stop_duration=1',
         'trim=end_frame=$frames',
@@ -991,13 +992,44 @@ FfmpegExportPlan buildExportPlan({
       filters.add('${chain.join(',')}[pv$j]');
       final endSeconds = startSeconds + frames / fps;
       final next = 'vp${pipNo++}';
-      filters.add(
-        '[$videoAfterPip][pv$j]overlay='
-        'x=${(pip.x * w).toStringAsFixed(2)}-overlay_w/2:'
-        'y=${(pip.y * h).toStringAsFixed(2)}-overlay_h/2:'
-        "enable='between(t,${startSeconds.toStringAsFixed(6)},"
-        "${endSeconds.toStringAsFixed(6)})':eof_action=pass:format=auto[$next]",
-      );
+      final place =
+          'x=${(pip.x * w).toStringAsFixed(2)}-overlay_w/2:'
+          'y=${(pip.y * h).toStringAsFixed(2)}-overlay_h/2:'
+          "enable='between(t,${startSeconds.toStringAsFixed(6)},"
+          "${endSeconds.toStringAsFixed(6)})':eof_action=pass";
+      if (pip.blend == PipBlend.normal) {
+        filters.add('[$videoAfterPip][pv$j]overlay=$place:format=auto[$next]');
+      } else {
+        // Blend modes: the clip on a full-frame layer that is neutral
+        // everywhere else (black for Screen/Add/Lighten, white for
+        // Multiply/Darken: no change there), then the two pictures are
+        // mixed colour by colour (in RGB, with the output's own colour
+        // maths).
+        final neutral = pip.blend.neutralIsWhite ? 'white' : 'black';
+        final mode = switch (pip.blend) {
+          PipBlend.screen => 'screen',
+          PipBlend.add => 'addition',
+          PipBlend.multiply => 'multiply',
+          PipBlend.lighten => 'lighten',
+          PipBlend.darken => 'darken',
+          PipBlend.normal => 'normal',
+        };
+        final matrix = range.isHdr ? 'bt2020' : 'bt709';
+        final rgb = tenBit ? 'gbrp16le' : 'gbrp';
+        final toRgb = 'scale=in_color_matrix=$matrix:in_range=tv,format=$rgb';
+        filters.add(
+          'color=c=$neutral:s=${w}x$h:r=$fpsText:'
+          'd=${videoSeconds.toStringAsFixed(6)},format=$pipFmt[pn$j]',
+        );
+        filters.add('[pn$j][pv$j]overlay=$place:format=auto,$toRgb[pl$j]');
+        filters.add('[$videoAfterPip]$toRgb[pb$j]');
+        filters.add(
+          '[pb$j][pl$j]blend=all_mode=$mode:'
+          'all_opacity=${c.opacity.clamp(0.0, 1.0).toStringAsFixed(4)}:'
+          'shortest=1,'
+          'scale=out_color_matrix=$matrix:out_range=tv,format=$workFmt[$next]',
+        );
+      }
       videoAfterPip = next;
       pipLabels.add(next);
       if ((info.hasAudio) && c.volume > 0) {

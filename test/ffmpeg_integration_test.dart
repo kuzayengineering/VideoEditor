@@ -473,6 +473,36 @@ void main() {
           );
           expect((await rgbAt(turned, 1.0, 639, 359))[2], greaterThan(200));
           expect((await rgbAt(turned, 1.0, 330, 190))[0], greaterThan(200));
+
+          // Blend modes: blue over red. Screen and Lighten keep both
+          // (magenta), Multiply and Darken keep neither (black); outside
+          // the picture and outside its time, red stays red.
+          for (final (blend, expectMagenta) in [
+            (PipBlend.screen, true),
+            (PipBlend.lighten, true),
+            (PipBlend.add, true),
+            (PipBlend.multiply, false),
+            (PipBlend.darken, false),
+          ]) {
+            final out = await export(
+              'pip_${blend.name}',
+              PipLayout(x: 0.5, y: 0.5, size: 0.5, blend: blend),
+            );
+            final mid = await rgbAt(out, 1.0, 639, 359);
+            if (expectMagenta) {
+              expect(mid[0], greaterThan(200), reason: '$blend red');
+              expect(mid[2], greaterThan(200), reason: '$blend blue');
+            } else {
+              expect(mid[0], lessThan(40), reason: '$blend red');
+              expect(mid[2], lessThan(40), reason: '$blend blue');
+            }
+            final outside = await rgbAt(out, 1.0, 20, 20);
+            expect(outside[0], greaterThan(200), reason: '$blend outside');
+            expect(outside[2], lessThan(40), reason: '$blend outside');
+            final before = await rgbAt(out, 0.2, 639, 359);
+            expect(before[0], greaterThan(200), reason: '$blend before');
+            expect(before[2], lessThan(40), reason: '$blend before');
+          }
         },
       );
 

@@ -52,6 +52,9 @@ data class PipWindow(
     val h: Float,
     val angle: Float,
     val opacity: Float,
+    /** 0 normal, 1 screen, 2 add, 3 multiply, 4 lighten, 5 darken
+     * (PipBlend in the Flutter side, by position). */
+    val blend: Int = 0,
 )
 
 /** One picture-in-picture layer: its pieces (as long as the video) and its clips' places. */
@@ -70,6 +73,7 @@ data class PipLayer(val segments: List<Segment>, val windows: List<PipWindow>) {
                             (win["startUs"] as Number).toLong(),
                             (win["endUs"] as Number).toLong(),
                             f("x"), f("y"), f("w"), f("h"), f("angle"), f("opacity"),
+                            (win["blend"] as Number?)?.toInt() ?: 0,
                         )
                     },
                 )

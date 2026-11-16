@@ -22,6 +22,7 @@ import 'filter_sheet.dart';
 import 'pip_view.dart';
 import 'import_media.dart';
 import 'missing_files.dart';
+import 'pip_sheets.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
 import 'sound_sheets.dart';
@@ -859,6 +860,12 @@ class _EditorScreenState extends State<_Editor>
           Icons.opacity,
           stage: 2,
           onTap: () => showOpacitySheet(context, c),
+        ),
+        EditorTool(
+          'Blend',
+          Icons.layers_outlined,
+          stage: 4,
+          onTap: () => showBlendSheet(context, c),
         ),
         EditorTool(
           'Filter',

@@ -1,6 +1,7 @@
 package com.kuzayengineering.video_editor
 
 import android.opengl.GLES20
+import android.opengl.GLES30
 import androidx.media3.common.GlTextureInfo
 import androidx.media3.common.OverlaySettings
 import androidx.media3.common.util.GlProgram
@@ -135,22 +136,63 @@ class TransitionBlender(
             }
             if (!blending) {
                 GLES20.glEnable(GLES20.GL_BLEND)
-                GLES20.glBlendFuncSeparate(
-                    GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA,
-                    GLES20.GL_ZERO, GLES20.GL_ONE,
-                )
                 blending = true
+            }
+            // Blend modes with the graphics chip's own mixing (the picture
+            // below can't be read in the shader): the shader gives the
+            // colour each mode needs (see PIP_FRAGMENT).
+            when (win.blend) {
+                1 -> { // screen: 1 - (1 - s)(1 - d) = s (1 - d) + d
+                    GLES20.glBlendEquation(GLES20.GL_FUNC_ADD)
+                    GLES20.glBlendFuncSeparate(
+                        GLES20.GL_ONE_MINUS_DST_COLOR, GLES20.GL_ONE, GLES20.GL_ZERO, GLES20.GL_ONE,
+                    )
+                }
+                2 -> { // add
+                    GLES20.glBlendEquation(GLES20.GL_FUNC_ADD)
+                    GLES20.glBlendFuncSeparate(
+                        GLES20.GL_SRC_ALPHA, GLES20.GL_ONE, GLES20.GL_ZERO, GLES20.GL_ONE,
+                    )
+                }
+                3 -> { // multiply
+                    GLES20.glBlendEquation(GLES20.GL_FUNC_ADD)
+                    GLES20.glBlendFuncSeparate(
+                        GLES20.GL_DST_COLOR, GLES20.GL_ZERO, GLES20.GL_ZERO, GLES20.GL_ONE,
+                    )
+                }
+                4 -> { // lighten
+                    GLES20.glBlendEquationSeparate(GLES30.GL_MAX, GLES20.GL_FUNC_ADD)
+                    GLES20.glBlendFuncSeparate(
+                        GLES20.GL_ONE, GLES20.GL_ONE, GLES20.GL_ZERO, GLES20.GL_ONE,
+                    )
+                }
+                5 -> { // darken
+                    GLES20.glBlendEquationSeparate(GLES30.GL_MIN, GLES20.GL_FUNC_ADD)
+                    GLES20.glBlendFuncSeparate(
+                        GLES20.GL_ONE, GLES20.GL_ONE, GLES20.GL_ZERO, GLES20.GL_ONE,
+                    )
+                }
+                else -> {
+                    GLES20.glBlendEquation(GLES20.GL_FUNC_ADD)
+                    GLES20.glBlendFuncSeparate(
+                        GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA, GLES20.GL_ZERO, GLES20.GL_ONE,
+                    )
+                }
             }
             p.use()
             p.setBufferAttribute("aPos", pos, 2)
             p.setBufferAttribute("aTex", uv, 2)
             p.setSamplerTexIdUniform("uTex", tex.texId, 0)
             p.setFloatUniform("uAlpha", win.opacity.coerceIn(0f, 1f))
+            p.setIntUniform("uMode", win.blend)
             p.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
         }
-        if (blending) GLES20.glDisable(GLES20.GL_BLEND)
+        if (blending) {
+            GLES20.glBlendEquation(GLES20.GL_FUNC_ADD)
+            GLES20.glDisable(GLES20.GL_BLEND)
+        }
     }
 
     override fun release() {
@@ -175,9 +217,21 @@ void main() {
 precision highp float;
 uniform sampler2D uTex;
 uniform float uAlpha;
+uniform int uMode;
 varying vec2 vTex;
 void main() {
-  gl_FragColor = vec4(texture2D(uTex, vTex).rgb, uAlpha);
+  vec4 t = texture2D(uTex, vTex);
+  // t.a: 1, or the person's shape for a cutout.
+  float a = uAlpha * t.a;
+  if (uMode == 1 || uMode == 4) {
+    // Screen / lighten: the colour, faded towards black (no change).
+    gl_FragColor = vec4(t.rgb * a, 1.0);
+  } else if (uMode == 3 || uMode == 5) {
+    // Multiply / darken: faded towards white (no change).
+    gl_FragColor = vec4(mix(vec3(1.0), t.rgb, a), 1.0);
+  } else {
+    gl_FragColor = vec4(t.rgb, a);
+  }
 }
 """
 

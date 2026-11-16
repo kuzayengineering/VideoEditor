@@ -398,6 +398,30 @@ class PipOverlayView extends StatelessWidget {
         if (video != null) _Look(clip: clip, child: video),
       ],
     );
+    // Blend modes, as the preview can show them: see-through in step with
+    // brightness (Screen, Add, Lighten: black vanishes) or darkness
+    // (Multiply, Darken: white vanishes). Exports mix exactly.
+    final blend = clip.pip?.blend ?? PipBlend.normal;
+    if (blend != PipBlend.normal) {
+      picture = ColorFiltered(
+        colorFilter: ColorFilter.matrix(
+          blend.neutralIsWhite
+              ? const [
+                  1, 0, 0, 0, 0, //
+                  0, 1, 0, 0, 0, //
+                  0, 0, 1, 0, 0, //
+                  -0.2126, -0.7152, -0.0722, 0, 255,
+                ]
+              : const [
+                  1, 0, 0, 0, 0, //
+                  0, 1, 0, 0, 0, //
+                  0, 0, 1, 0, 0, //
+                  0.2126, 0.7152, 0.0722, 0, 0,
+                ],
+        ),
+        child: picture,
+      );
+    }
     if (clip.opacity < 0.999) {
       picture = Opacity(opacity: clip.opacity, child: picture);
     }

@@ -216,13 +216,40 @@ class TransitionSpec {
 }
 
 /// Where a picture-in-picture video sits on the canvas.
+/// How a picture-in-picture clip mixes with the picture below it.
+/// Screen and Add suit effects on a black background (fire, sparks, light
+/// leaks): black disappears. Multiply suits ones on white (dust, scratches).
+enum PipBlend {
+  normal('Normal', 'Covers what is below'),
+  screen('Screen', 'Brightens: black disappears (fire, light leaks)'),
+  add('Add', 'Adds light: stronger glow than Screen'),
+  multiply('Multiply', 'Darkens: white disappears (dust, scratches)'),
+  lighten('Lighten', 'Keeps the brighter of the two'),
+  darken('Darken', 'Keeps the darker of the two');
+
+  const PipBlend(this.label, this.description);
+  final String label;
+  final String description;
+
+  /// The picture's colour that leaves the one below unchanged.
+  bool get neutralIsWhite => this == multiply || this == darken;
+}
+
 class PipLayout {
   const PipLayout({
     this.x = 0.72,
     this.y = 0.3,
     this.size = 0.4,
     this.angle = 0,
+    this.blend = PipBlend.normal,
+    this.cutout = false,
   });
+
+  /// How it mixes with the picture below.
+  final PipBlend blend;
+
+  /// The background behind people is removed (person cutout).
+  final bool cutout;
 
   /// Centre of the picture, as fractions of the canvas (0,0 top left).
   final double x;
@@ -237,13 +264,21 @@ class PipLayout {
   static const minSize = 0.05;
   static const maxSize = 1.5;
 
-  PipLayout copyWith({double? x, double? y, double? size, double? angle}) =>
-      PipLayout(
-        x: (x ?? this.x).clamp(-0.5, 1.5),
-        y: (y ?? this.y).clamp(-0.5, 1.5),
-        size: (size ?? this.size).clamp(minSize, maxSize),
-        angle: angle ?? this.angle,
-      );
+  PipLayout copyWith({
+    double? x,
+    double? y,
+    double? size,
+    double? angle,
+    PipBlend? blend,
+    bool? cutout,
+  }) => PipLayout(
+    x: (x ?? this.x).clamp(-0.5, 1.5),
+    y: (y ?? this.y).clamp(-0.5, 1.5),
+    size: (size ?? this.size).clamp(minSize, maxSize),
+    angle: angle ?? this.angle,
+    blend: blend ?? this.blend,
+    cutout: cutout ?? this.cutout,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -251,16 +286,20 @@ class PipLayout {
       other.x == x &&
       other.y == y &&
       other.size == size &&
-      other.angle == angle;
+      other.angle == angle &&
+      other.blend == blend &&
+      other.cutout == cutout;
 
   @override
-  int get hashCode => Object.hash(x, y, size, angle);
+  int get hashCode => Object.hash(x, y, size, angle, blend, cutout);
 
   Map<String, Object?> toJson() => {
     'x': x,
     'y': y,
     'size': size,
     if (angle != 0) 'angle': angle,
+    if (blend != PipBlend.normal) 'blend': blend.name,
+    if (cutout) 'cutout': true,
   };
 
   static PipLayout? fromJson(Object? json) {
@@ -270,6 +309,8 @@ class PipLayout {
       y: (json['y'] as num?)?.toDouble() ?? 0.3,
       size: ((json['size'] as num?)?.toDouble() ?? 0.4).clamp(minSize, maxSize),
       angle: (json['angle'] as num?)?.toDouble() ?? 0,
+      blend: PipBlend.values.asNameMap()[json['blend']] ?? PipBlend.normal,
+      cutout: json['cutout'] as bool? ?? false,
     );
   }
 }

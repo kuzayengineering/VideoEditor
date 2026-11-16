@@ -411,6 +411,7 @@ List<PipLayerPlan> pipLayersOf(
         'h': h / canvasHeight,
         'angle': pip.angle,
         'opacity': clip.opacity,
+        'blend': pip.blend.index,
       });
       cursor = clip.startUs + clip.durationUs;
     }
