@@ -59,6 +59,8 @@ class TransitionBlender(
 ) : CustomVideoBlender {
     private var program: GlProgram? = null
     private var pipProgram: GlProgram? = null
+    /** gl-transitions programs, made the first time each is needed. */
+    private val glPrograms = HashMap<Int, GlProgram>()
 
     override fun draw(
         inputs: Array<out GlTextureInfo>,
@@ -84,6 +86,13 @@ class TransitionBlender(
             b = a
             code = 0
         }
+        if (code >= 100) {
+            if (drawGlTransition(code, a, b, t, outputWidth, outputHeight)) {
+                drawPips(inputs, presentationTimeUs, outputWidth.toFloat(), outputHeight.toFloat())
+                return
+            }
+            code = 1 // couldn't be set up: a crossfade instead
+        }
         val p = program ?: GlProgram(VERTEX, FRAGMENT).also {
             it.setBufferAttribute(
                 "aFramePosition",
@@ -102,6 +111,48 @@ class TransitionBlender(
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GlUtil.checkGlError()
         drawPips(inputs, presentationTimeUs, outputWidth.toFloat(), outputHeight.toFloat())
+    }
+
+    /**
+     * One of the gl-transitions (GlTransitions.kt): its own small shader,
+     * given the two pictures, the progress and the picture's shape.
+     * False (drawn as a crossfade instead) if it couldn't be set up.
+     */
+    private fun drawGlTransition(
+        code: Int,
+        a: GlTextureInfo,
+        b: GlTextureInfo,
+        t: Float,
+        w: Int,
+        h: Int,
+    ): Boolean {
+        val p = glPrograms[code] ?: run {
+            val body = GlTransitions.sources[code] ?: return false
+            try {
+                GlProgram(VERTEX, GL_HEAD + body + GL_TAIL).also {
+                    it.setBufferAttribute(
+                        "aFramePosition",
+                        GlUtil.getNormalizedCoordinateBounds(),
+                        GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE,
+                    )
+                    glPrograms[code] = it
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("TransitionBlender", "gl-transition $code: $e")
+                return false
+            }
+        }
+        p.use()
+        p.setSamplerTexIdUniform("uA", a.texId, 0)
+        p.setSamplerTexIdUniform("uB", b.texId, 1)
+        // A shader that doesn't use one of these has it optimised away, and
+        // setting it would fail.
+        try { p.setFloatUniform("progress", t) } catch (_: Exception) {}
+        try { p.setFloatUniform("ratio", w.toFloat() / h) } catch (_: Exception) {}
+        p.bindAttributesAndUniforms()
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        GlUtil.checkGlError()
+        return true
     }
 
     /** Picture-in-picture clips showing now, each a turned, see-through box. */
@@ -200,6 +251,8 @@ class TransitionBlender(
         program = null
         pipProgram?.delete()
         pipProgram = null
+        for (p in glPrograms.values) p.delete()
+        glPrograms.clear()
     }
 
     private companion object {
@@ -233,6 +286,21 @@ void main() {
     gl_FragColor = vec4(t.rgb, a);
   }
 }
+"""
+
+        // Around each gl-transition's code (the same as tool/glt_render).
+        const val GL_HEAD = """#version 100
+precision highp float;
+uniform sampler2D uA;
+uniform sampler2D uB;
+uniform float progress;
+uniform float ratio;
+varying vec2 vUv;
+vec4 getFromColor(vec2 uv) { return texture2D(uA, uv); }
+vec4 getToColor(vec2 uv) { return texture2D(uB, uv); }
+"""
+        const val GL_TAIL = """
+void main() { gl_FragColor = transition(vUv); }
 """
 
         const val VERTEX = """#version 100

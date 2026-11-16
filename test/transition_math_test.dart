@@ -77,7 +77,7 @@ void main() {
     if (hasFfmpeg) dir.deleteSync(recursive: true);
   });
 
-  for (final kind in TransitionKind.values.where((k) => !k.isDip)) {
+  for (final kind in TransitionKind.values.where((k) => !k.isDip && !k.gl)) {
     test('${kind.label} matches FFmpeg', () {
       if (!known.contains(kind.ffmpegName)) {
         markTestSkipped('this FFmpeg has no ${kind.ffmpegName}');

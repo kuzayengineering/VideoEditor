@@ -68,6 +68,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/logo_512.png
+    - assets/transitions/
   fonts:
     - family: Roboto
       fonts:

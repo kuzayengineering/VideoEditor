@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -16,6 +17,18 @@ import 'tool_panel.dart';
 /// The small icon on the timeline's transition button.
 IconData transitionIcon(TransitionKind? k) {
   if (k == null) return Icons.block;
+  if (k.gl) {
+    return switch (k.group) {
+      TransitionGroup.slide => Icons.east,
+      TransitionGroup.wipe => Icons.vertical_split_outlined,
+      TransitionGroup.shape => Icons.category_outlined,
+      TransitionGroup.threeD => Icons.view_in_ar_outlined,
+      TransitionGroup.light => Icons.flare,
+      TransitionGroup.warp => Icons.waves,
+      TransitionGroup.glitch => Icons.broken_image_outlined,
+      TransitionGroup.basic => Icons.gradient,
+    };
+  }
   return switch (k) {
     TransitionKind.fade => Icons.gradient,
     TransitionKind.fadeBlack => Icons.contrast,
@@ -55,6 +68,7 @@ IconData transitionIcon(TransitionKind? k) {
     TransitionKind.doorsOpen || TransitionKind.doorsClose => Icons.door_sliding,
     TransitionKind.splitOpen ||
     TransitionKind.splitClose => Icons.horizontal_split,
+    _ => Icons.gradient,
   };
 }
 
@@ -242,12 +256,14 @@ class _TransitionPanelState extends State<_TransitionPanel>
             const Divider(height: 1),
             SizedBox(
               height: 44,
-              child: Row(
+              child: ListView(
+                scrollDirection: Axis.horizontal,
                 children: [
                   for (final g in TransitionGroup.values)
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => setState(() => _group = g),
+                    InkWell(
+                      onTap: () => setState(() => _group = g),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Center(
                           child: Text(
                             g.label.toUpperCase(),
@@ -331,6 +347,13 @@ extension on _TransitionPanelState {
             ),
           ),
         ],
+      );
+    }
+    if (current.kind.gl && !Platform.isAndroid) {
+      return Text(
+        'On Windows this one exports as a simpler stand-in '
+        '(${current.kind.ffmpegName}); the phone app makes it exactly.',
+        style: small,
       );
     }
     if (c.transitionFiles.containsKey(key)) {
@@ -447,6 +470,7 @@ class TransitionThumbnails {
       _cache.clear();
       _cacheNeutral = AppSettings.instance.neutralColors;
     }
+    if (kind.gl) return _cache.putIfAbsent(kind, () => _strip(kind));
     return _cache.putIfAbsent(kind, () async {
       final bytes = await compute(_renderFor, (
         kind.index,
@@ -467,6 +491,49 @@ class TransitionThumbnails {
       }
       return images;
     });
+  }
+
+  /// A gl-transition's frames, cut from its picture strip.
+  static Future<List<ui.Image>> _strip(TransitionKind kind) async {
+    final data = await rootBundle.load(
+      'assets/transitions/${kind.glName}.webp',
+    );
+    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+    final strip = (await codec.getNextFrame()).image;
+    final rgba = (await strip.toByteData(format: ui.ImageByteFormat.rawRgba))!
+        .buffer
+        .asUint8List();
+    final stripW = strip.width;
+    strip.dispose();
+    final gray = AppSettings.instance.neutralColors;
+    final images = <ui.Image>[];
+    for (var f = 0; f < frameCount; f++) {
+      final px = Uint8List(width * height * 4);
+      for (var y = 0; y < height; y++) {
+        final from = (y * stripW + f * width) * 4;
+        px.setRange(y * width * 4, (y + 1) * width * 4, rgba, from);
+      }
+      if (gray) {
+        for (var i = 0; i < px.length; i += 4) {
+          final v = (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2])
+              .round()
+              .clamp(0, 255);
+          px[i] = v;
+          px[i + 1] = v;
+          px[i + 2] = v;
+        }
+      }
+      final done = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+        px,
+        width,
+        height,
+        ui.PixelFormat.rgba8888,
+        done.complete,
+      );
+      images.add(await done.future);
+    }
+    return images;
   }
 
   /// RGBA bytes of every frame (runs in the background).

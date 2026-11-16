@@ -99,7 +99,11 @@ enum TransitionGroup {
   basic('Basic'),
   slide('Slide'),
   wipe('Wipe'),
-  shape('Shape');
+  shape('Shape'),
+  threeD('3D'),
+  light('Light'),
+  warp('Warp'),
+  glitch('Glitch');
 
   const TransitionGroup(this.label);
   final String label;
@@ -153,9 +157,191 @@ enum TransitionKind {
   doorsOpen('Doors open', 'vertopen', 54, TransitionGroup.shape),
   doorsClose('Doors close', 'vertclose', 55, TransitionGroup.shape),
   splitOpen('Split open', 'horzopen', 56, TransitionGroup.shape),
-  splitClose('Split close', 'horzclose', 57, TransitionGroup.shape);
+  splitClose('Split close', 'horzclose', 57, TransitionGroup.shape),
 
-  const TransitionKind(this.label, this.ffmpegName, this.code, this.group);
+  // gl-transitions begin (made by tool/gen_gl_transitions.py)
+  glFadeGrayscale('Fade to gray', 'fade', 100, TransitionGroup.basic, gl: true),
+  glColorPhase('Color phase', 'fade', 101, TransitionGroup.basic, gl: true),
+  glPerlinDissolve(
+    'Soft dissolve',
+    'dissolve',
+    102,
+    TransitionGroup.basic,
+    gl: true,
+  ),
+  glMorph('Morph', 'fade', 103, TransitionGroup.basic, gl: true),
+  glDefocusBlur('Blur', 'fade', 104, TransitionGroup.basic, gl: true),
+  glCrossZoom('Cross zoom', 'zoomin', 105, TransitionGroup.basic, gl: true),
+  glSimpleZoomOut('Zoom out', 'fade', 106, TransitionGroup.basic, gl: true),
+  glZoomInOut('Zoom in-out', 'zoomin', 107, TransitionGroup.basic, gl: true),
+  glDreamy('Dreamy', 'fade', 108, TransitionGroup.basic, gl: true),
+  glWhipPan('Whip pan', 'slideleft', 109, TransitionGroup.slide, gl: true),
+  glDirectionalScaled(
+    'Push zoom',
+    'slideleft',
+    110,
+    TransitionGroup.slide,
+    gl: true,
+  ),
+  glStretchSlide('Stretch', 'slideleft', 111, TransitionGroup.slide, gl: true),
+  glBounce('Bounce', 'slidedown', 112, TransitionGroup.slide, gl: true),
+  glSplitSlideInOutHorizontal(
+    'Split slide',
+    'horzopen',
+    113,
+    TransitionGroup.slide,
+    gl: true,
+  ),
+  glComb('Comb', 'slideleft', 114, TransitionGroup.slide, gl: true),
+  glCardSwipe('Card swipe', 'slideleft', 115, TransitionGroup.slide, gl: true),
+  glParallaxPush('Parallax', 'slideleft', 116, TransitionGroup.slide, gl: true),
+  glLensPush('Lens push', 'slideleft', 117, TransitionGroup.slide, gl: true),
+  glWindowBlinds('Blinds', 'fade', 118, TransitionGroup.wipe, gl: true),
+  glSquaresWipe('Squares', 'wipeleft', 119, TransitionGroup.wipe, gl: true),
+  glBandWipe('Bands', 'wipeleft', 120, TransitionGroup.wipe, gl: true),
+  glCurvedWipe('Curved', 'wipeleft', 121, TransitionGroup.wipe, gl: true),
+  glBrushWipe('Brush', 'wipeleft', 122, TransitionGroup.wipe, gl: true),
+  glWedgeWipe('Wedge', 'radial', 123, TransitionGroup.wipe, gl: true),
+  glRandomSquares(
+    'Random squares',
+    'dissolve',
+    124,
+    TransitionGroup.wipe,
+    gl: true,
+  ),
+  glWaveWipe('Wave', 'wipeleft', 125, TransitionGroup.wipe, gl: true),
+  glInkBleed('Ink', 'fade', 126, TransitionGroup.wipe, gl: true),
+  glSplatterWipe('Splatter', 'fade', 127, TransitionGroup.wipe, gl: true),
+  glSpiralBlockWipe(
+    'Spiral blocks',
+    'wipeleft',
+    128,
+    TransitionGroup.wipe,
+    gl: true,
+  ),
+  glHeartWipe('Heart', 'circleopen', 129, TransitionGroup.shape, gl: true),
+  glStarWipe('Star', 'circleopen', 130, TransitionGroup.shape, gl: true),
+  glDiamondWipe('Diamond', 'circleopen', 131, TransitionGroup.shape, gl: true),
+  glKeyholeWipe('Keyhole', 'circleopen', 132, TransitionGroup.shape, gl: true),
+  glApertureWipe(
+    'Aperture',
+    'circleopen',
+    133,
+    TransitionGroup.shape,
+    gl: true,
+  ),
+  glPlusWipe('Plus', 'circleopen', 134, TransitionGroup.shape, gl: true),
+  glFlowerWipe('Flower', 'circleopen', 135, TransitionGroup.shape, gl: true),
+  glPinwheel('Pinwheel', 'radial', 136, TransitionGroup.shape, gl: true),
+  glArrowWipe('Arrow', 'wipeleft', 137, TransitionGroup.shape, gl: true),
+  glHexagonalize('Hexagons', 'pixelize', 138, TransitionGroup.shape, gl: true),
+  glZoomInCircles(
+    'Circles',
+    'circleopen',
+    139,
+    TransitionGroup.shape,
+    gl: true,
+  ),
+  glPolkaDotsCurtain(
+    'Polka dots',
+    'dissolve',
+    140,
+    TransitionGroup.shape,
+    gl: true,
+  ),
+  glCube('Cube', 'slideleft', 141, TransitionGroup.threeD, gl: true),
+  glDoorway('Doorway', 'vertopen', 142, TransitionGroup.threeD, gl: true),
+  glBookFlip('Page flip', 'slideleft', 143, TransitionGroup.threeD, gl: true),
+  glSwap('Swap', 'slideleft', 144, TransitionGroup.threeD, gl: true),
+  glTumble('Tumble', 'fade', 145, TransitionGroup.threeD, gl: true),
+  glCurtains('Curtains', 'vertopen', 146, TransitionGroup.threeD, gl: true),
+  glGridFlip('Grid flip', 'fade', 147, TransitionGroup.threeD, gl: true),
+  glSphere('Sphere', 'fade', 148, TransitionGroup.threeD, gl: true),
+  glAccordion('Accordion', 'slideleft', 149, TransitionGroup.threeD, gl: true),
+  glPrisms('Prisms', 'fade', 150, TransitionGroup.threeD, gl: true),
+  glSimpleFlip('Flip', 'fade', 151, TransitionGroup.threeD, gl: true),
+  glFallOver('Fall over', 'slidedown', 152, TransitionGroup.threeD, gl: true),
+  glGallery('Gallery', 'slideleft', 153, TransitionGroup.threeD, gl: true),
+  glFilmBurn('Film burn', 'fadewhite', 154, TransitionGroup.light, gl: true),
+  glOverexposure(
+    'Overexposure',
+    'fadewhite',
+    155,
+    TransitionGroup.light,
+    gl: true,
+  ),
+  glFlashFade('Flash', 'fadewhite', 156, TransitionGroup.light, gl: true),
+  glLensFlare('Lens flare', 'fadewhite', 157, TransitionGroup.light, gl: true),
+  glLightRays('Light rays', 'fadewhite', 158, TransitionGroup.light, gl: true),
+  glBloomDissolve('Glow', 'fadewhite', 159, TransitionGroup.light, gl: true),
+  glLightStreaks(
+    'Light streaks',
+    'fadewhite',
+    160,
+    TransitionGroup.light,
+    gl: true,
+  ),
+  glLightWipe('Light wipe', 'wipeleft', 161, TransitionGroup.light, gl: true),
+  glBurnThrough('Burn', 'fade', 162, TransitionGroup.light, gl: true),
+  glFlameWipe('Flame', 'wipeleft', 163, TransitionGroup.light, gl: true),
+  glGlintDissolve('Glints', 'fade', 164, TransitionGroup.light, gl: true),
+  glBokehDissolve('Bokeh', 'fade', 165, TransitionGroup.light, gl: true),
+  glWarpSpeed('Warp speed', 'zoomin', 166, TransitionGroup.light, gl: true),
+  glRipple('Ripple', 'fade', 167, TransitionGroup.warp, gl: true),
+  glWaterDrop('Water drop', 'fade', 168, TransitionGroup.warp, gl: true),
+  glSwirl('Swirl', 'fade', 169, TransitionGroup.warp, gl: true),
+  glKaleidoscope('Kaleidoscope', 'fade', 170, TransitionGroup.warp, gl: true),
+  glFlyEye('Fly eye', 'fade', 171, TransitionGroup.warp, gl: true),
+  glFisheye('Fisheye', 'fade', 172, TransitionGroup.warp, gl: true),
+  glCrossWarp('Cross warp', 'fade', 173, TransitionGroup.warp, gl: true),
+  glDirectionalWarp(
+    'Warp wipe',
+    'wipeleft',
+    174,
+    TransitionGroup.warp,
+    gl: true,
+  ),
+  glButterflyWaveScrawler('Wavy', 'fade', 175, TransitionGroup.warp, gl: true),
+  glTunnel('Tunnel', 'zoomin', 176, TransitionGroup.warp, gl: true),
+  glRevolve('Revolve', 'fade', 177, TransitionGroup.warp, gl: true),
+  glGravityLens('Black hole', 'fade', 178, TransitionGroup.warp, gl: true),
+  glHeatHaze('Heat haze', 'fade', 179, TransitionGroup.warp, gl: true),
+  glDreamyZoom('Dreamy zoom', 'zoomin', 180, TransitionGroup.warp, gl: true),
+  glGlitchMemories('Glitch', 'fade', 181, TransitionGroup.glitch, gl: true),
+  glGlitchDisplace('Displace', 'fade', 182, TransitionGroup.glitch, gl: true),
+  glGlitchFlicker('Flicker', 'fade', 183, TransitionGroup.glitch, gl: true),
+  glVhsTracking('VHS', 'fade', 184, TransitionGroup.glitch, gl: true),
+  glTvLostSignal('Lost signal', 'fade', 185, TransitionGroup.glitch, gl: true),
+  glTvStatic('Static', 'fade', 186, TransitionGroup.glitch, gl: true),
+  glTvTurnOff('TV off', 'fadeblack', 187, TransitionGroup.glitch, gl: true),
+  glStripDatamoshGlitch(
+    'Datamosh',
+    'fade',
+    188,
+    TransitionGroup.glitch,
+    gl: true,
+  ),
+  glCameraShake('Shake', 'fade', 189, TransitionGroup.glitch, gl: true),
+  glHologram('Hologram', 'fade', 190, TransitionGroup.glitch, gl: true),
+  glHorizontalHold('Rolling', 'fade', 191, TransitionGroup.glitch, gl: true),
+  glPixelStretch(
+    'Pixel stretch',
+    'fade',
+    192,
+    TransitionGroup.glitch,
+    gl: true,
+  ),
+  glDoomMelt('Melt', 'fade', 193, TransitionGroup.glitch, gl: true);
+
+  // gl-transitions end
+
+  const TransitionKind(
+    this.label,
+    this.ffmpegName,
+    this.code,
+    this.group, {
+    this.gl = false,
+  });
   final String label;
 
   /// FFmpeg's name for it (the xfade filter).
@@ -164,6 +350,14 @@ enum TransitionKind {
   /// Android's number for it (0: a dip through a colour, not a blend).
   final int code;
   final TransitionGroup group;
+
+  /// One of the gl-transitions collection (MIT licence): drawn by its own
+  /// shader on Android, with a picture strip for the picker; on Windows the
+  /// export uses [ffmpegName], the closest built-in FFmpeg transition.
+  final bool gl;
+
+  /// The gl-transitions name (its picker strip is `assets/transitions/NAME.webp`).
+  String get glName => name.substring(2);
 
   /// Each clip fades to a solid colour and back, instead of the two clips
   /// being mixed.
