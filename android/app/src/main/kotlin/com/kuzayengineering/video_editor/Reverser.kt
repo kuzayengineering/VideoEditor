@@ -410,11 +410,17 @@ object Reverser {
         var videoTrack = -1
         val encInfo = MediaCodec.BufferInfo()
 
-        fun drainEncoder(endOfStream: Boolean) {
+        // The encoder's output is collected all the time on its own thread:
+        // an encoder whose output isn't collected stops taking frames, and
+        // then keeps holding the frame memory the next batch needs (it got
+        // stuck at 10 %).
+        val stopDrain = java.util.concurrent.atomic.AtomicBoolean(false)
+        val drainError = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        fun drainEncoder() {
             while (true) {
-                val o = encoder.dequeueOutputBuffer(encInfo, if (endOfStream) TIMEOUT_US else 0)
+                val o = encoder.dequeueOutputBuffer(encInfo, TIMEOUT_US)
                 when {
-                    o == MediaCodec.INFO_TRY_AGAIN_LATER -> if (!endOfStream) return
+                    o == MediaCodec.INFO_TRY_AGAIN_LATER -> if (stopDrain.get()) return
                     o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         videoTrack = muxer.addTrack(encoder.outputFormat)
                         val audioTrack = audio?.let { muxer.addTrack(it.format) }
@@ -442,8 +448,22 @@ object Reverser {
             }
         }
 
+        val drainThread = Thread({
+            try {
+                drainEncoder()
+            } catch (e: Throwable) {
+                drainError.set(e)
+            }
+        }, "reverse-encode").apply { start() }
+        fun checkDrain() {
+            drainError.get()?.let { throw IllegalStateException("The encoder failed: ${it.message}", it) }
+        }
+
         val decInfo = MediaCodec.BufferInfo()
         val n = frameTimes.size
+        // Nothing coming out of the decoder for this long: give up (the
+        // slower way is tried next) rather than wait forever.
+        val stallMs = 15_000L
         /** When frame [i] (source order) appears in the reversed copy. */
         fun outPtsOf(i: Int): Long = max(0L, outUs - (if (i + 1 < n) frameTimes[i + 1] else outUs))
         try {
@@ -467,7 +487,13 @@ object Reverser {
                     val held = HashMap<Int, Image>()
                     var inputDone = false
                     var outputDone = false
+                    var lastOutput = System.currentTimeMillis()
                     while (held.size < end - start && !outputDone) {
+                        checkDrain()
+                        if (System.currentTimeMillis() - lastOutput > stallMs) {
+                            held.values.forEach { it.close() }
+                            throw IllegalStateException("the decoder stopped")
+                        }
                         if (!inputDone) {
                             val i = decoder.dequeueInputBuffer(TIMEOUT_US)
                             if (i >= 0) {
@@ -483,6 +509,7 @@ object Reverser {
                         }
                         val o = decoder.dequeueOutputBuffer(decInfo, TIMEOUT_US)
                         if (o >= 0) {
+                            lastOutput = System.currentTimeMillis()
                             val t = decInfo.presentationTimeUs
                             if (decInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
                             if (t in first..last && decInfo.size >= 0 && !outputDone) {
@@ -508,10 +535,9 @@ object Reverser {
                         val img = held.getValue(idx)
                         img.timestamp = outPtsOf(idx) * 1000
                         writer!!.queueInputImage(img)
-                        drainEncoder(false)
+                        done++
+                        progress = 0.1 + 0.88 * done / n
                     }
-                    done += end - start
-                    progress = 0.1 + 0.88 * done / n
                     end = start
                 }
             } else for (k in 0 until n) {
@@ -524,7 +550,12 @@ object Reverser {
                 decoder.flush()
                 var inputDone = false
                 var rendered = false
+                var lastOutput = System.currentTimeMillis()
                 while (!rendered) {
+                    checkDrain()
+                    if (System.currentTimeMillis() - lastOutput > stallMs) {
+                        throw IllegalStateException("The decoder stopped responding.")
+                    }
                     if (!inputDone) {
                         val i = decoder.dequeueInputBuffer(TIMEOUT_US)
                         if (i >= 0) {
@@ -540,6 +571,7 @@ object Reverser {
                     }
                     val o = decoder.dequeueOutputBuffer(decInfo, TIMEOUT_US)
                     if (o >= 0) {
+                        lastOutput = System.currentTimeMillis()
                         val eos = decInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                         if (decInfo.presentationTimeUs >= target || (eos && decInfo.size > 0)) {
                             decoder.releaseOutputBuffer(o, outPts * 1000)
@@ -549,13 +581,17 @@ object Reverser {
                             if (eos) rendered = true // nothing more to show
                         }
                     }
-                    drainEncoder(false)
                 }
                 progress = 0.1 + 0.88 * (k + 1) / n
             }
             encoder.signalEndOfInputStream()
-            drainEncoder(true)
+            // The rest comes out, up to the end-of-stream mark.
+            drainThread.join(30_000)
+            if (drainThread.isAlive) throw IllegalStateException("The encoder did not finish.")
+            checkDrain()
         } finally {
+            stopDrain.set(true)
+            drainThread.join(5_000)
             decoder.stop()
             decoder.release()
             writer?.close()
