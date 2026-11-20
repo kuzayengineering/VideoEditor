@@ -39,4 +39,10 @@ void main() {
     AppSettings.instance.forgetProject('zoom-test');
     expect(EditorController(p).pixelsPerSecond, 32);
   });
+
+  test('new texts show at once (no fade-in), and fade out', () {
+    const spec = TextSpec(text: 'Hi');
+    expect(spec.animIn, TextAnim.none);
+    expect(spec.animOut, TextAnim.fade);
+  });
 }

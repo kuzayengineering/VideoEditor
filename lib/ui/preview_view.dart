@@ -83,12 +83,16 @@ class PreviewView extends StatelessWidget {
             // The player renders the finished frame (bars and all).
             content = ColoredBox(color: Colors.black, child: player);
           } else {
+            // A clip playing from its ready-made copy already has its crop,
+            // turn and bars: shown as is, like a rendered transition.
+            final fromCopy =
+                current != null && controller.playsFromCopy(current.index);
             content = _LookPreview(
               project: project,
-              placement: renderedTransition ? null : current,
+              placement: renderedTransition || fromCopy ? null : current,
               player: player!,
               thumbnails: thumbnails,
-              plainCanvas: renderedTransition,
+              plainCanvas: renderedTransition || fromCopy,
             );
           }
         } else {

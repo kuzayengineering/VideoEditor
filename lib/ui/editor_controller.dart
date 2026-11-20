@@ -64,13 +64,23 @@ class EditorController extends ChangeNotifier {
 
   /// True if the preview player draws clip effects itself (Android with
   /// effects); otherwise the screen draws them around the video.
-  bool get previewDrawsEffects {
-    final p = _preview;
-    if (p == null) return false;
-    final blend = p.blendsTransitions;
-    // A player that mixes transitions plays the whole finished picture.
-    if (blend && blendLayersOf(project) != null) return true;
-    return p.drawsEffects(segmentsOf(project, blend: blend));
+  ///
+  /// Follows what the player is actually playing (updated once it has taken
+  /// a new timeline), so the screen never applies a crop to a picture the
+  /// player has already cropped, or the other way round, which made the
+  /// picture briefly jump in size.
+  bool get previewDrawsEffects => _preview != null && _appliedDrawsEffects;
+  bool _appliedDrawsEffects = false;
+
+  /// The ready-made copies the player was last given.
+  Map<String, String> _appliedFiles = const {};
+  int _timelineGeneration = 0;
+
+  /// True if main clip [index] is playing from its ready-made preview copy
+  /// (which already has its crop, turn and bars).
+  bool playsFromCopy(int index) {
+    final key = project.speedKey(index);
+    return key.isNotEmpty && _appliedFiles.containsKey(key);
   }
 
   /// True if the preview player draws mixing transitions itself (Android).
@@ -224,6 +234,9 @@ class EditorController extends ChangeNotifier {
     _previewShape = shape;
     _previewSegments = segments;
     _previewBlends = blends;
+    final generation = ++_timelineGeneration;
+    final files = Map<String, String>.of(transitionFiles);
+    final drawsEffects = blends != null || p.drawsEffects(segments);
     final canvas = project.canvas;
     final long = 1920.0;
     final cw = canvas.value >= 1 ? long : long * canvas.value;
@@ -236,7 +249,14 @@ class EditorController extends ChangeNotifier {
             canvasHeight: (ch / 2).round() * 2,
             blends: blends,
           )
-          .then((_) => _seekPreview(exact: true)),
+          .then((_) {
+            if (generation == _timelineGeneration) {
+              _appliedDrawsEffects = drawsEffects;
+              _appliedFiles = files;
+              notifyListeners();
+            }
+            _seekPreview(exact: true);
+          }),
     );
   }
 

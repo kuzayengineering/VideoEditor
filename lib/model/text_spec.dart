@@ -50,7 +50,7 @@ class TextSpec {
     this.y = 0.8,
     this.scale = 1.0,
     this.rotation = 0.0,
-    this.animIn = TextAnim.fade,
+    this.animIn = TextAnim.none,
     this.animInUs = 500000,
     this.animOut = TextAnim.fade,
     this.animOutUs = 500000,
