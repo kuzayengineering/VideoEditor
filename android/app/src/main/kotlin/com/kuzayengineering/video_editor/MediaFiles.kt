@@ -9,7 +9,14 @@ object MediaFiles {
     /** The [sources] that can no longer be opened. */
     fun missing(context: Context, sources: List<String>): List<String> = sources.filter { s ->
         try {
-            context.contentResolver.openFileDescriptor(Uri.parse(s), "r")?.close() == null
+            val uri = Uri.parse(s)
+            when (uri.scheme) {
+                // Files the app made itself (voice-overs, reversed copies)
+                // are plain paths, not media-library addresses.
+                null, "" -> !java.io.File(s).isFile
+                "file" -> !java.io.File(uri.path ?: s).isFile
+                else -> context.contentResolver.openFileDescriptor(uri, "r")?.close() == null
+            }
         } catch (_: Exception) {
             true
         }
