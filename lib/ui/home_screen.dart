@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_settings.dart';
 import '../app_services.dart';
 import '../data/project_files.dart';
 import '../data/project_store.dart';
@@ -110,6 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (yes != true) return;
     await _services.store?.delete(p.id);
+    AppSettings.instance.forgetProject(p.id);
     // Its reversed copies, voice-overs, preview copies and pictures too
     // (unless another project uses them).
     final rest = [

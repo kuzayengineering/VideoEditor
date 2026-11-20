@@ -7,6 +7,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import java.io.File
 
@@ -63,13 +64,31 @@ object TransitionRenderer {
                 })
                 .build()
             transformer.start(composition, out.absolutePath)
-            // A stuck render must not hold up the others.
-            main.postDelayed({
-                if (!finished) {
-                    transformer.cancel()
-                    finish("it took longer than a minute")
+            // A stuck render must not hold up the others: stopped after a
+            // minute without progress (long clips may take several minutes).
+            val holder = ProgressHolder()
+            var lastProgress = -1
+            var lastChangeMs = android.os.SystemClock.elapsedRealtime()
+            val watchdog = object : Runnable {
+                override fun run() {
+                    if (finished) return
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (transformer.getProgress(holder) ==
+                        Transformer.PROGRESS_STATE_AVAILABLE &&
+                        holder.progress != lastProgress
+                    ) {
+                        lastProgress = holder.progress
+                        lastChangeMs = now
+                    }
+                    if (now - lastChangeMs > 60_000) {
+                        transformer.cancel()
+                        finish("it stopped making progress for a minute")
+                    } else {
+                        main.postDelayed(this, 5_000)
+                    }
                 }
-            }, 60_000)
+            }
+            main.postDelayed(watchdog, 5_000)
         } catch (e: Exception) {
             finish(describe(e))
         }

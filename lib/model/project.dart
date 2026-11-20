@@ -364,14 +364,22 @@ class Project {
     );
   }
 
-  /// A small project holding just main clip [index] at its changed speed
-  /// (with its other changes), to make a ready-to-play preview copy of: the
-  /// phone's simple player then plays it with no hitch at the cuts. Null
-  /// for clips at normal speed. Sound levels and fades stay with the
-  /// preview's mixer, so the copy has them neutral.
+  /// A small project holding just main clip [index] with its changes, to
+  /// make a ready-to-play preview copy of when it has a changed speed or is
+  /// cropped, turned or mirrored: the phone's simple player then plays it
+  /// with no hitch at the cuts (otherwise the whole preview needs the
+  /// heavier effects player). Null for clips without those changes. Sound
+  /// levels and fades stay with the preview's mixer, so the copy has them
+  /// neutral.
   Project? speedPreviewProject(int index) {
     final c = mainTrack.clips[index];
-    if (!c.isMedia || (c.speed - 1).abs() < 0.0001) return null;
+    final changed =
+        (c.speed - 1).abs() >= 0.0001 ||
+        c.rotation % 4 != 0 ||
+        c.flipH ||
+        c.flipV ||
+        !c.crop.isFull;
+    if (!c.isMedia || !changed) return null;
     final solo = c.copyWith(
       id: 1,
       startUs: 0,
@@ -395,7 +403,7 @@ class Project {
     );
   }
 
-  /// Identifies a [speedPreviewProject] copy ('' for normal speed).
+  /// Identifies a [speedPreviewProject] copy ('' for clips without one).
   String speedKey(int index) {
     final mini = speedPreviewProject(index);
     if (mini == null) return '';

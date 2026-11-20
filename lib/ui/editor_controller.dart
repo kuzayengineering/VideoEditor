@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../app_settings.dart';
 import '../engine/media_engine.dart';
 import '../model/export_settings.dart';
 import '../model/history.dart';
@@ -15,7 +16,10 @@ import 'audio_preview.dart';
 /// the playhead position, the selected clip and the timeline zoom.
 class EditorController extends ChangeNotifier {
   EditorController(Project project)
-    : history = EditHistory(project.withAnchorsRecorded());
+    : history = EditHistory(project.withAnchorsRecorded()),
+      _pixelsPerSecond = (AppSettings.instance.timelineZoomOf(project.id) ?? 32)
+          .clamp(minPixelsPerSecond, maxPixelsPerSecond)
+          .toDouble();
 
   final EditHistory history;
 
@@ -34,7 +38,8 @@ class EditorController extends ChangeNotifier {
 
   /// Timeline zoom: how many screen pixels one second takes up.
   // Zoomed out a little by default, so a swipe covers more time.
-  double _pixelsPerSecond = 32;
+  /// Timeline zoom; remembered per project (see AppSettings).
+  double _pixelsPerSecond;
   double get pixelsPerSecond => _pixelsPerSecond;
   static const minPixelsPerSecond = 4.0;
   static const maxPixelsPerSecond = 2400.0;
@@ -422,6 +427,7 @@ class EditorController extends ChangeNotifier {
     final z = pixelsPerSecond.clamp(minPixelsPerSecond, maxPixelsPerSecond);
     if (z == _pixelsPerSecond) return;
     _pixelsPerSecond = z;
+    AppSettings.instance.setTimelineZoom(project.id, z);
     notifyListeners();
   }
 

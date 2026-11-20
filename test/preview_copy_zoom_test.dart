@@ -1,0 +1,42 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:video_editor/app_settings.dart';
+import 'package:video_editor/model/project.dart';
+import 'package:video_editor/model/timecode.dart';
+import 'package:video_editor/ui/editor_controller.dart';
+
+const s = usPerSecond;
+
+Clip video(String name) => Clip(
+  id: 0,
+  kind: ClipKind.video,
+  name: name,
+  sourcePath: '$name.mp4',
+  media: const MediaInfo(durationUs: 60 * s, width: 1920, height: 1080),
+  sourceDurationUs: 60 * s,
+  sourceInUs: 0,
+  sourceOutUs: 4 * s,
+);
+
+void main() {
+  test('cropped, turned or mirrored clips get a preview copy', () {
+    final p = Project.empty(id: 'p', frameRate: 30).insertMedia([video('a')]);
+    final id = p.mainTrack.clips.single.id;
+    expect(p.speedKey(0), '');
+    for (final changed in [
+      p.updateClip(id, (c) => c.copyWith(crop: const CropRect(0.1, 0, 1, 1))),
+      p.updateClip(id, (c) => c.copyWith(rotation: 1)),
+      p.updateClip(id, (c) => c.copyWith(flipH: true)),
+    ]) {
+      expect(changed.speedKey(0), isNotEmpty);
+    }
+  });
+
+  test('timeline zoom is remembered per project', () {
+    final p = Project.empty(id: 'zoom-test', frameRate: 30);
+    final c = EditorController(p);
+    c.setZoom(120);
+    expect(EditorController(p).pixelsPerSecond, 120);
+    AppSettings.instance.forgetProject('zoom-test');
+    expect(EditorController(p).pixelsPerSecond, 32);
+  });
+}

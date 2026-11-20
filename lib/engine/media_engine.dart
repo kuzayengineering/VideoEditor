@@ -194,9 +194,8 @@ List<PreviewSegment> segmentsOf(
   for (var i = 0; i < n; i++) {
     final c = clips[i];
     if (!c.isMedia) continue;
-    final atSpeed = (c.speed - 1).abs() < 0.0001
-        ? null
-        : transitionFiles[project.speedKey(i)];
+    final copyKey = project.speedKey(i);
+    final atSpeed = copyKey.isEmpty ? null : transitionFiles[copyKey];
     if (atSpeed != null) {
       // A ready-made copy at its speed (preview only): the part between
       // any transitions.

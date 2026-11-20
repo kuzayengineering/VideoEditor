@@ -427,9 +427,10 @@ class _EditorScreenState extends State<_Editor>
     }
   }
 
-  /// Android: clips at a changed speed get a ready-to-play copy made in the
-  /// background (like transitions), so the preview's simple player can play
-  /// them, without the hitch the effects player shows at their cuts.
+  /// Android: clips at a changed speed, or cropped, turned or mirrored, get
+  /// a ready-to-play copy made in the background (like transitions), so the
+  /// preview's simple player can play them, without the lag and the hitch
+  /// at cuts the effects player shows.
   void _renderSpeedClips(Project project) {
     for (var i = 0; i < project.mainTrack.clips.length; i++) {
       final key = project.speedKey(i);
