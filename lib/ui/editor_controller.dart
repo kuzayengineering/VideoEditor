@@ -491,7 +491,9 @@ class EditorController extends ChangeNotifier {
   void deleteSelected() {
     final id = _selectedClipId;
     if (id == null) return;
-    _apply(project.deleteClip(id));
+    final next = project.deleteClip(id);
+    _playheadUs = playheadAfterDelete(project, next, id, _playheadUs);
+    _apply(next);
   }
 
   void setCanvas(CanvasRatio canvas) => _apply(project.withCanvas(canvas));

@@ -1022,3 +1022,31 @@ class Project {
     );
   }
 }
+
+/// Where the playhead goes when clip [deletedId] is removed ([before] →
+/// [after]): on the same video frame it was showing (later main clips move
+/// up, so the time changes), or, if that frame was in the deleted clip, at
+/// the start of the clip that followed it. Deleting from other tracks moves
+/// nothing, so the playhead stays put.
+int playheadAfterDelete(
+  Project before,
+  Project after,
+  int deletedId,
+  int playheadUs,
+) {
+  final del = before.placementOf(deletedId);
+  if (del == null || del.track.kind != TrackKind.main) {
+    return playheadUs.clamp(0, after.durationUs);
+  }
+  final at = before.mainClipAt(playheadUs);
+  if (at == null) return after.durationUs; // was at the very end
+  if (at.clip.id == deletedId) {
+    final clips = before.mainTrack.clips;
+    final i = del.index + 1;
+    if (i >= clips.length) return after.durationUs;
+    return after.placementOf(clips[i].id)?.startUs ?? 0;
+  }
+  final now = after.placementOf(at.clip.id);
+  if (now == null) return playheadUs.clamp(0, after.durationUs);
+  return (now.startUs + playheadUs - at.startUs).clamp(0, after.durationUs);
+}

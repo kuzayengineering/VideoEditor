@@ -635,6 +635,23 @@ class _TimelinePainter extends CustomPainter {
       }
     }
 
+    // The clip's length, always shown on a dark tag so it reads over
+    // pictures: bottom right on tall rows, beside the name on short ones.
+    final dur = TextPainter(
+      text: TextSpan(
+        text: formatShortDuration(p.clip.durationUs),
+        style: textStyle.copyWith(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final tagW = dur.width + 8, tagH = dur.height + 2;
+    final showDur = tagW + 8 < rect.width;
+    final durBeside = showDur && height < 40;
+
     final name = TextPainter(
       text: TextSpan(
         text: [
@@ -652,26 +669,21 @@ class _TimelinePainter extends CustomPainter {
       textDirection: TextDirection.ltr,
       maxLines: 1,
       ellipsis: '…',
-    )..layout(maxWidth: math.max(0, rect.width - 12));
+    )..layout(maxWidth: math.max(0, rect.width - 12 - (durBeside ? tagW + 6 : 0)));
     name.paint(canvas, Offset(rect.left + 6, rect.top + 4));
 
-    if (height >= 40) {
-      final dur = TextPainter(
-        text: TextSpan(
-          text: formatShortDuration(p.clip.durationUs),
-          style: textStyle.copyWith(
-            color: Colors.white.withValues(alpha: 0.85),
-            fontSize: 10,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      if (dur.width + 12 < rect.width) {
-        dur.paint(
-          canvas,
-          Offset(rect.right - dur.width - 6, rect.bottom - dur.height - 4),
-        );
-      }
+    if (showDur) {
+      final tag = Rect.fromLTWH(
+        rect.right - tagW - 4,
+        durBeside ? rect.top + 3 : rect.bottom - tagH - 3,
+        tagW,
+        tagH,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(tag, const Radius.circular(3)),
+        Paint()..color = Colors.black.withValues(alpha: 0.55),
+      );
+      dur.paint(canvas, Offset(tag.left + 4, tag.top + 1));
     }
     canvas.restore();
 
