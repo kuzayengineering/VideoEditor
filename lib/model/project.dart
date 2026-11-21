@@ -741,6 +741,22 @@ class Project {
   Project deleteClip(int clipId) {
     final p = placementOf(clipId);
     if (p == null) return this;
+    if (p.track.kind == TrackKind.main) {
+      // Text and picture overlays that start on this clip's frames go with
+      // it (they stick to their frames). Sound stays.
+      final gone = [
+        for (final t in [...overlayTracks, ...textTracks])
+          for (final c in t.clips)
+            if (c.anchor?.clipId == clipId) c.id,
+      ];
+      if (gone.isNotEmpty) {
+        var q = this;
+        for (final id in gone) {
+          q = q.deleteClip(id);
+        }
+        return q.deleteClip(clipId);
+      }
+    }
     final clips = [...p.track.clips]..removeAt(p.index);
     if (p.track.kind == TrackKind.audio && clips.isEmpty) {
       return copyWith(

@@ -83,17 +83,6 @@ void main() {
     expect(startOf(c, 'Hi'), 5 * s);
   });
 
-  test('when its frame is deleted the layer stays where it was', () {
-    final c = setUp();
-    c.apply(c.project.deleteClip(idOf(c, 'b')));
-    expect(startOf(c, 'Hi'), 5 * s);
-    // ...and from then on it follows nothing until there is video there.
-    c.apply(c.project.insertMedia([video('c', 6)]));
-    // c fills 4-10 s: the text is re-attached to c's frame at 5 s.
-    c.apply(c.project.insertMedia([video('intro', 1)], index: 0));
-    expect(startOf(c, 'Hi'), 6 * s);
-  });
-
   test('a split clip keeps its layers on the right half', () {
     final c = setUp();
     c.apply(c.project.splitAt(6 * s)); // b becomes 4-6 and 6-8
@@ -124,5 +113,23 @@ void main() {
     // One undo step.
     c.undo();
     expect(c.project.mainTrack.clips.length, 2);
+  });
+
+  test('deleting a main clip deletes the text on it, keeps sound', () {
+    final c = setUp(); // a 0-4 s, b 4-8 s; 'Hi' at 5 s (on b); music at 1 s
+    final b = c.project.mainTrack.clips[1].id;
+    c.select(b);
+    c.deleteSelected();
+    expect(c.project.textTracks.expand((t) => t.clips), isEmpty);
+    expect(startOf(c, 'music'), 1 * s);
+    c.undo();
+    expect(startOf(c, 'Hi'), 5 * s);
+  });
+
+  test('deleting a main clip keeps text on other clips', () {
+    final c = setUp();
+    c.select(c.project.mainTrack.clips[0].id);
+    c.deleteSelected();
+    expect(startOf(c, 'Hi'), 1 * s); // b moved up 4 s, and its text too
   });
 }
