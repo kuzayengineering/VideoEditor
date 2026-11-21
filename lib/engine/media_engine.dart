@@ -721,6 +721,10 @@ abstract class MediaEngine {
   /// Which of [sources] can no longer be opened (moved, renamed or deleted).
   Future<Set<String>> missingSources(Iterable<String> sources);
 
+  /// The real file name of [source] (e.g. "PXL_20261120_153012345.mp4"),
+  /// where the way it was picked hid it; null if unknown.
+  Future<String?> realFileName(String source) async => null;
+
   /// Asks the user to choose a folder to look for missing files in.
   Future<String?> pickSearchFolder();
 
@@ -790,6 +794,9 @@ class NoMediaEngine implements MediaEngine {
 
   @override
   Future<Set<String>> missingSources(Iterable<String> sources) async => {};
+
+  @override
+  Future<String?> realFileName(String source) async => null;
 
   @override
   Future<String?> pickSearchFolder() async => null;

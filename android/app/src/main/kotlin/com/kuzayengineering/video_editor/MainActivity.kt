@@ -33,6 +33,9 @@ class MainActivity : FlutterActivity() {
     private var textures: io.flutter.view.TextureRegistry? = null
 
     private var pendingPick: MethodChannel.Result? = null
+    /** Waiting for the answer to the video-access question. */
+    private val afterVideoAccess = mutableListOf<() -> Unit>()
+    private var askedVideoAccess = false
     private var pendingFolder: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -70,6 +73,10 @@ class MainActivity : FlutterActivity() {
     private fun onCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "pickVideos" -> pickVideos(result)
+            "realFileName" -> {
+                val source = call.argument<String>("source")!!
+                withVideoAccess { result.success(realFileName(Uri.parse(source))) }
+            }
             "pickAudio" -> pickAudio(result)
             "reverse" -> {
                 val source = call.argument<String>("source")!!
@@ -347,6 +354,69 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun videoPermission() =
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+
+    private fun hasVideoAccess() =
+        checkSelfPermission(videoPermission()) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Runs [then] once the user has answered the video-access question
+     * (asked at most once per app run; used only to look up the real names
+     * of videos picked with the photo picker, which hides them).
+     */
+    private fun withVideoAccess(then: () -> Unit) {
+        if (hasVideoAccess() || askedVideoAccess) {
+            then()
+            return
+        }
+        afterVideoAccess += then
+        if (afterVideoAccess.size == 1) {
+            askedVideoAccess = true
+            requestPermissions(arrayOf(videoPermission()), REQUEST_VIDEO_ACCESS)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_VIDEO_ACCESS) {
+            val waiting = afterVideoAccess.toList()
+            afterVideoAccess.clear()
+            waiting.forEach { it() }
+        }
+    }
+
+    /**
+     * The video's real file name (e.g. PXL_20261120_153012345.mp4). The
+     * photo picker only gives a number for privacy; with video access the
+     * real name is looked up in the phone's media library by that number.
+     */
+    private fun realFileName(uri: Uri): String? {
+        val id = uri.lastPathSegment?.toLongOrNull()
+        if (id != null && uri.authority == MediaStore.AUTHORITY && hasVideoAccess()) {
+            try {
+                val item = android.content.ContentUris.withAppendedId(
+                    MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                    id,
+                )
+                contentResolver.query(
+                    item, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null,
+                )?.use { c ->
+                    if (c.moveToFirst()) c.getString(0)?.let { return it }
+                }
+            } catch (_: Exception) {
+            }
+        }
+        val name = displayName(uri)
+        // A bare number is the picker's stand-in, not a real name.
+        return if (name.substringBeforeLast('.').all { it.isDigit() }) null else name
+    }
+
     private fun displayName(uri: Uri): String {
         try {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
@@ -369,5 +439,6 @@ class MainActivity : FlutterActivity() {
         private const val REQUEST_PICK_VIDEOS = 41
         private const val REQUEST_PICK_FOLDER = 42
         private const val REQUEST_NOTIFY = 43
+        private const val REQUEST_VIDEO_ACCESS = 44
     }
 }

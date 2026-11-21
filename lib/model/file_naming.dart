@@ -4,7 +4,18 @@ import 'project.dart';
 /// clips (by the date it was recorded; else the last clip), with its first
 /// three letters (such as PXL or IMG) replaced by KVE:
 /// "PXL_20261112_093015123" → "KVE_20261112_093015123.mp4".
-String exportFileName(Project project) {
+String exportFileName(Project project, {String? realName}) {
+  final pick = exportNameClip(project);
+  var stem = (realName ?? pick?.name ?? '').trim();
+  // Without its extension.
+  final dot = stem.lastIndexOf('.');
+  if (realName != null && dot > 0) stem = stem.substring(0, dot);
+  return _named(project, stem);
+}
+
+/// The main-video clip an export is named after: the most recently filmed
+/// one (or the last, when the dates aren't known).
+Clip? exportNameClip(Project project) {
   final media = [
     for (final c in project.mainTrack.clips)
       if (c.isMedia) c,
@@ -21,8 +32,11 @@ String exportFileName(Project project) {
   } else if (media.isNotEmpty) {
     pick = media.last;
   }
-  var stem = pick?.name.trim() ?? '';
-  stem = stem.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+  return pick;
+}
+
+String _named(Project project, String name) {
+  var stem = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   if (stem.isEmpty) {
     final safe = project.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
     stem = safe.isEmpty ? 'Video' : safe;

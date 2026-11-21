@@ -120,5 +120,12 @@ void main() {
     expect(exportFileName(p), 'KVE_20261112_0900.mp4');
     // Taken names get a number on the end.
     expect(numberedFileName('KVE_2.mp4', 2), 'KVE_2_2.mp4');
+    // A clip picked with the photo picker only knows a number; the real
+    // name looked up on the phone is used instead.
+    p = Project.empty(id: 'p').insertMedia([clip('1000012345', null)]);
+    expect(
+      exportFileName(p, realName: 'PXL_20261120_153012345.mp4'),
+      'KVE_20261120_153012345.mp4',
+    );
   });
 }

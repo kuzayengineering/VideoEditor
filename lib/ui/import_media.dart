@@ -59,11 +59,13 @@ Future<List<Clip>> pickAndReadVideos(
       if (!info.hasVideo || info.width == 0) {
         throw Exception('it has no picture (use "Music" to add sound files)');
       }
+      // The photo picker hides real names ("PXL_…"); look it up.
+      final real = await engine.realFileName(p.source);
       clips.add(
         Clip(
           id: 0,
           kind: ClipKind.video,
-          name: niceFileName(p.displayName),
+          name: niceFileName(real ?? p.displayName),
           sourcePath: p.source,
           media: info,
           sourceDurationUs: info.durationUs,

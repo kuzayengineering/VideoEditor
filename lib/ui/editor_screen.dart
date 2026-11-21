@@ -599,12 +599,19 @@ class _EditorScreenState extends State<_Editor>
       if (!mounted) return;
       // The export gets the phone's video decoders; the preview comes back
       // when the progress screen closes.
+      // Named after the newest clip's real file name (clips added before
+      // the app could see real names only know a number).
+      final nameClip = exportNameClip(c.project);
+      final realName = nameClip?.sourcePath == null
+          ? null
+          : await _engine.realFileName(nameClip!.sourcePath!);
+      if (!mounted) return;
       await c.suspendPreview();
       final job = await _engine.startExport(
         ExportRequest(
           project: c.project,
           settings: c.exportSettings,
-          fileName: exportFileName(c.project),
+          fileName: exportFileName(c.project, realName: realName),
           textImages: textImages,
         ),
       );

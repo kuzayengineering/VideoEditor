@@ -339,6 +339,9 @@ class FfmpegEngine implements MediaEngine {
   }
 
   @override
+  Future<String?> realFileName(String source) async => null; // paths are real
+
+  @override
   Future<Set<String>> missingSources(Iterable<String> sources) async => {
     for (final s in sources)
       if (!await File(s).exists()) s,

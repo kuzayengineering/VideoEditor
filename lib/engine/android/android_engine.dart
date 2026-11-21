@@ -168,6 +168,17 @@ class AndroidMediaEngine implements MediaEngine {
       _channel.invokeMethod('deleteThumbnails', {'sources': sources.toList()});
 
   @override
+  Future<String?> realFileName(String source) async {
+    try {
+      return await _channel.invokeMethod<String>('realFileName', {
+        'source': source,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<Set<String>> missingSources(Iterable<String> sources) async {
     final list = await _channel.invokeListMethod<String>('missingSources', {
       'sources': sources.toList(),
