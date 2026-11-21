@@ -76,4 +76,22 @@ void main() {
     c.advancePlayback(4 * s);
     expect(c.playheadUs, 8 * s); // plays on normally
   });
+
+  test('several live changes in one panel are all kept, as one undo', () {
+    final c = setUp();
+    final id = idOf(c, 'b');
+    c.liveEdit((p) => p.updateClip(id, (x) => x.copyWith(fadeInUs: 300000)));
+    c.liveEdit((p) => p.updateClip(id, (x) => x.copyWith(fadeOutUs: 400000)));
+    c.liveEdit((p) => p.updateClip(id, (x) => x.copyWith(volume: 0.5)));
+    c.endLiveEdit();
+    final b = c.project.placementOf(id)!.clip;
+    expect(b.fadeInUs, 300000);
+    expect(b.fadeOutUs, 400000);
+    expect(b.volume, 0.5);
+    c.undo();
+    final before = c.project.placementOf(id)!.clip;
+    expect(before.fadeInUs, 0);
+    expect(before.fadeOutUs, 0);
+    expect(before.volume, 1);
+  });
 }

@@ -677,9 +677,15 @@ class EditorController extends ChangeNotifier {
 
   /// Live changes while a slider is being dragged; [endLiveEdit] makes them
   /// one undo step.
-  void liveEdit(Project Function(Project base) change) {
-    final base = history.beginGesture();
-    history.updateGesture(settleLayers(base, change(base)));
+  ///
+  /// [change] gets the project as it is now, with this gesture's earlier
+  /// changes (callers set absolute values), so moving one slider and then
+  /// another in the same panel keeps both. The whole gesture stays one
+  /// undo step.
+  void liveEdit(Project Function(Project now) change) {
+    history.beginGesture();
+    final now = project;
+    history.updateGesture(settleLayers(now, change(now)));
     _playheadUs = _playheadUs.clamp(0, project.durationUs);
     notifyListeners();
     _liveGrades();
