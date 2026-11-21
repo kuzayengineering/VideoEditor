@@ -967,6 +967,78 @@ class Project {
     return updateClip(clipId, (c) => c.copyWith(startUs: start));
   }
 
+  /// Moves a sound, text or picture-in-picture clip to start near
+  /// [newStartUs] on row [trackId] (its own row if null; a new row of its
+  /// kind if [newTrack]). It lands in the free spot nearest to where it was
+  /// dropped, so it can pass other clips. Rows it leaves empty stay until
+  /// [withoutEmptyLayerTracks] (so rows don't jump about during a drag).
+  Project moveLayerClip(
+    int clipId,
+    int newStartUs, {
+    int? trackId,
+    bool newTrack = false,
+  }) {
+    final p = placementOf(clipId);
+    if (p == null || p.track.kind == TrackKind.main) return this;
+    final kind = p.track.kind;
+    final rows = switch (kind) {
+      TrackKind.text => textTracks,
+      TrackKind.overlay => overlayTracks,
+      _ => audioTracks,
+    };
+    final source = p.track.withClips([
+      for (final c in p.track.clips)
+        if (c.id != clipId) c,
+    ]);
+    var q = _withTrack(source);
+    final want = math.max(0, newStartUs);
+    if (newTrack) {
+      final track = Track(
+        id: q.nextId,
+        kind: kind,
+        clips: List.unmodifiable([p.clip.copyWith(startUs: want)]),
+      );
+      return switch (kind) {
+        TrackKind.text => q.copyWith(
+          textTracks: [...q.textTracks, track],
+          nextId: q.nextId + 1,
+        ),
+        TrackKind.overlay => q.copyWith(
+          overlayTracks: [...q.overlayTracks, track],
+          nextId: q.nextId + 1,
+        ),
+        _ => q.copyWith(
+          audioTracks: [...q.audioTracks, track],
+          nextId: q.nextId + 1,
+        ),
+      };
+    }
+    final targetId = rows.any((t) => t.id == trackId) ? trackId! : source.id;
+    final target = targetId == source.id
+        ? source
+        : rows.firstWhere((t) => t.id == targetId);
+    final start = freeStartNear(target.clips, want, p.clip.durationUs);
+    final clips = [...target.clips, p.clip.copyWith(startUs: start)]
+      ..sort((a, b) => a.startUs.compareTo(b.startUs));
+    q = q._withTrack(target.withClips(clips));
+    return q;
+  }
+
+  /// Removes sound, text and picture-in-picture rows that have no clips.
+  Project withoutEmptyLayerTracks() {
+    bool used(Track t) => t.clips.isNotEmpty;
+    if (overlayTracks.every(used) &&
+        audioTracks.every(used) &&
+        textTracks.every(used)) {
+      return this;
+    }
+    return copyWith(
+      overlayTracks: [...overlayTracks.where(used)],
+      audioTracks: [...audioTracks.where(used)],
+      textTracks: [...textTracks.where(used)],
+    );
+  }
+
   /// Copies a video clip's sound onto an audio track (same moment, same
   /// part of the file) and mutes the video, so the sound can be edited on
   /// its own.
@@ -1073,4 +1145,30 @@ int playheadAfterDelete(
   final now = after.placementOf(at.clip.id);
   if (now == null) return playheadUs.clamp(0, after.durationUs);
   return (now.startUs + playheadUs - at.startUs).clamp(0, after.durationUs);
+}
+
+/// The start nearest to [wantUs] where a clip [durationUs] long fits
+/// between [others] (sorted by start) without overlapping any.
+int freeStartNear(List<Clip> others, int wantUs, int durationUs) {
+  final sorted = [...others]..sort((a, b) => a.startUs.compareTo(b.startUs));
+  var best = wantUs;
+  int? bestGap;
+  var gapStart = 0;
+  for (var i = 0; i <= sorted.length; i++) {
+    final gapEnd = i < sorted.length ? sorted[i].startUs : null;
+    final latest = gapEnd == null ? null : gapEnd - durationUs;
+    if (latest == null || latest >= gapStart) {
+      var s = wantUs < gapStart ? gapStart : wantUs;
+      if (latest != null && s > latest) s = latest;
+      final off = (s - wantUs).abs();
+      if (bestGap == null || off < bestGap) {
+        bestGap = off;
+        best = s;
+      }
+    }
+    if (i < sorted.length) {
+      gapStart = math.max(gapStart, sorted[i].endUs);
+    }
+  }
+  return best;
 }

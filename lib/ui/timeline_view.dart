@@ -144,15 +144,64 @@ class _TimelineViewState extends State<TimelineView> {
         : bestStart;
   }
 
-  void _moveBy(double dx) {
-    final clip = c.project.placementOf(_moveClipId)?.clip;
-    if (clip == null) return;
+  /// Drags the clip being moved: sideways by [dx] (it can pass other
+  /// clips, landing in the nearest free spot) and onto the row of its kind
+  /// under [y] (below the last such row: a new row).
+  void _moveBy(double dx, double? y) {
+    final project = c.project;
+    final p = project.placementOf(_moveClipId);
+    if (p == null) return;
     final delta = (dx / c.pixelsPerSecond * usPerSecond).round();
-    final target = _snapped(_moveClipId, _moveStartUs + delta, clip.durationUs);
-    c.liveEdit((base) => base.moveAudioClip(_moveClipId, target));
+    final target = _snapped(
+      _moveClipId,
+      _moveStartUs + delta,
+      p.clip.durationUs,
+    );
+    int? trackId;
+    var newTrack = false;
+    if (y != null) {
+      final rows = [
+        for (final lane in _lanes(project))
+          if (lane.$1.kind == p.track.kind) lane,
+      ];
+      for (final (track, top, height) in rows) {
+        if (y >= top - TimelineView.trackGap / 2 &&
+            y < top + height + TimelineView.trackGap / 2) {
+          trackId = track.id;
+        }
+      }
+      if (trackId == null && rows.isNotEmpty) {
+        final last = rows.last;
+        if (y >= last.$2 + last.$3) {
+          // Below the last row: a new one (unless it's alone on the last
+          // row already).
+          if (last.$1.id == p.track.id && p.track.clips.length == 1) {
+            trackId = last.$1.id;
+          } else {
+            newTrack = true;
+          }
+        } else if (y < rows.first.$2) {
+          trackId = rows.first.$1.id;
+        }
+      }
+    }
+    c.liveEdit(
+      (now) => now.moveLayerClip(
+        _moveClipId,
+        target,
+        trackId: trackId,
+        newTrack: newTrack,
+      ),
+    );
   }
 
   void _endMove() {
+    // Rows left empty by the move go (same undo step as the move).
+    if (c.project.overlayTracks.any((t) => t.clips.isEmpty) ||
+        c.project.audioTracks.any((t) => t.clips.isEmpty) ||
+        c.project.textTracks.any((t) => t.clips.isEmpty)) {
+      c.liveEdit((now) => now.withoutEmptyLayerTracks());
+    }
     c.endLiveEdit();
     if (_snapUs != null) setState(() => _snapUs = null);
   }
@@ -266,7 +315,7 @@ class _TimelineViewState extends State<TimelineView> {
         c.updateTrim((_dragDx / c.pixelsPerSecond * usPerSecond).round());
       case _DragMode.move:
         _dragDx += d.focalPointDelta.dx;
-        _moveBy(_dragDx);
+        _moveBy(_dragDx, d.localFocalPoint.dy);
       case _DragMode.none:
         break;
     }
@@ -322,7 +371,9 @@ class _TimelineViewState extends State<TimelineView> {
   }
 
   void _onLongPressMove(LongPressMoveUpdateDetails d) {
-    if (_mode == _DragMode.move) _moveBy(d.offsetFromOrigin.dx);
+    if (_mode == _DragMode.move) {
+      _moveBy(d.offsetFromOrigin.dx, d.localPosition.dy);
+    }
   }
 
   void _onLongPressEnd(LongPressEndDetails d) {
