@@ -59,4 +59,21 @@ void main() {
     c.deleteSelected();
     expect(c.playheadUs, 7 * s);
   });
+
+  test('with a tool panel open, playing repeats the selected clip', () {
+    final c = setUp(); // a 0-4 s, b 4-7 s, c 7-12 s
+    c.select(idOf(c, 'b'));
+    c.setLoopSelected(true);
+    c.seek(1 * s);
+    c.play();
+    expect(c.playheadUs, 4 * s); // jumped to the start of b
+    c.advancePlayback(2 * s);
+    expect(c.playheadUs, 6 * s);
+    c.advancePlayback(2 * s); // would pass the end of b
+    expect(c.playheadUs, 4 * s);
+    expect(c.playing, isTrue);
+    c.setLoopSelected(false);
+    c.advancePlayback(4 * s);
+    expect(c.playheadUs, 8 * s); // plays on normally
+  });
 }

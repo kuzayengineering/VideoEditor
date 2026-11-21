@@ -361,9 +361,33 @@ class EditorController extends ChangeNotifier {
     seek(frameStartUs(frame < 0 ? 0 : frame, fps), exact: true);
   }
 
+  /// While a tool panel is open for a clip, playback repeats that clip's
+  /// stretch of the timeline (to hear or see the effect over and over).
+  bool _loopSelected = false;
+  bool get loopsSelected => _loopSelected;
+  void setLoopSelected(bool on) => _loopSelected = on;
+
+  /// The stretch being repeated, if any (start, end).
+  (int, int)? get loopRange {
+    final id = _selectedClipId;
+    if (!_loopSelected || id == null) return null;
+    final p = project.placementOf(id);
+    if (p == null) return null;
+    final start = p.startUs.clamp(0, project.durationUs);
+    final end = p.endUs.clamp(0, project.durationUs);
+    if (end - start < 2 * project.frameUs) return null;
+    return (start, end);
+  }
+
   void play() {
     if (_playing || project.durationUs == 0) return;
-    if (_playheadUs >= project.durationUs - project.frameUs) {
+    final loop = loopRange;
+    if (loop != null &&
+        (_playheadUs < loop.$1 || _playheadUs >= loop.$2 - project.frameUs)) {
+      _playheadUs = loop.$1;
+      _seekPreview(exact: true);
+      _audio?.sync(project, _playheadUs);
+    } else if (_playheadUs >= project.durationUs - project.frameUs) {
       _playheadUs = 0;
       _seekPreview(exact: true);
     }
@@ -397,6 +421,14 @@ class EditorController extends ChangeNotifier {
   /// Called by the screen on every display refresh while playing.
   void advancePlayback(int elapsedUs) {
     if (!_playing) return;
+    final loop = loopRange;
+    if (loop != null && _playheadUs + elapsedUs >= loop.$2) {
+      // Back to the start of the clip being worked on.
+      pause();
+      seek(loop.$1, exact: true);
+      play();
+      return;
+    }
     if (usesPreview) {
       _followPlayer(elapsedUs);
       return;

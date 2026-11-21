@@ -109,6 +109,14 @@ class _EditorScreenState extends State<_Editor>
     super.didChangeDependencies();
     if (_thumbs != null) return;
     _services = AppServices.of(context);
+    // While a tool panel is open for a clip, playing repeats that clip.
+    final panels = ToolPanelScope.maybeOf(context);
+    panels?.addListener(
+      () => c.setLoopSelected(
+        // (The transition picker plays across the cut itself.)
+        panels.current != null && panels.current!.title != 'Transition',
+      ),
+    );
     _thumbs = ThumbnailCache(_engine)..ensureFor(c.project);
     _waves = WaveformCache(_engine)..ensureFor(c.project);
     _reverses = ReverseJobs(_engine);
