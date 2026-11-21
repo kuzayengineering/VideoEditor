@@ -54,7 +54,11 @@ class TextSpec {
     this.animInUs = 500000,
     this.animOut = TextAnim.fade,
     this.animOutUs = 500000,
+    this.opacity = 1.0,
   });
+
+  /// How solid the whole text is (box and outline too): 1 solid, 0 unseen.
+  final double opacity;
 
   final String text;
   final String font;
@@ -110,6 +114,7 @@ class TextSpec {
     int? animInUs,
     TextAnim? animOut,
     int? animOutUs,
+    double? opacity,
   }) => TextSpec(
     text: text ?? this.text,
     font: font ?? this.font,
@@ -130,6 +135,7 @@ class TextSpec {
     animInUs: animInUs ?? this.animInUs,
     animOut: animOut ?? this.animOut,
     animOutUs: animOutUs ?? this.animOutUs,
+    opacity: (opacity ?? this.opacity).clamp(0.0, 1.0),
   );
 
   /// Appearance that matters for drawing (not position or timing).
@@ -147,6 +153,7 @@ class TextSpec {
     align.name,
     scale,
     rotation,
+    opacity,
   ].join('|');
 
   Map<String, Object?> toJson() => {
@@ -169,6 +176,7 @@ class TextSpec {
     'animInUs': animInUs,
     'animOut': animOut.name,
     'animOutUs': animOutUs,
+    if (opacity < 1) 'opacity': opacity,
   };
 
   factory TextSpec.fromJson(Map<String, Object?> j) {
@@ -198,6 +206,7 @@ class TextSpec {
       animInUs: i('animInUs', 500000),
       animOut: anim('animOut'),
       animOutUs: i('animOutUs', 500000),
+      opacity: d('opacity', 1),
     );
   }
 }

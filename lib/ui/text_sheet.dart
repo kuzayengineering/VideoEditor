@@ -73,11 +73,17 @@ class _TextSheetState extends State<_TextSheet> {
   }
 
   void _edit(TextSpec Function(TextSpec s) change) {
+    // Built on the text as it is now (with this panel's earlier changes),
+    // not as it was when the panel opened: otherwise each change undid the
+    // ones before it (the colour kept going back).
+    final now = spec;
+    if (now == null) return;
+    final next = change(now);
     c.liveEdit(
-      (base) => base.updateClip(widget.clipId, (x) {
-        final next = change(x.text!);
-        return x.copyWith(text: next, name: next.text);
-      }),
+      (base) => base.updateClip(
+        widget.clipId,
+        (x) => x.copyWith(text: next, name: next.text),
+      ),
     );
   }
 
@@ -210,6 +216,13 @@ class _TextSheetState extends State<_TextSheet> {
                     _colors(
                       s.colorValue,
                       (v) => _edit((x) => x.copyWith(colorValue: v)),
+                    ),
+                    _label('Opacity  ${(s.opacity * 100).round()} %'),
+                    Slider(
+                      min: 0.05,
+                      max: 1,
+                      value: s.opacity.clamp(0.05, 1.0),
+                      onChanged: (v) => _edit((x) => x.copyWith(opacity: v)),
                     ),
                     const SizedBox(height: 12),
                     Wrap(

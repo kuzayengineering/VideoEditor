@@ -45,4 +45,16 @@ void main() {
     expect(spec.animIn, TextAnim.none);
     expect(spec.animOut, TextAnim.fade);
   });
+
+  test('text opacity is kept, saved and read back', () {
+    const spec = TextSpec(text: 'Hi', colorValue: 0xFFE53935);
+    final faded = spec.copyWith(opacity: 0.4, size: 0.1);
+    expect(faded.colorValue, 0xFFE53935);
+    expect(faded.opacity, 0.4);
+    final back = TextSpec.fromJson(faded.toJson());
+    expect(back.opacity, 0.4);
+    expect(back.colorValue, 0xFFE53935);
+    expect(TextSpec.fromJson(spec.toJson()).opacity, 1);
+    expect(const TextSpec().colorValue, 0xFFFFFFFF);
+  });
 }

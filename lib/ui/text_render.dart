@@ -92,6 +92,14 @@ void paintText(
 }) {
   final fontSize = s.size * frameHeight * s.scale;
   final tp = layoutText(s, frameHeight, visibleChars: visibleChars);
+  final seeThrough = s.opacity < 0.999;
+  if (seeThrough) {
+    // The whole text (box, outline, letters) as one see-through layer.
+    canvas.saveLayer(
+      null,
+      Paint()..color = Colors.white.withValues(alpha: s.opacity),
+    );
+  }
   canvas.save();
   canvas.rotate(s.rotation * math.pi / 180);
   final topLeft = Offset(-tp.width / 2, -tp.height / 2);
@@ -126,6 +134,7 @@ void paintText(
   }
   tp.paint(canvas, topLeft);
   canvas.restore();
+  if (seeThrough) canvas.restore();
 }
 
 Future<String> _renderPng(
