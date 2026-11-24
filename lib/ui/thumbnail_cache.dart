@@ -20,6 +20,15 @@ class ThumbnailCache extends ChangeNotifier {
   final Map<String, _SourceThumbs> _sources = {};
   bool _disposed = false;
 
+  /// Exact pictures of each clip's first frame, by "source@time" (a clip's
+  /// start rarely falls on a once-a-second picture).
+  final Map<String, ui.Image> _firsts = {};
+  final Set<String> _firstsWanted = {};
+  final List<(String, MediaInfo, int)> _firstQueue = [];
+  bool _firstsRunning = false;
+
+  static String _key(String source, int timeUs) => '$source@$timeUs';
+
   /// Starts making pictures for every real clip in [project] (once per file).
   void ensureFor(Project project) {
     if (!engine.supportsMedia) return;
@@ -27,12 +36,51 @@ class ThumbnailCache extends ChangeNotifier {
       ...project.mainTrack.clips,
       for (final t in project.overlayTracks) ...t.clips,
     ]) {
-      if (!clip.isMedia || _sources.containsKey(clip.sourcePath)) continue;
+      if (!clip.isMedia) continue;
+      final first = clip.sourceTimeAt(0);
+      if (_firstsWanted.add(_key(clip.sourcePath!, first))) {
+        _firstQueue.add((clip.sourcePath!, clip.media!, first));
+      }
+      if (_sources.containsKey(clip.sourcePath)) continue;
       final thumbs = _SourceThumbs(clip.sourcePath!, clip.media!);
       _sources[clip.sourcePath!] = thumbs;
       _fill(thumbs);
     }
+    _fillFirsts();
   }
+
+  /// Makes the queued first-frame pictures, newest first (just split or
+  /// trimmed), one at a time.
+  Future<void> _fillFirsts() async {
+    if (_firstsRunning) return;
+    _firstsRunning = true;
+    while (_firstQueue.isNotEmpty && !_disposed) {
+      final (source, info, t) = _firstQueue.removeLast();
+      try {
+        final files = await engine.thumbnails(
+          source,
+          info,
+          [t],
+          height: height,
+          exact: true,
+        );
+        final path = files.isEmpty ? null : files.first;
+        if (path == null || _disposed) continue;
+        final codec = await ui.instantiateImageCodec(
+          await File(path).readAsBytes(),
+          targetHeight: height,
+        );
+        _firsts[_key(source, t)] = (await codec.getNextFrame()).image;
+        if (!_disposed) notifyListeners();
+      } catch (_) {}
+    }
+    _firstsRunning = false;
+  }
+
+  /// The exact picture of [clip]'s first frame, once made.
+  ui.Image? firstImageOf(Clip clip) => clip.isMedia
+      ? _firsts[_key(clip.sourcePath!, clip.sourceTimeAt(0))]
+      : null;
 
   Future<void> _fill(_SourceThumbs t) async {
     final times = t.times;
@@ -68,14 +116,18 @@ class ThumbnailCache extends ChangeNotifier {
   }
 
   /// The picture nearest to [timeUs] in [source], or null if none is ready.
-  ui.Image? imageAt(String source, int timeUs) {
+  /// With [fromUs]–[toUs] (a clip's part of the file), only pictures from
+  /// inside that part are used, so a cut-out moment never shows.
+  ui.Image? imageAt(String source, int timeUs, {int? fromUs, int? toUs}) {
     final t = _sources[source];
     if (t == null || t.images.isEmpty) return null;
     final idx = (timeUs / t.intervalUs).round().clamp(0, t.times.length - 1);
+    bool inside(int time) =>
+        (fromUs == null || time >= fromUs) && (toUs == null || time <= toUs);
     // Exact slot first, then the nearest ready neighbour.
     for (var d = 0; d < t.times.length; d++) {
       for (final k in [idx - d, idx + d]) {
-        if (k < 0 || k >= t.times.length) continue;
+        if (k < 0 || k >= t.times.length || !inside(t.times[k])) continue;
         final img = t.images[t.times[k]];
         if (img != null) return img;
       }
@@ -93,6 +145,10 @@ class ThumbnailCache extends ChangeNotifier {
       }
     }
     _sources.clear();
+    for (final img in _firsts.values) {
+      img.dispose();
+    }
+    _firsts.clear();
     super.dispose();
   }
 }

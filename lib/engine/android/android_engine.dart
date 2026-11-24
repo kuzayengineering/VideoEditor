@@ -72,11 +72,13 @@ class AndroidMediaEngine implements MediaEngine {
     MediaInfo info,
     List<int> timesUs, {
     int height = 120,
+    bool exact = false,
   }) async {
     final list = await _channel.invokeListMethod<String?>('thumbnails', {
       'source': source,
       'timesUs': timesUs,
       'height': height,
+      'exact': exact,
     });
     return list ?? List.filled(timesUs.length, null);
   }

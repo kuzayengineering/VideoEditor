@@ -159,8 +159,9 @@ class MainActivity : FlutterActivity() {
                 val source = call.argument<String>("source")!!
                 val times = call.argument<List<Number>>("timesUs")!!.map { it.toLong() }
                 val height = call.argument<Int>("height") ?: 120
+                val exact = call.argument<Boolean>("exact") ?: false
                 background(result) {
-                    MediaProbe.thumbnails(applicationContext, source, times, height)
+                    MediaProbe.thumbnails(applicationContext, source, times, height, exact)
                 }
             }
             "previewSetTimeline" -> {

@@ -64,10 +64,11 @@ class _ReorderScreenState extends State<ReorderScreen> {
                 itemBuilder: (context, i) {
                   final c = _clips[i];
                   final img = c.isMedia
-                      ? widget.thumbnails?.imageAt(
-                          c.sourcePath!,
-                          c.sourceTimeAt(0),
-                        )
+                      ? (widget.thumbnails?.firstImageOf(c) ??
+                            widget.thumbnails?.imageAt(
+                              c.sourcePath!,
+                              c.sourceTimeAt(0),
+                            ))
                       : null;
                   final highlighted = c.id == widget.highlightClipId;
                   return Card(

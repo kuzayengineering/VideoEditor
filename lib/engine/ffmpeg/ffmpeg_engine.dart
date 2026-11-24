@@ -180,6 +180,7 @@ class FfmpegEngine implements MediaEngine {
     MediaInfo info,
     List<int> timesUs, {
     int height = 120,
+    bool exact = false, // FFmpeg's seeking is exact anyway
   }) async {
     final dir = await _thumbnailDirectory();
     final key = source.hashCode.toUnsigned(32).toRadixString(16);

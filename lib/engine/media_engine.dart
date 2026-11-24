@@ -691,6 +691,9 @@ abstract class MediaEngine {
     MediaInfo info,
     List<int> timesUs, {
     int height = 120,
+    // The exact frame at each time (slower) rather than the nearest key
+    // frame.
+    bool exact = false,
   });
 
   /// Prepares a backwards copy of [clip]'s range (see [ReverseProxy]).
@@ -784,6 +787,7 @@ class NoMediaEngine implements MediaEngine {
     MediaInfo info,
     List<int> timesUs, {
     int height = 120,
+    bool exact = false,
   }) async => List.filled(timesUs.length, null);
 
   @override

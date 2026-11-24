@@ -838,7 +838,17 @@ class _TimelinePainter extends CustomPainter {
       final tile = Rect.fromLTWH(x, rect.top, tileW, rect.height);
       final timelineUs = _tAt(x, size).clamp(p.startUs, p.endUs);
       final sourceUs = p.clip.sourceTimeAt(timelineUs - p.startUs);
-      final img = cache.imageAt(p.clip.sourcePath!, sourceUs);
+      // The first tile is the clip's exact first frame; the others come
+      // only from the clip's own part of the file.
+      final img =
+          (x <= rect.left + 0.5 ? cache.firstImageOf(p.clip) : null) ??
+          cache.imageAt(
+            p.clip.sourcePath!,
+            sourceUs,
+            fromUs: p.clip.sourceInUs,
+            toUs: p.clip.sourceOutUs,
+          ) ??
+          cache.firstImageOf(p.clip);
       if (img == null) continue;
       // Cover-fit the image into the tile.
       final iw = img.width.toDouble(), ih = img.height.toDouble();

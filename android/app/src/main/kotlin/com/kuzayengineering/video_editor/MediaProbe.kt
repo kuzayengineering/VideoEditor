@@ -212,7 +212,13 @@ object MediaProbe {
         return null
     }
 
-    fun thumbnails(context: Context, source: String, timesUs: List<Long>, height: Int): List<String?> {
+    fun thumbnails(
+        context: Context,
+        source: String,
+        timesUs: List<Long>,
+        height: Int,
+        exact: Boolean = false,
+    ): List<String?> {
         val dir = File(context.cacheDir, "thumbnails").apply { mkdirs() }
         val key = Integer.toHexString(source.hashCode())
         val retriever = MediaMetadataRetriever()
@@ -226,11 +232,16 @@ object MediaProbe {
             }
             val targetW = maxOf(2, (height.toLong() * w / maxOf(1, h)).toInt())
             return timesUs.map { t ->
-                val file = File(dir, "${key}_${t}_$height.jpg")
+                val file = File(dir, "${key}_${t}_$height${if (exact) "x" else ""}.jpg")
                 if (file.exists()) return@map file.absolutePath
                 try {
                     val bmp = retriever.getScaledFrameAtTime(
-                        t, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, height) ?: return@map null
+                        t,
+                        // Exact: the frame itself (a clip's first frame);
+                        // otherwise the nearest key frame (much faster).
+                        if (exact) MediaMetadataRetriever.OPTION_CLOSEST
+                        else MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        targetW, height) ?: return@map null
                     FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.JPEG, 80, it) }
                     bmp.recycle()
                     file.absolutePath
