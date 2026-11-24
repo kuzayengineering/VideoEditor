@@ -243,8 +243,11 @@ class _TimelineViewState extends State<TimelineView> {
     if (sel != null) {
       for (final (track, top, height) in lanes) {
         if (track.id != sel.track.id || !inLane(top, height)) continue;
-        final left = _xAtTime(sel.startUs, width);
-        final right = _xAtTime(sel.endUs, width);
+        final (left, right) = clipBoxSpan(
+          _xAtTime(sel.startUs, width),
+          _xAtTime(sel.endUs, width),
+          height,
+        );
         const grab = TimelineView.handleWidth + 10;
         if (pos.dx >= left - grab && pos.dx <= left + grab / 2) {
           return (sel, _DragMode.trimStart);
@@ -255,12 +258,17 @@ class _TimelineViewState extends State<TimelineView> {
       }
     }
 
-    for (final (track, top, height) in lanes) {
-      if (!inLane(top, height)) continue;
-      for (final p in project.placementsOn(track)) {
-        final left = _xAtTime(p.startUs, width);
-        final right = _xAtTime(p.endUs, width);
-        if (pos.dx >= left && pos.dx < right) return (p, _DragMode.pan);
+    // Short clips are drawn wider than they are (and on top), so they are
+    // checked first.
+    for (final shortOnly in [true, false]) {
+      for (final (track, top, height) in lanes) {
+        if (!inLane(top, height)) continue;
+        for (final p in project.placementsOn(track)) {
+          final l = _xAtTime(p.startUs, width), r = _xAtTime(p.endUs, width);
+          if ((r - l < height) != shortOnly) continue;
+          final (left, right) = clipBoxSpan(l, r, height);
+          if (pos.dx >= left && pos.dx < right) return (p, _DragMode.pan);
+        }
       }
     }
     return null;
@@ -483,10 +491,20 @@ class _TimelinePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.clipRect(Offset.zero & size);
     _paintRuler(canvas, size);
+    // Short clips are drawn widened to a square, on top of their
+    // neighbours, so they can always be seen and tapped.
+    final short = <(ClipPlacement, double, double)>[];
     for (final (track, top, height) in lanes) {
       for (final p in project.placementsOn(track)) {
-        _paintClip(canvas, size, p, top, height);
+        if (_x(p.endUs, size) - _x(p.startUs, size) < height) {
+          short.add((p, top, height));
+        } else {
+          _paintClip(canvas, size, p, top, height);
+        }
       }
+    }
+    for (final (p, top, height) in short) {
+      _paintClip(canvas, size, p, top, height);
     }
     _paintTransitionButtons(canvas, size);
     if (snapUs != null) {
@@ -637,8 +655,11 @@ class _TimelinePainter extends CustomPainter {
     double top,
     double height,
   ) {
-    final left = _x(p.startUs, size);
-    final right = _x(p.endUs, size);
+    final (left, right) = clipBoxSpan(
+      _x(p.startUs, size),
+      _x(p.endUs, size),
+      height,
+    );
     if (right < -40 || left > size.width + 40) return;
 
     final selected = p.clip.id == selectedClipId;
@@ -864,4 +885,13 @@ class _TimelinePainter extends CustomPainter {
       old.snapUs != snapUs ||
       old.colors != colors ||
       thumbnails != null; // new pictures arrive in the background
+}
+
+/// A clip's box on screen from its true edges: at least as wide as its row
+/// is tall (a square), widened evenly about its middle, so very short
+/// clips can still be seen and tapped.
+(double, double) clipBoxSpan(double left, double right, double height) {
+  if (right - left >= height) return (left, right);
+  final mid = (left + right) / 2;
+  return (mid - height / 2, mid + height / 2);
 }
