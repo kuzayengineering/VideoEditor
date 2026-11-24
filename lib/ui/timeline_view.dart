@@ -11,6 +11,7 @@ import 'editor_controller.dart';
 import 'audio_preview.dart';
 import 'reverse_jobs.dart';
 import 'thumbnail_cache.dart';
+import 'timeline_scale.dart';
 import 'transition_sheet.dart';
 
 /// The YouCut-style timeline: the playhead stays fixed in the middle and the
@@ -90,6 +91,33 @@ class _TimelineViewState extends State<TimelineView> {
   double _zoomStart = 1;
   int _moveClipId = 0;
   int _moveStartUs = 0;
+  int _trimEdgeUs = 0;
+
+  /// The time scale while a clip is moved or trimmed: kept as it was when
+  /// the drag began, so the clip follows the finger even though its own
+  /// change may re-spread the scale.
+  TimelineScale? _dragScale;
+
+  TimelineScale? _scaleCache;
+  Project? _scaleProject;
+  double _scalePps = 0;
+
+  /// Where moments sit on screen (short clips spread out to a square).
+  TimelineScale get _scale {
+    final project = c.project;
+    if (_scaleCache != null &&
+        identical(project, _scaleProject) &&
+        _scalePps == c.pixelsPerSecond) {
+      return _scaleCache!;
+    }
+    _scaleProject = project;
+    _scalePps = c.pixelsPerSecond;
+    return _scaleCache = TimelineScale(c.pixelsPerSecond, [
+      for (final (track, _, height) in _lanes(project))
+        for (final p in project.placementsOn(track))
+          (p.startUs, p.endUs, height),
+    ]);
+  }
 
   /// The moment a moving clip's edge has snapped to (shown as a line).
   int? _snapUs;
@@ -97,7 +125,7 @@ class _TimelineViewState extends State<TimelineView> {
   EditorController get c => widget.controller;
 
   double _xAtTime(int timeUs, double width) =>
-      width / 2 + (timeUs - c.playheadUs) / usPerSecond * c.pixelsPerSecond;
+      width / 2 + _scale.xOf(timeUs) - _scale.xOf(c.playheadUs);
 
   /// Where a clip moved to [rawStartUs] lands: an edge within a few pixels
   /// of another clip's start or end (on any track), the playhead or the
@@ -118,7 +146,9 @@ class _TimelineViewState extends State<TimelineView> {
           ..add(p.endUs);
       }
     }
-    final reach = (10 / c.pixelsPerSecond * usPerSecond).round();
+    // Within 10 pixels (on the time scale as it was when the drag began).
+    final sc = _dragScale ?? _scale;
+    const reach = 10.0;
     int? best;
     var bestStart = rawStartUs;
     var bestGap = reach + 1;
@@ -127,7 +157,7 @@ class _TimelineViewState extends State<TimelineView> {
         (rawStartUs, t), // its start on the target
         (rawStartUs + durationUs, t - durationUs), // its end on the target
       ]) {
-        final gap = (edge - t).abs();
+        final gap = (sc.xOf(edge) - sc.xOf(t)).abs();
         if (gap < bestGap && start >= 0) {
           bestGap = gap;
           best = t;
@@ -151,10 +181,9 @@ class _TimelineViewState extends State<TimelineView> {
     final project = c.project;
     final p = project.placementOf(_moveClipId);
     if (p == null) return;
-    final delta = (dx / c.pixelsPerSecond * usPerSecond).round();
     final target = _snapped(
       _moveClipId,
-      _moveStartUs + delta,
+      (_dragScale ?? _scale).timeMovedBy(_moveStartUs, dx),
       p.clip.durationUs,
     );
     int? trackId;
@@ -203,6 +232,7 @@ class _TimelineViewState extends State<TimelineView> {
       c.liveEdit((now) => now.withoutEmptyLayerTracks());
     }
     c.endLiveEdit();
+    _dragScale = null;
     if (_snapUs != null) setState(() => _snapUs = null);
   }
 
@@ -243,11 +273,8 @@ class _TimelineViewState extends State<TimelineView> {
     if (sel != null) {
       for (final (track, top, height) in lanes) {
         if (track.id != sel.track.id || !inLane(top, height)) continue;
-        final (left, right) = clipBoxSpan(
-          _xAtTime(sel.startUs, width),
-          _xAtTime(sel.endUs, width),
-          height,
-        );
+        final left = _xAtTime(sel.startUs, width);
+        final right = _xAtTime(sel.endUs, width);
         const grab = TimelineView.handleWidth + 10;
         if (pos.dx >= left - grab && pos.dx <= left + grab / 2) {
           return (sel, _DragMode.trimStart);
@@ -258,17 +285,12 @@ class _TimelineViewState extends State<TimelineView> {
       }
     }
 
-    // Short clips are drawn wider than they are (and on top), so they are
-    // checked first.
-    for (final shortOnly in [true, false]) {
-      for (final (track, top, height) in lanes) {
-        if (!inLane(top, height)) continue;
-        for (final p in project.placementsOn(track)) {
-          final l = _xAtTime(p.startUs, width), r = _xAtTime(p.endUs, width);
-          if ((r - l < height) != shortOnly) continue;
-          final (left, right) = clipBoxSpan(l, r, height);
-          if (pos.dx >= left && pos.dx < right) return (p, _DragMode.pan);
-        }
+    for (final (track, top, height) in lanes) {
+      if (!inLane(top, height)) continue;
+      for (final p in project.placementsOn(track)) {
+        final left = _xAtTime(p.startUs, width);
+        final right = _xAtTime(p.endUs, width);
+        if (pos.dx >= left && pos.dx < right) return (p, _DragMode.pan);
       }
     }
     return null;
@@ -285,6 +307,10 @@ class _TimelineViewState extends State<TimelineView> {
     if (hit != null &&
         (hit.$2 == _DragMode.trimStart || hit.$2 == _DragMode.trimEnd)) {
       _mode = hit.$2;
+      _dragScale = _scale;
+      _trimEdgeUs = hit.$2 == _DragMode.trimStart
+          ? hit.$1.startUs
+          : hit.$1.endUs;
       c.beginTrim(hit.$1.clip.id, start: hit.$2 == _DragMode.trimStart);
       HapticFeedback.selectionClick();
     } else if (hit != null &&
@@ -294,6 +320,7 @@ class _TimelineViewState extends State<TimelineView> {
       _mode = _DragMode.move;
       _moveClipId = hit.$1.clip.id;
       _moveStartUs = hit.$1.startUs;
+      _dragScale = _scale;
       c.pause();
       HapticFeedback.selectionClick();
     } else {
@@ -313,14 +340,12 @@ class _TimelineViewState extends State<TimelineView> {
           _zoomStart = c.pixelsPerSecond / d.scale;
           return;
         }
-        c.seek(
-          c.playheadUs -
-              (d.focalPointDelta.dx / c.pixelsPerSecond * usPerSecond).round(),
-        );
+        c.seek(_scale.timeMovedBy(c.playheadUs, -d.focalPointDelta.dx));
       case _DragMode.trimStart:
       case _DragMode.trimEnd:
         _dragDx += d.focalPointDelta.dx;
-        c.updateTrim((_dragDx / c.pixelsPerSecond * usPerSecond).round());
+        final sc = _dragScale ?? _scale;
+        c.updateTrim(sc.timeMovedBy(_trimEdgeUs, _dragDx) - _trimEdgeUs);
       case _DragMode.move:
         _dragDx += d.focalPointDelta.dx;
         _moveBy(_dragDx, d.localFocalPoint.dy);
@@ -332,6 +357,7 @@ class _TimelineViewState extends State<TimelineView> {
   void _onScaleEnd(ScaleEndDetails d) {
     if (_mode == _DragMode.trimStart || _mode == _DragMode.trimEnd) {
       c.endTrim();
+      _dragScale = null;
     }
     if (_mode == _DragMode.pan) c.settle();
     if (_mode == _DragMode.move) _endMove();
@@ -376,6 +402,7 @@ class _TimelineViewState extends State<TimelineView> {
     _mode = _DragMode.move;
     _moveClipId = hit.$1.clip.id;
     _moveStartUs = hit.$1.startUs;
+    _dragScale = _scale;
   }
 
   void _onLongPressMove(LongPressMoveUpdateDetails d) {
@@ -397,10 +424,7 @@ class _TimelineViewState extends State<TimelineView> {
     } else {
       final delta = e.scrollDelta.dx != 0 ? e.scrollDelta.dx : e.scrollDelta.dy;
       c.pause();
-      c.seek(
-        c.playheadUs + (delta / c.pixelsPerSecond * usPerSecond).round(),
-        exact: true,
-      );
+      c.seek(_scale.timeMovedBy(c.playheadUs, delta), exact: true);
     }
   }
 
@@ -437,6 +461,7 @@ class _TimelineViewState extends State<TimelineView> {
                       project: c.project,
                       playheadUs: c.playheadUs,
                       pixelsPerSecond: c.pixelsPerSecond,
+                      scale: _scale,
                       selectedClipId: c.selectedClipId,
                       snapUs: _snapUs,
                       lanes: _lanes(c.project),
@@ -462,6 +487,7 @@ class _TimelinePainter extends CustomPainter {
     required this.project,
     required this.playheadUs,
     required this.pixelsPerSecond,
+    required this.scale,
     required this.selectedClipId,
     this.snapUs,
     required this.lanes,
@@ -476,6 +502,7 @@ class _TimelinePainter extends CustomPainter {
   final ReverseJobs? reverseJobs;
   final int playheadUs;
   final double pixelsPerSecond;
+  final TimelineScale scale;
   final int? selectedClipId;
   final int? snapUs;
   final List<(Track, double, double)> lanes;
@@ -485,26 +512,20 @@ class _TimelinePainter extends CustomPainter {
   final WaveformCache? waveforms;
 
   double _x(int timeUs, Size size) =>
-      size.width / 2 + (timeUs - playheadUs) / usPerSecond * pixelsPerSecond;
+      size.width / 2 + scale.xOf(timeUs) - scale.xOf(playheadUs);
+
+  /// The moment at screen position [x].
+  int _tAt(double x, Size size) =>
+      scale.timeAt(x - size.width / 2 + scale.xOf(playheadUs));
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.clipRect(Offset.zero & size);
     _paintRuler(canvas, size);
-    // Short clips are drawn widened to a square, on top of their
-    // neighbours, so they can always be seen and tapped.
-    final short = <(ClipPlacement, double, double)>[];
     for (final (track, top, height) in lanes) {
       for (final p in project.placementsOn(track)) {
-        if (_x(p.endUs, size) - _x(p.startUs, size) < height) {
-          short.add((p, top, height));
-        } else {
-          _paintClip(canvas, size, p, top, height);
-        }
+        _paintClip(canvas, size, p, top, height);
       }
-    }
-    for (final (p, top, height) in short) {
-      _paintClip(canvas, size, p, top, height);
     }
     _paintTransitionButtons(canvas, size);
     if (snapUs != null) {
@@ -598,12 +619,8 @@ class _TimelinePainter extends CustomPainter {
     final tick = Paint()
       ..color = colors.onSurface.withValues(alpha: 0.35)
       ..strokeWidth = 1;
-    final startSeconds = math.max(
-      0.0,
-      (playheadUs / usPerSecond) - size.width / 2 / pixelsPerSecond,
-    );
-    final endSeconds =
-        (playheadUs / usPerSecond) + size.width / 2 / pixelsPerSecond;
+    final startSeconds = math.max(0.0, _tAt(0, size) / usPerSecond);
+    final endSeconds = _tAt(size.width, size) / usPerSecond;
 
     // Frame ticks when zoomed in far enough to see individual frames.
     if (frameSeconds * pixelsPerSecond >= 6) {
@@ -655,11 +672,8 @@ class _TimelinePainter extends CustomPainter {
     double top,
     double height,
   ) {
-    final (left, right) = clipBoxSpan(
-      _x(p.startUs, size),
-      _x(p.endUs, size),
-      height,
-    );
+    final left = _x(p.startUs, size);
+    final right = _x(p.endUs, size);
     if (right < -40 || left > size.width + 40) return;
 
     final selected = p.clip.id == selectedClipId;
@@ -800,8 +814,7 @@ class _TimelinePainter extends CustomPainter {
     final left = math.max(rect.left, 0.0);
     final right = math.min(rect.right, size.width);
     for (var x = left; x < right; x += 3) {
-      final offsetUs = ((x - rect.left) / pixelsPerSecond * usPerSecond)
-          .round();
+      final offsetUs = _tAt(x, size) - p.startUs;
       final idx = p.clip.sourceTimeAt(offsetUs) ~/ 10000;
       if (idx < 0 || idx >= peaks.length) continue;
       final gain = p.clip.gainAt(offsetUs).clamp(0.0, 1.5);
@@ -823,8 +836,7 @@ class _TimelinePainter extends CustomPainter {
     if (x < -tileW) x += ((-tileW - x) / tileW).floor() * tileW;
     for (; x < rect.right && x < size.width; x += tileW) {
       final tile = Rect.fromLTWH(x, rect.top, tileW, rect.height);
-      final timelineUs =
-          p.startUs + ((x - rect.left) / pixelsPerSecond * usPerSecond).round();
+      final timelineUs = _tAt(x, size).clamp(p.startUs, p.endUs);
       final sourceUs = p.clip.sourceTimeAt(timelineUs - p.startUs);
       final img = cache.imageAt(p.clip.sourcePath!, sourceUs);
       if (img == null) continue;
@@ -881,17 +893,9 @@ class _TimelinePainter extends CustomPainter {
       old.project != project ||
       old.playheadUs != playheadUs ||
       old.pixelsPerSecond != pixelsPerSecond ||
+      !identical(old.scale, scale) ||
       old.selectedClipId != selectedClipId ||
       old.snapUs != snapUs ||
       old.colors != colors ||
       thumbnails != null; // new pictures arrive in the background
-}
-
-/// A clip's box on screen from its true edges: at least as wide as its row
-/// is tall (a square), widened evenly about its middle, so very short
-/// clips can still be seen and tapped.
-(double, double) clipBoxSpan(double left, double right, double height) {
-  if (right - left >= height) return (left, right);
-  final mid = (left + right) / 2;
-  return (mid - height / 2, mid + height / 2);
 }
