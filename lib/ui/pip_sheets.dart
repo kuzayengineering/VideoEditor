@@ -94,7 +94,7 @@ Future<void> showCutoutSheet(BuildContext context, EditorController c) {
             ),
             const SizedBox(height: 6),
             Text(
-              '${pip != null ? 'The person shows over the clips below. ' : 'Everything else becomes the background colour (change it with the Background tool). To put the person over other video, add this clip with PiP instead. '}'
+              '${pip != null ? 'The person shows over the clips below. ' : 'Everything else becomes the background color (change it with the Background tool). To put the person over other video, add this clip with PiP instead. '}'
               'Works best when the person is fairly close to the camera and '
               'stands out from the background.'
               '${Platform.isAndroid ? '' : ' On Windows the cutout is not '

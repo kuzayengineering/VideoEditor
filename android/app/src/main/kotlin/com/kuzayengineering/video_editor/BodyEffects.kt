@@ -125,11 +125,14 @@ vec3 dye(vec3 c, vec3 target, float amount) {
 class EyeColorEffect(
     private val context: Context,
     private val model: String,
+    /** ARGB; 0: keep the colour. */
     private val color: Int,
     private val strength: Float,
+    /** 0 … 1: how much brighter the whole visible eye gets. */
+    private val brighten: Float,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        ByteBufferGlEffect(Processor(this.context, model, color, strength, useHdr))
+        ByteBufferGlEffect(Processor(this.context, model, color, strength, brighten, useHdr))
             .toGlShaderProgram(context, useHdr)
 
     /** Per eye: iris centre and radius, and the eye opening (an ellipse). */
@@ -143,6 +146,7 @@ class EyeColorEffect(
         private val model: String,
         private val color: Int,
         private val strength: Float,
+        private val brighten: Float,
         private val hdr: Boolean,
     ) : ByteBufferGlEffect.Processor<List<Eye>> {
         private val executor: ListeningExecutorService =
@@ -230,7 +234,8 @@ class EyeColorEffect(
                 p.setSamplerTexIdUniform("uFrame", src.texId, 0)
                 p.setFloatUniform("uAspect", outputFrame.width.toFloat() / outputFrame.height)
                 p.setFloatsUniform("uColor", rgb(color, hdr))
-                p.setFloatUniform("uStrength", strength)
+                p.setFloatUniform("uStrength", if (color != 0) strength else 0f)
+                p.setFloatUniform("uBright", brighten)
                 for (i in 0 until 4) {
                     val e = result.getOrNull(i)
                     p.setFloatsUniform("uIris$i", if (e == null) floatArrayOf(-9f, -9f, 0f) else floatArrayOf(e.cx, e.cy, e.r))
@@ -277,13 +282,16 @@ uniform sampler2D uFrame;
 uniform float uAspect;
 uniform vec3 uColor;
 uniform float uStrength;
+uniform float uBright;
 uniform vec3 uIris0; uniform vec4 uLid0; uniform vec2 uAxis0;
 uniform vec3 uIris1; uniform vec4 uLid1; uniform vec2 uAxis1;
 uniform vec3 uIris2; uniform vec4 uLid2; uniform vec2 uAxis2;
 uniform vec3 uIris3; uniform vec4 uLid3; uniform vec2 uAxis3;
 varying vec2 vTex;
 """ + DYE + """
-float eye(vec2 q, vec3 iris, vec4 lid, vec2 u) {
+// x: the iris (not the pupil) inside the eye opening; y: the whole eye
+// opening (whites and iris, not the eyelids).
+vec2 eye(vec2 q, vec3 iris, vec4 lid, vec2 u) {
   float r = max(iris.z, 1e-5);
   float d = distance(q, iris.xy);
   float ring = clamp((r - d) / (r * 0.15), 0.0, 1.0) * clamp((d - r * 0.38) / (r * 0.15), 0.0, 1.0);
@@ -292,14 +300,17 @@ float eye(vec2 q, vec3 iris, vec4 lid, vec2 u) {
   float ex = dot(o, u) / max(lid.z, 1e-5);
   float ey = dot(o, v) / max(lid.w, 1e-5);
   float inside = clamp((1.0 - (ex * ex + ey * ey)) / 0.25, 0.0, 1.0);
-  return ring * inside;
+  return vec2(ring * inside, inside);
 }
 void main() {
   vec4 c = texture2D(uFrame, vTex);
   vec2 q = vec2(vTex.x * uAspect, 1.0 - vTex.y);
-  float m = max(max(eye(q, uIris0, uLid0, uAxis0), eye(q, uIris1, uLid1, uAxis1)),
-                max(eye(q, uIris2, uLid2, uAxis2), eye(q, uIris3, uLid3, uAxis3)));
-  gl_FragColor = vec4(dye(c.rgb, uColor, m * uStrength), c.a);
+  vec2 m = max(max(eye(q, uIris0, uLid0, uAxis0), eye(q, uIris1, uLid1, uAxis1)),
+               max(eye(q, uIris2, uLid2, uAxis2), eye(q, uIris3, uLid3, uAxis3)));
+  vec3 col = dye(c.rgb, uColor, m.x * uStrength);
+  // Brighter eyes, colour kept: lighten towards white (dark parts least).
+  col = col + (vec3(1.0) - col) * (0.35 * uBright * m.y) * clamp(col * 2.0, 0.0, 1.0);
+  gl_FragColor = vec4(col, c.a);
 }
 """
     }
@@ -322,6 +333,8 @@ class OutfitEffect(
     private val sleeves: Int,
     private val stockingTop: Float,
     private val sheer: Float,
+    /** 0 solid, 1 plaid, 2 stripes. */
+    private val pattern: Int = 0,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
         ByteBufferGlEffect(Processor(this, useHdr)).toGlShaderProgram(context, useHdr)
@@ -490,6 +503,7 @@ class OutfitEffect(
                 p.setFloatUniform("uSleeves", e.sleeves.toFloat())
                 p.setFloatUniform("uTop", e.stockingTop)
                 p.setFloatUniform("uSheer", e.sheer)
+                p.setFloatUniform("uPattern", e.pattern.toFloat())
                 p.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
                 GlUtil.checkGlError()
@@ -539,6 +553,7 @@ uniform vec4 uStockings;
 uniform float uSleeves;
 uniform float uTop;
 uniform float uSheer;
+uniform float uPattern;
 varying vec2 vTex;
 """ + DYE + """
 vec2 X;
@@ -593,6 +608,24 @@ float leg(vec2 hip, vec2 kn, vec2 an, vec2 he, vec2 to) {
   vec2 cuff = hip + (kn - hip) * uTop;
   return max(max(cap(cuff, kn, 0.3 * uS), cap(kn, an, 0.22 * uS)), f);
 }
+// Plaid or stripes, laid out across the body (from the shoulders, turning
+// with them), so the pattern moves with the person.
+float band(float t, float w) { return ss((w - abs(fract(t) - 0.5)) / 0.04); }
+vec3 pat(vec3 t) {
+  if (uPattern < 0.5 || !seen(uP0) || !seen(uP1)) return t;
+  vec2 o = (uP0 + uP1) * 0.5;
+  vec2 u = normalize(uP1 - uP0);
+  vec2 v = vec2(-u.y, u.x);
+  vec2 k = vec2(dot(X - o, u), dot(X - o, v)) / uS * 2.5;
+  if (uPattern < 1.5) {
+    // Tartan: wide darker bands both ways, thin light lines between.
+    vec3 c = t * (1.0 - 0.38 * band(k.x, 0.18)) * (1.0 - 0.38 * band(k.y, 0.18));
+    float thin = max(band(k.x + 0.5, 0.03), band(k.y + 0.5, 0.03));
+    return mix(c, mix(t, vec3(1.0), 0.6), thin * 0.8);
+  }
+  // Stripes across the body.
+  return t * (1.0 - 0.45 * band(k.y, 0.22));
+}
 void main() {
   vec4 c = texture2D(uFrame, vTex);
   X = vec2(vTex.x * uAspect, 1.0 - vTex.y);
@@ -600,19 +633,19 @@ void main() {
   vec3 col = c.rgb;
   if (uShirt.a > 0.5) {
     float m = max(torso(), max(arm(uP0, uP2, uP4), arm(uP1, uP3, uP5)));
-    col = dye(col, uShirt.rgb, m * skin * (1.0 - uSheer));
+    col = dye(col, pat(uShirt.rgb), m * skin * (1.0 - uSheer));
   }
   if (uGloves.a > 0.5) {
     float m = max(hand(uP4, uP2, uP6), hand(uP5, uP3, uP7));
-    col = dye(col, uGloves.rgb, m * skin * (1.0 - uSheer));
+    col = dye(col, pat(uGloves.rgb), m * skin * (1.0 - uSheer));
   }
   if (uStockings.a > 0.5) {
     float m = max(leg(uP8, uP10, uP12, uP14, uP16), leg(uP9, uP11, uP13, uP15, uP17));
-    col = dye(col, uStockings.rgb, m * skin * (1.0 - uSheer));
+    col = dye(col, pat(uStockings.rgb), m * skin * (1.0 - uSheer));
   }
   if (uSocks.a > 0.5) {
     float m = max(foot(uP12, uP10, uP14, uP16, 0.3), foot(uP13, uP11, uP15, uP17, 0.3));
-    col = dye(col, uSocks.rgb, m * skin * (1.0 - uSheer));
+    col = dye(col, pat(uSocks.rgb), m * skin * (1.0 - uSheer));
   }
   gl_FragColor = vec4(col, c.a);
 }

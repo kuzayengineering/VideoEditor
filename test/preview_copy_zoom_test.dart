@@ -122,6 +122,21 @@ void main() {
     expect(back.outfit!.sleeves, 1);
     expect(back.outfit!.stockingTop, 0.2);
     expect(back.outfit!.sheer, 0.4);
+    // Brighter eyes alone (no new color) and plaid fabric.
+    final b2 = Clip.fromJson(
+      clip
+          .copyWith(
+            eyeColor: const EyeColor(brighten: 0.5),
+            outfit: const Outfit(
+              shirt: 0xFFE53935,
+              pattern: OutfitPattern.plaid,
+            ),
+          )
+          .toJson(),
+    );
+    expect(b2.eyeColor!.isActive, isTrue);
+    expect(b2.eyeColor!.brighten, 0.5);
+    expect(b2.outfit!.pattern, OutfitPattern.plaid);
     // Nothing picked: no change.
     final none = p.updateClip(
       id,

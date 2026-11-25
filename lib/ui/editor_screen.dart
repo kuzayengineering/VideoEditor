@@ -909,13 +909,13 @@ class _EditorScreenState extends State<_Editor>
           onTap: () => showCutoutSheet(context, c),
         ),
         EditorTool(
-          'Recolour',
+          'Recolor',
           Icons.palette_outlined,
           stage: 7,
           onTap: () => showRecolorSheet(context, c),
         ),
         EditorTool(
-          'Eye colour',
+          'Eye color',
           Icons.visibility_outlined,
           stage: 7,
           onTap: () => showEyeColorSheet(context, c),
@@ -1042,13 +1042,13 @@ class _EditorScreenState extends State<_Editor>
         onTap: sel.clip.isMedia ? () => showCutoutSheet(context, c) : null,
       ),
       EditorTool(
-        'Recolour',
+        'Recolor',
         Icons.palette_outlined,
         stage: 7,
         onTap: sel.clip.isMedia ? () => showRecolorSheet(context, c) : null,
       ),
       EditorTool(
-        'Eye colour',
+        'Eye color',
         Icons.visibility_outlined,
         stage: 7,
         onTap: sel.clip.isMedia ? () => showEyeColorSheet(context, c) : null,

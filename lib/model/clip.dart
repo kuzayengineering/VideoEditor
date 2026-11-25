@@ -432,33 +432,58 @@ enum PipBlend {
 
 /// A new eye (iris) colour.
 class EyeColor {
-  const EyeColor({this.color = 0, this.strength = 0.7});
+  const EyeColor({this.color = 0, this.strength = 0.7, this.brighten = 0});
 
-  /// ARGB; 0: none.
+  /// ARGB; 0: keep the eyes' own color.
   final int color;
   final double strength;
 
-  bool get isActive => color != 0 && strength > 0;
+  /// 0–1: brighter eyes overall (whites and iris), color kept.
+  final double brighten;
 
-  EyeColor copyWith({int? color, double? strength}) =>
-      EyeColor(color: color ?? this.color, strength: strength ?? this.strength);
+  bool get isActive => (color != 0 && strength > 0) || brighten > 0;
+
+  EyeColor copyWith({int? color, double? strength, double? brighten}) =>
+      EyeColor(
+        color: color ?? this.color,
+        strength: strength ?? this.strength,
+        brighten: brighten ?? this.brighten,
+      );
 
   @override
   bool operator ==(Object other) =>
-      other is EyeColor && other.color == color && other.strength == strength;
+      other is EyeColor &&
+      other.color == color &&
+      other.strength == strength &&
+      other.brighten == brighten;
 
   @override
-  int get hashCode => Object.hash(color, strength);
+  int get hashCode => Object.hash(color, strength, brighten);
 
-  Map<String, Object?> toJson() => {'color': color, 'strength': strength};
+  Map<String, Object?> toJson() => {
+    'color': color,
+    'strength': strength,
+    if (brighten > 0) 'brighten': brighten,
+  };
 
   static EyeColor? fromJson(Object? json) {
     if (json is! Map) return null;
     return EyeColor(
       color: (json['color'] as num?)?.toInt() ?? 0,
       strength: ((json['strength'] as num?)?.toDouble() ?? 0.7).clamp(0.0, 1.0),
+      brighten: ((json['brighten'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
     );
   }
+}
+
+/// The fabric of an [Outfit].
+enum OutfitPattern {
+  solid('Plain'),
+  plaid('Plaid'),
+  stripes('Stripes');
+
+  const OutfitPattern(this.label);
+  final String label;
 }
 
 /// Tight-fitting clothes painted on bare skin (each colour 0: none).
@@ -471,7 +496,11 @@ class Outfit {
     this.sleeves = 2,
     this.stockingTop = 0.35,
     this.sheer = 0,
+    this.pattern = OutfitPattern.solid,
   });
+
+  /// Plain, plaid or striped fabric.
+  final OutfitPattern pattern;
 
   final int shirt;
   final int gloves;
@@ -502,6 +531,7 @@ class Outfit {
     int? sleeves,
     double? stockingTop,
     double? sheer,
+    OutfitPattern? pattern,
   }) => Outfit(
     shirt: shirt ?? this.shirt,
     gloves: gloves ?? this.gloves,
@@ -510,6 +540,7 @@ class Outfit {
     sleeves: sleeves ?? this.sleeves,
     stockingTop: stockingTop ?? this.stockingTop,
     sheer: sheer ?? this.sheer,
+    pattern: pattern ?? this.pattern,
   );
 
   @override
@@ -521,11 +552,20 @@ class Outfit {
       other.stockings == stockings &&
       other.sleeves == sleeves &&
       other.stockingTop == stockingTop &&
-      other.sheer == sheer;
+      other.sheer == sheer &&
+      other.pattern == pattern;
 
   @override
-  int get hashCode =>
-      Object.hash(shirt, gloves, socks, stockings, sleeves, stockingTop, sheer);
+  int get hashCode => Object.hash(
+    shirt,
+    gloves,
+    socks,
+    stockings,
+    sleeves,
+    stockingTop,
+    sheer,
+    pattern,
+  );
 
   Map<String, Object?> toJson() => {
     if (shirt != 0) 'shirt': shirt,
@@ -535,6 +575,7 @@ class Outfit {
     'sleeves': sleeves,
     'stockingTop': stockingTop,
     'sheer': sheer,
+    if (pattern != OutfitPattern.solid) 'pattern': pattern.name,
   };
 
   static Outfit? fromJson(Object? json) {
@@ -551,6 +592,9 @@ class Outfit {
         1.0,
       ),
       sheer: ((json['sheer'] as num?)?.toDouble() ?? 0).clamp(0.0, 0.9),
+      pattern:
+          OutfitPattern.values.asNameMap()[json['pattern']] ??
+          OutfitPattern.solid,
     );
   }
 }

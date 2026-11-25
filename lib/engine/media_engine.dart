@@ -146,6 +146,7 @@ class PreviewSegment {
             DownloadableModel.face.path != null) ...{
           'eyeColor': c.eyeColor!.color,
           'eyeStrength': c.eyeColor!.strength,
+          'eyeBright': c.eyeColor!.brighten,
           'faceModel': DownloadableModel.face.path,
         },
         if ((c.outfit?.isActive ?? false) &&
@@ -155,6 +156,7 @@ class PreviewSegment {
           'outfitSleeves': c.outfit!.sleeves,
           'outfitTop': c.outfit!.stockingTop,
           'outfitSheer': c.outfit!.sheer,
+          'outfitPattern': c.outfit!.pattern.index,
           'poseModel': DownloadableModel.pose.path,
           'partsModel': DownloadableModel.parts.path,
         },

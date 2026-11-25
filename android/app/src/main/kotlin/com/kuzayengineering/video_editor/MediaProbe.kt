@@ -42,6 +42,7 @@ data class Segment(
     /** Eye colour (ARGB, 0: none), how strongly, and the face model. */
     val eyeColor: Int = 0,
     val eyeStrength: Float = 0.7f,
+    val eyeBright: Float = 0f,
     val faceModel: String? = null,
     /** Outfit: shirt, gloves, socks, stockings colours (0: none), sleeves
      * (0 none, 1 short, 2 long), stockings' top on the thigh, how sheer,
@@ -50,6 +51,7 @@ data class Segment(
     val outfitSleeves: Int = 2,
     val outfitTop: Float = 0.35f,
     val outfitSheer: Float = 0f,
+    val outfitPattern: Int = 0,
     val poseModel: String? = null,
     val volume: Double = 1.0,
     val fadeInUs: Long = 0,
@@ -82,7 +84,7 @@ data class Segment(
     val hasEffects: Boolean
         get() = rotation != 0 || flipH || flipV || opacity < 0.999 || cutout ||
             (recolor != null && partsModel != null) ||
-            (eyeColor != 0 && faceModel != null) ||
+            ((eyeColor != 0 || eyeBright > 0f) && faceModel != null) ||
             (outfit != null && poseModel != null && partsModel != null) ||
             Math.abs(speed - 1.0) > 0.0001 || grade != null ||
             crop[0] > 0.0005 || crop[1] > 0.0005 || crop[2] < 0.9995 || crop[3] < 0.9995
@@ -111,11 +113,13 @@ data class Segment(
             partsModel = map["partsModel"] as String?,
             eyeColor = (map["eyeColor"] as Number?)?.toLong()?.toInt() ?: 0,
             eyeStrength = (map["eyeStrength"] as Number?)?.toFloat() ?: 0.7f,
+            eyeBright = (map["eyeBright"] as Number?)?.toFloat() ?: 0f,
             faceModel = map["faceModel"] as String?,
             outfit = (map["outfit"] as List<*>?)?.map { (it as Number).toLong().toInt() },
             outfitSleeves = (map["outfitSleeves"] as Number?)?.toInt() ?: 2,
             outfitTop = (map["outfitTop"] as Number?)?.toFloat() ?: 0.35f,
             outfitSheer = (map["outfitSheer"] as Number?)?.toFloat() ?: 0f,
+            outfitPattern = (map["outfitPattern"] as Number?)?.toInt() ?: 0,
             poseModel = map["poseModel"] as String?,
             volume = (map["volume"] as Number?)?.toDouble() ?: 1.0,
             fadeInUs = (map["fadeInUs"] as Number?)?.toLong() ?: 0L,

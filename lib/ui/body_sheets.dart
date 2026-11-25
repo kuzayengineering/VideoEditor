@@ -12,7 +12,7 @@ const _eyeColors = <(String, int)>[
   ('Ice blue', 0xFF9AD0F5),
   ('Green', 0xFF3FA34D),
   ('Hazel', 0xFF9C7A3C),
-  ('Grey', 0xFF9AA5AE),
+  ('Gray', 0xFF9AA5AE),
   ('Amber', 0xFFE0A030),
   ('Violet', 0xFF8E5CC9),
   ('Red', 0xFFD03030),
@@ -40,13 +40,13 @@ Future<void> showEyeColorSheet(BuildContext context, EditorController c) {
   c.pause();
   return showToolPanel(
     context,
-    title: 'Eye colour',
+    title: 'Eye color',
     builder: (context) => _ModelGate(
       c: c,
       models: [DownloadableModel.face],
       intro:
-          'Change the colour of people\'s eyes. Only the coloured part '
-          'changes, not the pupil, the whites or the eyelids.',
+          'Change the color of people\'s eyes, or brighten them. Only the '
+          'eye itself changes, not the eyelids.',
       child: (context) => ListenableBuilder(
         listenable: c,
         builder: (context, _) {
@@ -64,7 +64,7 @@ Future<void> showEyeColorSheet(BuildContext context, EditorController c) {
                 runSpacing: 8,
                 children: [
                   ChoiceChip(
-                    label: const Text('None'),
+                    label: const Text('Own color'),
                     selected: e.color == 0,
                     onSelected: (_) => set(e.copyWith(color: 0)),
                   ),
@@ -78,7 +78,7 @@ Future<void> showEyeColorSheet(BuildContext context, EditorController c) {
                 ],
               ),
               const SizedBox(height: 10),
-              Text('Strength', style: theme.textTheme.titleSmall),
+              Text('Color strength', style: theme.textTheme.titleSmall),
               Slider(
                 value: e.strength,
                 onChanged: (v) => c.liveEdit(
@@ -93,9 +93,26 @@ Future<void> showEyeColorSheet(BuildContext context, EditorController c) {
                 ),
                 onChangeEnd: (_) => c.endLiveEdit(),
               ),
+              Text('Brighten', style: theme.textTheme.titleSmall),
+              Slider(
+                value: e.brighten,
+                onChanged: (v) => c.liveEdit(
+                  (now) => now.updateClip(
+                    id,
+                    (x) => x.copyWith(
+                      eyeColor: (x.eyeColor ?? const EyeColor()).copyWith(
+                        brighten: v,
+                      ),
+                    ),
+                  ),
+                ),
+                onChangeEnd: (_) => c.endLiveEdit(),
+              ),
               Text(
+                'Brighten lifts the whole eye (whites and color) without '
+                'changing its color; it works with or without a new color. '
                 'Works best when faces are fairly large and looking towards '
-                'the camera. Exports with eye colour take longer.',
+                'the camera. Exports with eye color take longer.',
                 style: theme.textTheme.bodySmall,
               ),
             ],
@@ -188,6 +205,20 @@ Future<void> showOutfitSheet(BuildContext context, EditorController c) {
                     ],
                   ),
                 ),
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final pt in OutfitPattern.values)
+                      ChoiceChip(
+                        label: Text(pt.label),
+                        selected: o.pattern == pt,
+                        onSelected: (_) => set(o.copyWith(pattern: pt)),
+                      ),
+                  ],
+                ),
+              ),
               colors('Gloves', o.gloves, (v) => o.copyWith(gloves: v)),
               colors('Socks', o.socks, (v) => o.copyWith(socks: v)),
               colors('Stockings', o.stockings, (v) => o.copyWith(stockings: v)),

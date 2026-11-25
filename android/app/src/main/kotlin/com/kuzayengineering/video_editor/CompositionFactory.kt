@@ -317,8 +317,10 @@ object CompositionFactory {
         }
         // Eye colour and tight-fitting outfits (they need the app, to load
         // the face and body models).
-        if (ctx2 != null && s.eyeColor != 0 && s.faceModel != null && java.io.File(s.faceModel).isFile) {
-            video += EyeColorEffect(ctx2, s.faceModel, s.eyeColor, s.eyeStrength)
+        if (ctx2 != null && (s.eyeColor != 0 || s.eyeBright > 0f) && s.faceModel != null &&
+            java.io.File(s.faceModel).isFile
+        ) {
+            video += EyeColorEffect(ctx2, s.faceModel, s.eyeColor, s.eyeStrength, s.eyeBright)
         }
         val outfit = s.outfit
         if (ctx2 != null && outfit != null && s.poseModel != null && s.partsModel != null &&
@@ -326,7 +328,7 @@ object CompositionFactory {
         ) {
             video += OutfitEffect(
                 ctx2, s.poseModel, s.partsModel, outfit.toIntArray(),
-                s.outfitSleeves, s.outfitTop, s.outfitSheer,
+                s.outfitSleeves, s.outfitTop, s.outfitSheer, s.outfitPattern,
             )
         }
         // Person cutout last, so nothing after it makes the picture solid again.

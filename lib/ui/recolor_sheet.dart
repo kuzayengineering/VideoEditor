@@ -31,7 +31,7 @@ Future<void> showRecolorSheet(BuildContext context, EditorController c) {
   c.pause();
   return showToolPanel(
     context,
-    title: 'Recolour',
+    title: 'Recolor',
     builder: (context) => _RecolorPanel(c: c, clipId: id),
   );
 }
@@ -89,7 +89,7 @@ class _RecolorPanelState extends State<_RecolorPanel> {
     final theme = Theme.of(context);
     if (!Platform.isAndroid) {
       return Text(
-        'Recolour works in the phone app for now.',
+        'Recolor works in the phone app for now.',
         style: theme.textTheme.bodyMedium,
       );
     }
@@ -99,7 +99,7 @@ class _RecolorPanelState extends State<_RecolorPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Change the colour of hair, skin or clothes. It needs a one-time '
+            'Change the color of hair, skin or clothes. It needs a one-time '
             'download of 16 MB (Google\'s MediaPipe model). After that it '
             'works offline, on the phone: your videos are never uploaded.',
             style: theme.textTheme.bodyMedium,
@@ -187,7 +187,7 @@ class _RecolorPanelState extends State<_RecolorPanel> {
             Text(
               'Found by an on-device model, frame by frame: works best when '
               'people are fairly large in the picture. Previews and exports '
-              'with recolouring take longer.',
+              'with recoloring take longer.',
               style: theme.textTheme.bodySmall,
             ),
           ],

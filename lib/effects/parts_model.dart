@@ -27,7 +27,7 @@ class DownloadableModel {
   /// Hair, skin and clothes (Recolour; also skin for Outfit).
   static final parts = DownloadableModel._(
     'People\'s hair, skin and clothes',
-    'Recolour, Outfit',
+    'Recolor, Outfit',
     'https://storage.googleapis.com/mediapipe-models/image_segmenter/'
         'selfie_multiclass_256x256/float32/1/selfie_multiclass_256x256.tflite',
     16371837,
@@ -38,7 +38,7 @@ class DownloadableModel {
   /// Faces with irises (Eye colour).
   static final face = DownloadableModel._(
     'Faces and eyes',
-    'Eye colour',
+    'Eye color',
     'https://storage.googleapis.com/mediapipe-models/face_landmarker/'
         'face_landmarker/float16/1/face_landmarker.task',
     3758596,

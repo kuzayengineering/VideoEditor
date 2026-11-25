@@ -19,10 +19,10 @@ class SettingsScreen extends StatelessWidget {
           children: [
             SwitchListTile(
               secondary: const Icon(Icons.contrast),
-              title: const Text('Neutral colours'),
+              title: const Text('Neutral colors'),
               subtitle: const Text(
-                'Shows the app in shades of gray only, so its colours never '
-                'influence how you judge or choose the colours in your video.',
+                'Shows the app in shades of gray only, so its colors never '
+                'influence how you judge or choose the colors in your video.',
               ),
               value: settings.neutralColors,
               onChanged: (v) => settings.neutralColors = v,
@@ -105,7 +105,7 @@ class _DownloadedModelsState extends State<_DownloadedModels> {
             items == null
                 ? 'Checking…'
                 : items.isEmpty
-                ? 'None yet. Captions, Recolour, Eye colour and Outfit download '
+                ? 'None yet. Captions, Recolor, Eye color and Outfit download '
                       'theirs the first time they are used.'
                 : '${(total / 1e6).toStringAsFixed(0)} MB in all. They work '
                       'offline; deleting one just means it downloads again '
