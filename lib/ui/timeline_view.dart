@@ -738,9 +738,19 @@ class _TimelinePainter extends CustomPainter {
     final showDur = tagW + 8 < rect.width;
     final durBeside = showDur && height < 40;
 
+    // Changed volume: on thin rows (no room for a second line) in front of
+    // the name, where a long name can't push it out of sight.
+    final volume =
+        p.clip.kind == ClipKind.text || (p.clip.volume - 1).abs() < 0.005
+        ? null
+        : (p.clip.volume <= 0.001
+              ? '🔇 muted'
+              : '🔊 ${(p.clip.volume * 100).round()} %');
+    final thin = rect.height < 40;
     final name = TextPainter(
       text: TextSpan(
         text: [
+          if (thin) ?volume,
           p.clip.name,
           if ((p.clip.speed - 1).abs() > 0.001)
             '${p.clip.speed.toStringAsFixed(p.clip.speed == p.clip.speed.roundToDouble() ? 0 : 2)}×',
@@ -757,13 +767,17 @@ class _TimelinePainter extends CustomPainter {
     )..layout(maxWidth: math.max(0, rect.width - 12 - (durBeside ? tagW + 6 : 0)));
     name.paint(canvas, Offset(rect.left + 6, rect.top + 4));
 
-    // Reversed / reversing on its own line under the name, with a bar, so
-    // it shows however long the name is.
-    if (p.clip.reversed) {
-      final f = reverseJobs?.progressFor(p.clip);
+    // Volume (when changed) and reversed / reversing on their own line
+    // under the name (in front of it on thin rows), so they show however
+    // long the name is.
+    if (p.clip.reversed || (volume != null && !thin)) {
+      final f = p.clip.reversed ? reverseJobs?.progressFor(p.clip) : null;
       final line = TextPainter(
         text: TextSpan(
-          text: _reverseLabel(p.clip),
+          text: [
+            if (!thin) ?volume,
+            if (p.clip.reversed) _reverseLabel(p.clip),
+          ].join('  ·  '),
           style: textStyle.copyWith(
             color: f == null ? Colors.white70 : Colors.amberAccent,
             fontWeight: FontWeight.w600,

@@ -220,13 +220,35 @@ class WaveformCache extends ChangeNotifier {
           continue;
         }
         _peaks[source] = null;
-        engine.waveform(source).then((p) {
-          if (_disposed) return;
-          _peaks[source] = p;
-          notifyListeners();
-        }, onError: (Object _) {});
+        _read(source, 0);
       }
     }
+  }
+
+  /// Reads [source]'s loudness, trying again a few times if it fails (the
+  /// phone's decoders can be busy with the preview and pictures).
+  void _read(String source, int attempt) {
+    engine
+        .waveform(source)
+        .then(
+          (p) {
+            if (_disposed) return;
+            if (p.isEmpty && attempt < 3) {
+              Future.delayed(Duration(seconds: 2 << attempt), () {
+                if (!_disposed) _read(source, attempt + 1);
+              });
+              return;
+            }
+            _peaks[source] = p;
+            notifyListeners();
+          },
+          onError: (Object _) {
+            if (_disposed || attempt >= 3) return;
+            Future.delayed(Duration(seconds: 2 << attempt), () {
+              if (!_disposed) _read(source, attempt + 1);
+            });
+          },
+        );
   }
 
   @override

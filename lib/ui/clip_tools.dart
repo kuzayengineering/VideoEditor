@@ -47,6 +47,13 @@ Future<void> showSpeedSheet(BuildContext context, EditorController c) {
     final theme = Theme.of(context);
     String label(double s) =>
         s == s.roundToDouble() ? '${s.toStringAsFixed(0)}×' : '$s×';
+    double clamp(double s) => s.clamp(Clip.minSpeed, Clip.maxSpeed).toDouble();
+    // Fine steps of a hundredth with the − and + buttons.
+    void nudge(int hundredths) {
+      final s = clamp(((clip.speed * 100).round() + hundredths) / 100);
+      c.liveEdit((now) => now.setSpeed(id, s));
+    }
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -55,10 +62,24 @@ Future<void> showSpeedSheet(BuildContext context, EditorController c) {
           children: [
             Text('Speed', style: theme.textTheme.titleMedium),
             const Spacer(),
+            IconButton(
+              tooltip: 'Slower by 0.01',
+              icon: const Icon(Icons.remove_circle_outline),
+              onPressed: clip.speed <= Clip.minSpeed ? null : () => nudge(-1),
+            ),
             Text(
-              '${clip.speed.toStringAsFixed(2)}× · '
-              '${formatShortDuration(clip.durationUs)}',
+              '${clip.speed.toStringAsFixed(2)}×',
               style: theme.textTheme.titleMedium,
+            ),
+            IconButton(
+              tooltip: 'Faster by 0.01',
+              icon: const Icon(Icons.add_circle_outline),
+              onPressed: clip.speed >= Clip.maxSpeed ? null : () => nudge(1),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              formatShortDuration(clip.durationUs),
+              style: theme.textTheme.bodyMedium,
             ),
           ],
         ),
@@ -67,11 +88,9 @@ Future<void> showSpeedSheet(BuildContext context, EditorController c) {
           max: toSlider(Clip.maxSpeed),
           value: toSlider(clip.speed),
           onChanged: (v) {
-            // Snap gently to round values.
-            var s = fromSlider(v);
-            for (final p in presets) {
-              if ((s - p).abs() / p < 0.04) s = p;
-            }
+            // To the nearest tenth (the − and + buttons do hundredths).
+            final s = clamp((fromSlider(v) * 10).round() / 10);
+            if ((s - clip.speed).abs() < 0.0001) return;
             c.liveEdit((base) => base.setSpeed(id, s));
           },
         ),
