@@ -92,6 +92,16 @@ void main() {
     c.endLiveEdit();
     expect(player.rebuilds, 2);
     expect(player.grades.last[id]!.first, closeTo(0.3, 1e-9));
+
+    // Holding the video (filter panel open) shows it without the filter,
+    // letting go brings the filter back.
+    c.select(id);
+    c.compareEnabled = true;
+    c.showOriginal(true);
+    expect(c.showsOriginal, isTrue);
+    expect(player.grades.last[id]!.every((v) => v == 0), isTrue);
+    c.showOriginal(false);
+    expect(player.grades.last[id]!.first, closeTo(0.3, 1e-9));
   });
 
   test(

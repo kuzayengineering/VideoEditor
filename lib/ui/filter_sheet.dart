@@ -19,6 +19,7 @@ Future<void> showFilterSheet(
   final id = c.selectedClipId;
   if (id == null) return;
   c.pause();
+  c.compareEnabled = true;
   await showToolPanel(
     context,
     title: 'Filter',
@@ -26,6 +27,8 @@ Future<void> showFilterSheet(
     builder: (context) =>
         _FilterPanel(c: c, clipId: id, thumbnails: thumbnails),
   );
+  c.compareEnabled = false;
+  c.showOriginal(false);
   c.endLiveEdit();
 }
 
@@ -106,7 +109,13 @@ class _FilterPanelState extends State<_FilterPanel> {
                         ? null
                         : () => _set(const ColorGrade()),
                   ),
-                  const Spacer(),
+                  Expanded(
+                    child: Text(
+                      'Hold the video to see the original',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
                   TextButton.icon(
                     icon: const Icon(Icons.done_all, size: 18),
                     label: const Text('Use for all'),

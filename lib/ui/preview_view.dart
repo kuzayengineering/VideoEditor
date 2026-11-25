@@ -100,6 +100,7 @@ class PreviewView extends StatelessWidget {
               player: player!,
               thumbnails: thumbnails,
               plainCanvas: renderedTransition || fromCopy,
+              original: controller.showsOriginal,
             );
           }
           // The phone's video view resizes a moment after the screen does
@@ -153,52 +154,55 @@ class PreviewView extends StatelessWidget {
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.white12),
               ),
-              child: ClipRect(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    content,
-                    if (pipPlayers != null && pipGestures != null)
-                      PipOverlayView(
+              child: _HoldToCompare(
+                controller: controller,
+                child: ClipRect(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      content,
+                      if (pipPlayers != null && pipGestures != null)
+                        PipOverlayView(
+                          controller: controller,
+                          players: pipPlayers!,
+                          gestures: pipGestures!,
+                          thumbnails: thumbnails,
+                        ),
+                      if (dip > 0.001)
+                        IgnorePointer(
+                          child: ColoredBox(
+                            color: dipColor.withValues(
+                              alpha: dip.clamp(0.0, 1.0),
+                            ),
+                          ),
+                        ),
+                      TextOverlayView(
                         controller: controller,
-                        players: pipPlayers!,
-                        gestures: pipGestures!,
-                        thumbnails: thumbnails,
+                        onEditText: onEditText ?? (_) {},
+                        below: pipGestures,
                       ),
-                    if (dip > 0.001)
-                      IgnorePointer(
-                        child: ColoredBox(
-                          color: dipColor.withValues(
-                            alpha: dip.clamp(0.0, 1.0),
+                      if (controller.transitionsPreparing.isNotEmpty &&
+                          (reverseJobs?.running.isEmpty ?? true))
+                        const Positioned(
+                          left: 8,
+                          top: 8,
+                          child: IgnorePointer(child: _PreparingBadge()),
+                        ),
+                      if (reverseJobs?.running.isNotEmpty ?? false)
+                        Positioned(
+                          left: 8,
+                          top: 8,
+                          child: IgnorePointer(
+                            child: _ReversingBadge(
+                              running: reverseJobs!.running,
+                              current: current == null
+                                  ? null
+                                  : reverseJobs!.progressFor(current.clip),
+                            ),
                           ),
                         ),
-                      ),
-                    TextOverlayView(
-                      controller: controller,
-                      onEditText: onEditText ?? (_) {},
-                      below: pipGestures,
-                    ),
-                    if (controller.transitionsPreparing.isNotEmpty &&
-                        (reverseJobs?.running.isEmpty ?? true))
-                      const Positioned(
-                        left: 8,
-                        top: 8,
-                        child: IgnorePointer(child: _PreparingBadge()),
-                      ),
-                    if (reverseJobs?.running.isNotEmpty ?? false)
-                      Positioned(
-                        left: 8,
-                        top: 8,
-                        child: IgnorePointer(
-                          child: _ReversingBadge(
-                            running: reverseJobs!.running,
-                            current: current == null
-                                ? null
-                                : reverseJobs!.progressFor(current.clip),
-                          ),
-                        ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -220,7 +224,11 @@ class _LookPreview extends StatelessWidget {
     required this.player,
     required this.thumbnails,
     this.plainCanvas = false,
+    this.original = false,
   });
+
+  /// Shown without the clip's filter (holding the video to compare).
+  final bool original;
 
   /// The player shows a finished frame (bars and all): fill the canvas.
   final bool plainCanvas;
@@ -300,7 +308,7 @@ class _LookPreview extends StatelessWidget {
                           ),
                           child: RotatedBox(
                             quarterTurns: clip?.rotation ?? 0,
-                            child: _graded(clip, player),
+                            child: _graded(original ? null : clip, player),
                           ),
                         ),
                       ),
@@ -481,5 +489,61 @@ class _ResizeGuardState extends State<_ResizeGuard> {
         children: [widget.child, if (_covered) widget.cover],
       );
     },
+  );
+}
+
+/// While the filter panel is open: holding a finger on the video (without
+/// moving it) shows the clip as it was, without its filter, until let go.
+class _HoldToCompare extends StatefulWidget {
+  const _HoldToCompare({required this.controller, required this.child});
+
+  final EditorController controller;
+  final Widget child;
+
+  @override
+  State<_HoldToCompare> createState() => _HoldToCompareState();
+}
+
+class _HoldToCompareState extends State<_HoldToCompare> {
+  Timer? _timer;
+  Offset? _down;
+
+  void _end() {
+    _timer?.cancel();
+    _timer = null;
+    _down = null;
+    widget.controller.showOriginal(false);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Listener(
+    // Raw touches, so the text and picture-in-picture gestures underneath
+    // still work as usual.
+    behavior: HitTestBehavior.translucent,
+    onPointerDown: (e) {
+      if (!widget.controller.compareEnabled) return;
+      _down = e.localPosition;
+      _timer?.cancel();
+      _timer = Timer(const Duration(milliseconds: 250), () {
+        if (_down != null) widget.controller.showOriginal(true);
+      });
+    },
+    onPointerMove: (e) {
+      final d = _down;
+      if (d != null &&
+          (e.localPosition - d).distance > 12 &&
+          !widget.controller.showsOriginal) {
+        _end(); // a drag, not a hold
+      }
+    },
+    onPointerUp: (_) => _end(),
+    onPointerCancel: (_) => _end(),
+    child: widget.child,
   );
 }

@@ -183,10 +183,39 @@ class EditorController extends ChangeNotifier {
       },
   ]);
 
-  static Map<int, List<double>> _gradesOf(List<PreviewSegment> segments) => {
+  Map<int, List<double>> _gradesOf(List<PreviewSegment> segments) => {
     for (final s in segments)
-      if (s.clip?.gradeParams != null) s.clip!.id: s.clip!.gradeParams!.values,
+      if ((s.clip ?? s.gradeOf) case final c? when c.gradeParams != null)
+        c.id: (_showOriginal && c.id == _selectedClipId)
+            ? List.filled(c.gradeParams!.values.length, 0.0)
+            : c.gradeParams!.values,
   };
+
+  /// While the filter panel is open, holding a finger on the video shows
+  /// the selected clip without its filter.
+  bool compareEnabled = false;
+  bool _showOriginal = false;
+  bool get showsOriginal => _showOriginal;
+
+  void showOriginal(bool on) {
+    if (on == _showOriginal) return;
+    _showOriginal = on;
+    final p = _preview;
+    if (p != null && p.gradesLive) {
+      unawaited(
+        p.setGrades(
+          _gradesOf(
+            segmentsOf(
+              project,
+              transitionFiles: transitionFiles,
+              blend: p.blendsTransitions,
+            ),
+          ),
+        ),
+      );
+    }
+    notifyListeners();
+  }
 
   /// During a slider drag: if only filter values changed, update them in
   /// the player straight away (no rebuild). Other changes wait for the end.
