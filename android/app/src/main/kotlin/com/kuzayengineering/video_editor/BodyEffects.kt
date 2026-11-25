@@ -331,7 +331,9 @@ class OutfitEffect(
     private class Body(val points: FloatArray, val scale: Float, val skin: ByteArray)
 
     private class Processor(private val e: OutfitEffect, private val hdr: Boolean) :
-        ByteBufferGlEffect.Processor<Body?> {
+        ByteBufferGlEffect.Processor<Body> {
+        /** No one found in the frame. */
+        private val none = Body(FloatArray(0), 0f, ByteArray(0))
         private val executor: ListeningExecutorService =
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor())
         private var pose: PoseLandmarker? = null
@@ -355,14 +357,14 @@ class OutfitEffect(
 
         override fun getScaledRegion(presentationTimeUs: Long) = GlRect(inW, inH)
 
-        override fun processImage(image: ByteBufferGlEffect.Image, presentationTimeUs: Long): ListenableFuture<Body?> {
+        override fun processImage(image: ByteBufferGlEffect.Image, presentationTimeUs: Long): ListenableFuture<Body> {
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            return executor.submit<Body?> { find(px, image.width, image.height, presentationTimeUs) }
+            return executor.submit<Body> { find(px, image.width, image.height, presentationTimeUs) }
         }
 
-        private fun find(px: ByteArray, w: Int, h: Int, timeUs: Long): Body? {
+        private fun find(px: ByteArray, w: Int, h: Int, timeUs: Long): Body {
             val pl = pose ?: PoseLandmarker.createFromOptions(
                 e.context,
                 PoseLandmarker.PoseLandmarkerOptions.builder()
@@ -377,8 +379,8 @@ class OutfitEffect(
             } finally {
                 bmp.recycle()
             }
-            val lm = people.firstOrNull() ?: return null
-            if (lm.size < 33) return null
+            val lm = people.firstOrNull() ?: return none
+            if (lm.size < 33) return none
             val aspect = w.toFloat() / h
             fun seen(l: NormalizedLandmark) = l.visibility().orElse(1f) > 0.5f
             fun pt(i: Int) = if (seen(lm[i])) floatArrayOf(lm[i].x() * aspect, lm[i].y()) else floatArrayOf(-9f, -9f)
@@ -445,8 +447,8 @@ class OutfitEffect(
             return out
         }
 
-        override fun finishProcessingAndBlend(outputFrame: GlTextureInfo, presentationTimeUs: Long, result: Body?) {
-            if (result == null) return
+        override fun finishProcessingAndBlend(outputFrame: GlTextureInfo, presentationTimeUs: Long, result: Body) {
+            if (result === none) return
             try {
                 val p = program ?: program(OUTFIT_FRAGMENT).also { program = it }
                 if (skinTex == 0) {
