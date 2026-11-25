@@ -170,6 +170,17 @@ class AndroidMediaEngine implements MediaEngine {
       _channel.invokeMethod('deleteThumbnails', {'sources': sources.toList()});
 
   @override
+  Future<String?> locationOf(String source) async {
+    try {
+      return await _channel.invokeMethod<String>('locationOf', {
+        'source': source,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<String?> realFileName(String source) async {
     try {
       return await _channel.invokeMethod<String>('realFileName', {
@@ -362,6 +373,7 @@ class AndroidMediaEngine implements MediaEngine {
       'fileName': request.fileName,
       if (s.creationTime != null)
         'createdAtMs': s.creationTime!.millisecondsSinceEpoch,
+      if (s.keepLocation && s.location != null) 'location': s.location,
       'expectedFrames': frames,
       'expectedDurationUs': durationUs,
     });

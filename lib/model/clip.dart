@@ -331,7 +331,8 @@ enum TransitionKind {
     TransitionGroup.glitch,
     gl: true,
   ),
-  glDoomMelt('Melt', 'fade', 193, TransitionGroup.glitch, gl: true);
+  glDoomMelt('Melt', 'fade', 193, TransitionGroup.glitch, gl: true),
+  glEyeBlink('Eye blink', 'fadeblack', 194, TransitionGroup.basic, gl: true);
 
   // gl-transitions end
 

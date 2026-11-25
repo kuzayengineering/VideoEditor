@@ -1324,3 +1324,20 @@ Uint8List peaksFromSamples(Int16List samples, int perBucket) {
   }
   return out;
 }
+
+/// The filming location in ffprobe's format tags (ISO 6709, such as
+/// "+37.4219-122.0840/"), from phones' "location" or Apple's tag.
+String? locationFromProbeJson(String json) {
+  try {
+    final tags = (jsonDecode(json) as Map)['format']?['tags'] as Map?;
+    if (tags == null) return null;
+    for (final e in tags.entries) {
+      final k = '${e.key}'.toLowerCase();
+      if (k == 'location' || k == 'com.apple.quicktime.location.iso6709') {
+        final v = '${e.value}'.trim();
+        if (RegExp(r'^[+-]\d').hasMatch(v)) return v;
+      }
+    }
+  } catch (_) {}
+  return null;
+}

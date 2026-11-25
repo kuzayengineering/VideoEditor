@@ -252,6 +252,19 @@ class _ExportSheetState extends State<_ExportSheet> {
               },
             ),
             section(
+              'Location',
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Keep where it was filmed'),
+                value: s.keepLocation,
+                onChanged: (v) => _update(s.copyWith(keepLocation: v)),
+              ),
+              note: s.keepLocation
+                  ? 'The first clip\'s map location is saved in the video '
+                        '(if it has one), so galleries can show it on a map.'
+                  : 'No location is saved in the video.',
+            ),
+            section(
               'Save to',
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -299,7 +312,7 @@ class _ExportSheetState extends State<_ExportSheet> {
               ),
               icon: const Icon(Icons.file_upload_outlined),
               label: const Text('Export video'),
-              onPressed: () {
+              onPressed: () async {
                 if (!project.hasMedia) {
                   showDialog<void>(
                     context: context,
@@ -319,9 +332,20 @@ class _ExportSheetState extends State<_ExportSheet> {
                   );
                   return;
                 }
+                // Where the first clip was filmed (if wanted and known).
+                String? location;
+                final first = project.mainTrack.clips
+                    .where((c) => c.isMedia)
+                    .firstOrNull;
+                if (s.keepLocation && first != null) {
+                  location = await widget.engine.locationOf(first.sourcePath!);
+                }
+                if (!context.mounted) return;
                 _update(
                   s.copyWith(
                     creationTime: s.resolveDate(firstClipDate: _firstClipDate),
+                    location: location,
+                    clearLocation: location == null,
                   ),
                 );
                 Navigator.pop(context, true);

@@ -12,6 +12,8 @@
     <!-- Only to look up the real names of picked videos (the photo picker
          hides them), for naming exports. -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- To read where a picked video was filmed (to keep it in exports). -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />

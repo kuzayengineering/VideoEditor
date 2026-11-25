@@ -83,7 +83,16 @@ class ExportSettings {
     this.date = ExportDate.firstClip,
     this.customDate,
     this.creationTime,
+    this.keepLocation = true,
+    this.location,
   });
+
+  /// Keep where the first clip was filmed (its map location) in the file.
+  final bool keepLocation;
+
+  /// The location written into the file (ISO 6709, e.g. "+37.4219-122.0840/"),
+  /// worked out when Export is pressed; null: none.
+  final String? location;
 
   final ExportDate date;
 
@@ -169,6 +178,9 @@ class ExportSettings {
     ExportDate? date,
     DateTime? customDate,
     DateTime? creationTime,
+    bool? keepLocation,
+    String? location,
+    bool clearLocation = false,
   }) {
     final range = dynamicRange ?? this.dynamicRange;
     var chosenCodec = codec ?? this.codec;
@@ -184,6 +196,8 @@ class ExportSettings {
       date: date ?? this.date,
       customDate: customDate ?? this.customDate,
       creationTime: creationTime ?? this.creationTime,
+      keepLocation: keepLocation ?? this.keepLocation,
+      location: clearLocation ? null : (location ?? this.location),
     );
   }
 

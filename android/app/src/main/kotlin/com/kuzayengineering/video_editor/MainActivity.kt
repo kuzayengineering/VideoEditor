@@ -73,6 +73,19 @@ class MainActivity : FlutterActivity() {
     private fun onCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "pickVideos" -> pickVideos(result)
+            "locationOf" -> {
+                val source = call.argument<String>("source")!!
+                withVideoAccess {
+                    io.execute {
+                        val where = try {
+                            locationOf(Uri.parse(source))
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        main.post { result.success(where) }
+                    }
+                }
+            }
             "realFileName" -> {
                 val source = call.argument<String>("source")!!
                 withVideoAccess { result.success(realFileName(Uri.parse(source))) }
@@ -362,20 +375,64 @@ class MainActivity : FlutterActivity() {
     private fun hasVideoAccess() =
         checkSelfPermission(videoPermission()) == PackageManager.PERMISSION_GRANTED
 
+    /** Needed to read where a video was filmed (Android hides it otherwise). */
+    private fun hasLocationAccess() = Build.VERSION.SDK_INT < 29 ||
+        checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Where a video was filmed (ISO 6709, e.g. "+37.4219-122.0840/"). The
+     * photo picker's copy has it removed, so the original in the media
+     * library is read (with video and media-location access).
+     */
+    private fun locationOf(uri: Uri): String? {
+        val tries = mutableListOf<Uri>()
+        val id = uri.lastPathSegment?.toLongOrNull()
+        if (id != null && uri.authority == MediaStore.AUTHORITY && hasVideoAccess()) {
+            var item = android.content.ContentUris.withAppendedId(
+                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                id,
+            )
+            if (Build.VERSION.SDK_INT >= 29 && hasLocationAccess()) {
+                item = MediaStore.setRequireOriginal(item)
+            }
+            tries += item
+        }
+        tries += uri
+        for (u in tries) {
+            val r = android.media.MediaMetadataRetriever()
+            try {
+                r.setDataSource(applicationContext, u)
+                val loc = r.extractMetadata(
+                    android.media.MediaMetadataRetriever.METADATA_KEY_LOCATION,
+                )?.trim()
+                if (!loc.isNullOrEmpty() && (loc[0] == '+' || loc[0] == '-')) return loc
+            } catch (_: Exception) {
+            } finally {
+                r.release()
+            }
+        }
+        return null
+    }
+
     /**
      * Runs [then] once the user has answered the video-access question
      * (asked at most once per app run; used only to look up the real names
      * of videos picked with the photo picker, which hides them).
      */
     private fun withVideoAccess(then: () -> Unit) {
-        if (hasVideoAccess() || askedVideoAccess) {
+        val missing = listOfNotNull(
+            if (hasVideoAccess()) null else videoPermission(),
+            if (hasLocationAccess()) null else Manifest.permission.ACCESS_MEDIA_LOCATION,
+        )
+        if (missing.isEmpty() || askedVideoAccess) {
             then()
             return
         }
         afterVideoAccess += then
         if (afterVideoAccess.size == 1) {
             askedVideoAccess = true
-            requestPermissions(arrayOf(videoPermission()), REQUEST_VIDEO_ACCESS)
+            requestPermissions(missing.toTypedArray(), REQUEST_VIDEO_ACCESS)
         }
     }
 

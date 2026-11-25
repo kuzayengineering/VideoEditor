@@ -121,6 +121,8 @@ CHOSEN = [
     ("HorizontalHold", "Rolling", "glitch", "fade"),
     ("PixelStretch", "Pixel stretch", "glitch", "fade"),
     ("DoomMelt", "Melt", "glitch", "fade"),
+    # Added later (append only: numbers are saved in projects)
+    ("EyeBlink", "Eye blink", "basic", "fadeblack"),
 ]
 
 FIRST_CODE = 100

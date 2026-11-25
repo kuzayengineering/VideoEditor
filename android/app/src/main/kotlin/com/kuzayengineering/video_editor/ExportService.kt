@@ -56,6 +56,8 @@ data class ExportRequest(
     val expectedDurationUs: Long,
     /** The recording date to give the video (ms since 1970), if chosen. */
     val createdAtMs: Long?,
+    /** Where the first clip was filmed (ISO 6709), written into the file. */
+    val location: String? = null,
     /** False on the automatic second try after a stall: no frame dropping
      * at all (see CompositionFactory). */
     val frameCap: Boolean = true,
@@ -84,6 +86,7 @@ data class ExportRequest(
             expectedFrames = (m["expectedFrames"] as Number).toLong(),
             expectedDurationUs = (m["expectedDurationUs"] as Number).toLong(),
             createdAtMs = (m["createdAtMs"] as Number?)?.toLong(),
+            location = m["location"] as String?,
         )
     }
 }
@@ -359,6 +362,14 @@ object ExportManager {
         io.execute {
             try {
                 req.createdAtMs?.let { Mp4Dates.set(temp, it) }
+                req.location?.let {
+                    // The video is fine without it, so a problem here is
+                    // not a failed export.
+                    try {
+                        Mp4Location.set(temp, it)
+                    } catch (_: Exception) {
+                    }
+                }
                 verification = verify(temp, req)
                 location = saveToDestination(ctx, temp, req)
                 temp.delete()

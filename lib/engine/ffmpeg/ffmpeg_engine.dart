@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../model/export_settings.dart';
 import '../../model/project.dart';
 import '../media_engine.dart';
+import '../mp4_location.dart';
 import 'ffmpeg_commands.dart';
 import 'mpv_preview.dart';
 
@@ -343,6 +344,25 @@ class FfmpegEngine implements MediaEngine {
   Future<String?> realFileName(String source) async => null; // paths are real
 
   @override
+  Future<String?> locationOf(String source) async {
+    try {
+      final r = await Process.run(ffprobe, [
+        '-v',
+        'error',
+        '-show_entries',
+        'format_tags',
+        '-of',
+        'json',
+        source,
+      ], stdoutEncoding: utf8);
+      if (r.exitCode != 0) return null;
+      return locationFromProbeJson('${r.stdout}');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<Set<String>> missingSources(Iterable<String> sources) async => {
     for (final s in sources)
       if (!await File(s).exists()) s,
@@ -477,7 +497,8 @@ class FfmpegEngine implements MediaEngine {
     for (final f in plan.sideFiles.entries) {
       await File(f.key).writeAsString(f.value);
     }
-    final job = FfmpegExportJob._(this, plan, output, encoder);
+    final job = FfmpegExportJob._(this, plan, output, encoder)
+      ..location = settings.keepLocation ? settings.location : null;
     _running = job;
     await job._start();
     return job;
@@ -504,6 +525,9 @@ class FfmpegExportJob implements ExportJob {
   final FfmpegExportPlan _plan;
   final String _output;
   final VideoEncoder encoder;
+
+  /// Where the first clip was filmed, written into the finished file.
+  String? location;
   final _controller = StreamController<ExportProgress>.broadcast();
   Process? _process;
   bool _cancelled = false;
@@ -573,6 +597,12 @@ class FfmpegExportJob implements ExportJob {
         ),
       );
     } else {
+      final where = location;
+      if (where != null) {
+        try {
+          await setMp4Location(File(_output), where);
+        } catch (_) {} // the video itself is fine without it
+      }
       _emit(
         const ExportProgress(
           ExportState.finishing,
