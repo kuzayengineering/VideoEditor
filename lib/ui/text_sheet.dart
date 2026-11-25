@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../model/project.dart';
 import 'editor_controller.dart';
+import 'text_render.dart';
 import 'tool_panel.dart';
 
 const _palette = <int>[
@@ -115,6 +116,78 @@ class _TextSheetState extends State<_TextSheet> {
     );
   }
 
+  /// How long the text shows: a slider (half a second to 20 s) and buttons
+  /// for tenths of a second. It can't run into the next clip on its row.
+  Widget _durationRow(BuildContext context) {
+    final clip = c.project.placementOf(widget.clipId)?.clip;
+    if (clip == null) return const SizedBox.shrink();
+    final secs = clip.durationUs / 1000000;
+    void setUs(int us) => c.liveEdit((now) {
+      final p = now.placementOf(widget.clipId);
+      if (p == null) return now;
+      return now.trimEnd(widget.clipId, us - p.clip.durationUs);
+    });
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _label('Duration'),
+        Row(
+          children: [
+            Expanded(
+              child: Slider(
+                min: 0.5,
+                max: 20,
+                divisions: 195,
+                value: secs.clamp(0.5, 20.0),
+                onChanged: (v) => setUs((v * 1000000).round()),
+              ),
+            ),
+            IconButton(
+              tooltip: '0.1 s shorter',
+              icon: const Icon(Icons.remove_circle_outline),
+              onPressed: () => setUs(clip.durationUs - 100000),
+            ),
+            SizedBox(
+              width: 48,
+              child: Text(
+                '${secs.toStringAsFixed(1)} s',
+                textAlign: TextAlign.center,
+              ),
+            ),
+            IconButton(
+              tooltip: '0.1 s longer',
+              icon: const Icon(Icons.add_circle_outline),
+              onPressed: () => setUs(clip.durationUs + 100000),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Moves the text to the top, middle or bottom of the picture (inside a
+  /// small margin), keeping it where it is sideways.
+  Widget _positionRow(TextSpec s) {
+    final half = textBlockSize(s, 1000).height / 1000 / 2;
+    final spots = [
+      ('Top', Icons.vertical_align_top, (0.05 + half).clamp(0.0, 0.5)),
+      ('Middle', Icons.vertical_align_center, 0.5),
+      ('Bottom', Icons.vertical_align_bottom, (0.95 - half).clamp(0.5, 1.0)),
+    ];
+    return Wrap(
+      spacing: 8,
+      children: [
+        for (final (name, icon, y) in spots)
+          ChoiceChip(
+            avatar: Icon(icon, size: 18),
+            label: Text(name),
+            selected: (s.y - y).abs() < 0.01,
+            onSelected: (_) => _edit((x) => x.copyWith(y: y.toDouble())),
+          ),
+      ],
+    );
+  }
+
   Widget _label(String text) => Padding(
     padding: const EdgeInsets.only(top: 14, bottom: 6),
     child: Text(text, style: Theme.of(context).textTheme.titleSmall),
@@ -155,9 +228,15 @@ class _TextSheetState extends State<_TextSheet> {
         minLines: 1,
         maxLines: 3,
         textCapitalization: TextCapitalization.sentences,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           labelText: 'Text',
-          border: OutlineInputBorder(),
+          border: const OutlineInputBorder(),
+          // Puts the keyboard away (the panel stays open).
+          suffixIcon: IconButton(
+            tooltip: 'Done typing',
+            icon: const Icon(Icons.check),
+            onPressed: () => FocusScope.of(context).unfocus(),
+          ),
         ),
         onChanged: (v) => _edit((x) => x.copyWith(text: v)),
       ),
@@ -183,6 +262,7 @@ class _TextSheetState extends State<_TextSheet> {
                 ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    _durationRow(context),
                     _label('Font'),
                     SizedBox(
                       height: 48,
@@ -258,6 +338,8 @@ class _TextSheetState extends State<_TextSheet> {
                           ),
                       ],
                     ),
+                    _label('Position'),
+                    _positionRow(s),
                     const SizedBox(height: 8),
                     Text(
                       'Tip: drag the text on the video to move it; pinch '
