@@ -34,6 +34,11 @@ data class Segment(
     /** Main-video cutout: the colour (ARGB) behind the people. Null: the
      * background becomes see-through (picture in picture). */
     val cutoutFill: Int? = null,
+    /** Hair, skin and clothes colours (ARGB, 0: unchanged), how strongly,
+     * and the downloaded model that finds them. */
+    val recolor: List<Int>? = null,
+    val recolorStrength: Float = 0.8f,
+    val partsModel: String? = null,
     val volume: Double = 1.0,
     val fadeInUs: Long = 0,
     val fadeOutUs: Long = 0,
@@ -64,6 +69,7 @@ data class Segment(
 
     val hasEffects: Boolean
         get() = rotation != 0 || flipH || flipV || opacity < 0.999 || cutout ||
+            (recolor != null && partsModel != null) ||
             Math.abs(speed - 1.0) > 0.0001 || grade != null ||
             crop[0] > 0.0005 || crop[1] > 0.0005 || crop[2] < 0.9995 || crop[3] < 0.9995
 
@@ -85,6 +91,10 @@ data class Segment(
             smooth = map["smooth"] as Boolean? ?: false,
             cutout = map["cutout"] as Boolean? ?: false,
             cutoutFill = (map["cutoutFill"] as Number?)?.toInt(),
+            recolor = (map["recolor"] as List<*>?)
+                ?.map { (it as Number).toLong().toInt() },
+            recolorStrength = (map["recolorStrength"] as Number?)?.toFloat() ?: 0.8f,
+            partsModel = map["partsModel"] as String?,
             volume = (map["volume"] as Number?)?.toDouble() ?: 1.0,
             fadeInUs = (map["fadeInUs"] as Number?)?.toLong() ?: 0L,
             fadeOutUs = (map["fadeOutUs"] as Number?)?.toLong() ?: 0L,

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import '../effects/parts_model.dart';
 import '../model/export_settings.dart';
 import '../model/project.dart';
 
@@ -135,6 +136,12 @@ class PreviewSegment {
         'opacity': c.opacity,
         if (c.smoothsSlowMo) 'smooth': true,
         if (c.cutout) ...{'cutout': true, 'cutoutFill': cutoutFill},
+        if ((c.partColors?.isActive ?? false) &&
+            PartsModel.instance.path != null) ...{
+          'recolor': c.partColors!.colors,
+          'recolorStrength': c.partColors!.strength,
+          'partsModel': PartsModel.instance.path,
+        },
         'volume': c.volume,
         'fadeInUs': c.effectiveFades.fadeIn > dipInUs
             ? c.effectiveFades.fadeIn
@@ -169,6 +176,7 @@ class PreviewSegment {
       other.clip?.crop == clip?.crop &&
       other.clip?.opacity == clip?.opacity &&
       other.clip?.cutout == clip?.cutout &&
+      other.clip?.partColors == clip?.partColors &&
       other.cutoutFill == cutoutFill &&
       other.clip?.grade == clip?.grade &&
       other.gradeOf?.grade == gradeOf?.grade;

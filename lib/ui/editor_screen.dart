@@ -23,7 +23,9 @@ import 'pip_view.dart';
 import 'import_media.dart';
 import 'missing_files.dart';
 import 'effects_sheet.dart';
+import '../effects/parts_model.dart';
 import 'pip_sheets.dart';
+import 'recolor_sheet.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
 import 'sound_sheets.dart';
@@ -120,6 +122,12 @@ class _EditorScreenState extends State<_Editor>
     _thumbs = ThumbnailCache(_engine)..ensureFor(c.project);
     _waves = WaveformCache(_engine)..ensureFor(c.project);
     _reverses = ReverseJobs(_engine);
+    // A downloaded recolour model: make it known before the preview starts.
+    if (Platform.isAndroid) {
+      PartsModel.instance.check().then((ok) {
+        if (ok && mounted) c.refreshPreview();
+      });
+    }
     // A saved project may have reversed clips whose copies were never
     // finished (e.g. the app was closed): pick those back up. Its
     // transitions need their preview clips too.
@@ -899,6 +907,12 @@ class _EditorScreenState extends State<_Editor>
           onTap: () => showCutoutSheet(context, c),
         ),
         EditorTool(
+          'Recolour',
+          Icons.palette_outlined,
+          stage: 7,
+          onTap: () => showRecolorSheet(context, c),
+        ),
+        EditorTool(
           'Filter',
           Icons.photo_filter_outlined,
           stage: 5,
@@ -1012,6 +1026,12 @@ class _EditorScreenState extends State<_Editor>
         Icons.person_outline,
         stage: 7,
         onTap: sel.clip.isMedia ? () => showCutoutSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Recolour',
+        Icons.palette_outlined,
+        stage: 7,
+        onTap: sel.clip.isMedia ? () => showRecolorSheet(context, c) : null,
       ),
     ];
   }

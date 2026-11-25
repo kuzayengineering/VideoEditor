@@ -430,6 +430,65 @@ enum PipBlend {
   bool get neutralIsWhite => this == multiply || this == darken;
 }
 
+/// New colours for parts of the people in a clip (0: left as filmed).
+class PartColors {
+  const PartColors({
+    this.hair = 0,
+    this.skin = 0,
+    this.clothes = 0,
+    this.strength = 0.8,
+  });
+
+  final int hair;
+  final int skin;
+  final int clothes;
+
+  /// How much of the new colour (0–1).
+  final double strength;
+
+  bool get isActive => (hair != 0 || skin != 0 || clothes != 0) && strength > 0;
+
+  /// In the order the phone's effect takes them.
+  List<int> get colors => [hair, skin, clothes];
+
+  PartColors copyWith({int? hair, int? skin, int? clothes, double? strength}) =>
+      PartColors(
+        hair: hair ?? this.hair,
+        skin: skin ?? this.skin,
+        clothes: clothes ?? this.clothes,
+        strength: strength ?? this.strength,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is PartColors &&
+      other.hair == hair &&
+      other.skin == skin &&
+      other.clothes == clothes &&
+      other.strength == strength;
+
+  @override
+  int get hashCode => Object.hash(hair, skin, clothes, strength);
+
+  Map<String, Object?> toJson() => {
+    if (hair != 0) 'hair': hair,
+    if (skin != 0) 'skin': skin,
+    if (clothes != 0) 'clothes': clothes,
+    'strength': strength,
+  };
+
+  static PartColors? fromJson(Object? json) {
+    if (json is! Map) return null;
+    int c(String k) => (json[k] as num?)?.toInt() ?? 0;
+    return PartColors(
+      hair: c('hair'),
+      skin: c('skin'),
+      clothes: c('clothes'),
+      strength: ((json['strength'] as num?)?.toDouble() ?? 0.8).clamp(0.0, 1.0),
+    );
+  }
+}
+
 class PipLayout {
   const PipLayout({
     this.x = 0.72,
@@ -569,6 +628,7 @@ class Clip {
     this.opacity = 1.0,
     this.reversed = false,
     this.cutout = false,
+    this.partColors,
     this.reverseProxy,
     this.volume = 1.0,
     this.fadeInUs = 0,
@@ -747,6 +807,9 @@ class Clip {
   /// clips have their own, see [PipLayout.cutout].)
   final bool cutout;
 
+  /// New colours for hair, skin or clothes (null: none).
+  final PartColors? partColors;
+
   /// The prepared backwards copy, once made.
   final ReverseProxy? reverseProxy;
 
@@ -781,6 +844,7 @@ class Clip {
       !crop.isFull ||
       opacity < 0.999 ||
       cutout ||
+      (partColors?.isActive ?? false) ||
       gradeParams != null;
 
   /// True when the reversed copy is ready for the current in/out points.
@@ -854,6 +918,8 @@ class Clip {
     double? opacity,
     bool? reversed,
     bool? cutout,
+    PartColors? partColors,
+    bool clearPartColors = false,
     ReverseProxy? reverseProxy,
     bool clearReverseProxy = false,
     double? volume,
@@ -893,6 +959,7 @@ class Clip {
       opacity: opacity ?? this.opacity,
       reversed: reversed ?? this.reversed,
       cutout: cutout ?? this.cutout,
+      partColors: clearPartColors ? null : (partColors ?? this.partColors),
       reverseProxy: clearReverseProxy
           ? null
           : (reverseProxy ?? this.reverseProxy),
@@ -929,6 +996,7 @@ class Clip {
     if (opacity < 1) 'opacity': opacity,
     if (reversed) 'reversed': true,
     if (cutout) 'cutout': true,
+    if (partColors?.isActive ?? false) 'partColors': partColors!.toJson(),
     if (reverseProxy != null) 'reverseProxy': reverseProxy!.toJson(),
     if (volume != 1) 'volume': volume,
     if (fadeInUs > 0) 'fadeInUs': fadeInUs,
@@ -973,6 +1041,7 @@ class Clip {
       opacity: ((json['opacity'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 1.0),
       reversed: json['reversed'] as bool? ?? false,
       cutout: json['cutout'] as bool? ?? false,
+      partColors: PartColors.fromJson(json['partColors']),
       reverseProxy: ReverseProxy.fromJson(json['reverseProxy']),
       volume: ((json['volume'] as num?)?.toDouble() ?? 1.0).clamp(
         0.0,

@@ -120,6 +120,15 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Gives the player the timeline again (e.g. once a downloaded model
+  /// makes an effect possible).
+  void refreshPreview() {
+    _previewSegments = const [];
+    _previewShape = null;
+    _syncPreviewTimeline();
+    notifyListeners();
+  }
+
   bool get previewMuted => _previewMuted;
   bool _previewMuted = false;
 

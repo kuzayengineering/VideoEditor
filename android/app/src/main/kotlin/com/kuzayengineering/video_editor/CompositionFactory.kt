@@ -309,6 +309,11 @@ object CompositionFactory {
             val factor = Math.ceil(target / (s.frameRate * s.speed) - 0.01).toInt().coerceIn(1, 4)
             if (factor > 1) video += MotionInterpolation(factor)
         }
+        // Hair / skin / clothes colours (before the cutout, which goes last).
+        val parts = s.recolor
+        if (parts != null && s.partsModel != null && java.io.File(s.partsModel).isFile) {
+            video += PartsRecolor(s.partsModel, parts.toIntArray(), s.recolorStrength)
+        }
         // Person cutout last, so nothing after it makes the picture solid again.
         val ctx = context
         if (s.cutout && ctx != null) video += PersonCutout.effect(ctx, s.cutoutFill)

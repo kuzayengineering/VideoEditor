@@ -73,4 +73,28 @@ void main() {
     expect(m['cutout'], isTrue);
     expect(m['cutoutFill'], 0xFF102030);
   });
+
+  test('recolour settings are saved and count as a change to the look', () {
+    final p = Project.empty(id: 'p', frameRate: 30).insertMedia([video('a')]);
+    final id = p.mainTrack.clips.single.id;
+    final r = p.updateClip(
+      id,
+      (c) => c.copyWith(
+        partColors: const PartColors(hair: 0xFFE53935, strength: 0.6),
+      ),
+    );
+    final clip = r.mainTrack.clips.single;
+    expect(clip.hasLook, isTrue);
+    final back = Clip.fromJson(clip.toJson()).partColors!;
+    expect(back.hair, 0xFFE53935);
+    expect(back.clothes, 0);
+    expect(back.strength, 0.6);
+    expect(back.colors, [0xFFE53935, 0, 0]);
+    // Nothing picked: not saved, no change.
+    final none = p.updateClip(
+      id,
+      (c) => c.copyWith(partColors: const PartColors()),
+    );
+    expect(none.mainTrack.clips.single.hasLook, isFalse);
+  });
 }
