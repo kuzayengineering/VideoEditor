@@ -21,6 +21,7 @@ import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import kotlin.math.exp
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Recolours parts of the people in a picture: hair, skin and clothes, each
@@ -61,6 +62,7 @@ class PartsRecolor(
         private var inputH = 0
         private var program: GlProgram? = null
         private var maskTex = 0
+        private var smallTex = 0
         private var frameCopy: GlTextureInfo? = null
         private val maskBuffer = ByteBuffer.allocateDirect(SIZE * SIZE * 3)
 
@@ -82,13 +84,13 @@ class PartsRecolor(
             val job = EffectStatus.start("Recolor")
             return executor.submit<ByteArray> {
                 try {
-                    if (broken) ByteArray(SIZE * SIZE * 3)
+                    if (broken) ByteArray(SIZE * SIZE * 6)
                     else classify(px, image.width, image.height, presentationTimeUs)
                 } catch (t: Throwable) {
                     // An empty mask leaves the picture as it is.
                     broken = true
                     EffectStatus.fail("Recolor", t)
-                    ByteArray(SIZE * SIZE * 3)
+                    ByteArray(SIZE * SIZE * 6)
                 } finally {
                     EffectStatus.end(job)
                 }
@@ -100,15 +102,32 @@ class PartsRecolor(
                 File(model),
                 Interpreter.Options().setNumThreads(4),
             ).also { interpreter = it }
-            // Top row first (people upright); colours from -1 to 1.
-            input.rewind()
+            // The small picture, top row first (people upright). It is also
+            // sent back with the result: the edges are snapped to it.
+            val out = ByteArray(SIZE * SIZE * 6)
+            var green = 0L
             for (y in 0 until SIZE) {
                 val row = (h - 1 - y * h / SIZE) * w
                 for (x in 0 until SIZE) {
                     val i = (row + x * w / SIZE) * 4
-                    input.putFloat((px[i].toInt() and 0xff) / 127.5f - 1f)
-                    input.putFloat((px[i + 1].toInt() and 0xff) / 127.5f - 1f)
-                    input.putFloat((px[i + 2].toInt() and 0xff) / 127.5f - 1f)
+                    val o = SIZE * SIZE * 3 + (y * SIZE + x) * 3
+                    out[o] = px[i]
+                    out[o + 1] = px[i + 1]
+                    out[o + 2] = px[i + 2]
+                    green += (px[i + 1].toInt() and 0xff)
+                }
+            }
+            // Dim pictures (HDR video seen in ordinary brightness, or a
+            // dark room) are brightened for the model, which was trained
+            // on well-lit ones.
+            val mean = green.toFloat() / (SIZE * SIZE) / 255f
+            val gain = (0.45f / max(mean, 0.05f)).coerceIn(1f, 3f)
+            input.rewind()
+            for (k in 0 until SIZE * SIZE) {
+                val o = SIZE * SIZE * 3 + k * 3
+                for (c in 0 until 3) {
+                    val v = min(1f, (out[o + c].toInt() and 0xff) / 255f * gain)
+                    input.putFloat(v * 2f - 1f)
                 }
             }
             input.rewind()
@@ -117,7 +136,6 @@ class PartsRecolor(
             output.rewind()
             val steady = previousUs != Long.MIN_VALUE && Math.abs(timeUs - previousUs) < 100_000
             previousUs = timeUs
-            val out = ByteArray(SIZE * SIZE * 3)
             val score = FloatArray(CLASSES)
             for (i in 0 until SIZE * SIZE) {
                 // Scores to shares (background, hair, body skin, face skin,
@@ -169,24 +187,30 @@ class PartsRecolor(
                 program = it
             }
             if (maskTex == 0) {
-                val ids = IntArray(1)
-                GLES20.glGenTextures(1, ids, 0)
+                val ids = IntArray(2)
+                GLES20.glGenTextures(2, ids, 0)
                 maskTex = ids[0]
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskTex)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                smallTex = ids[1]
+                for (t in ids) {
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t)
+                    // Exact texels: the shader does its own blending.
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                }
             }
-            maskBuffer.rewind()
-            maskBuffer.put(result)
-            maskBuffer.rewind()
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskTex)
             GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
-            GLES20.glTexImage2D(
-                GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, SIZE, SIZE, 0,
-                GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, maskBuffer,
-            )
+            for ((tex, from) in listOf(maskTex to 0, smallTex to SIZE * SIZE * 3)) {
+                maskBuffer.rewind()
+                maskBuffer.put(result, from, SIZE * SIZE * 3)
+                maskBuffer.rewind()
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex)
+                GLES20.glTexImage2D(
+                    GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, SIZE, SIZE, 0,
+                    GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, maskBuffer,
+                )
+            }
             GlUtil.checkGlError()
 
             // The frame is read from a copy while the result is drawn over it.
@@ -207,6 +231,8 @@ class PartsRecolor(
             p.use()
             p.setSamplerTexIdUniform("uFrame", copy.texId, 0)
             p.setSamplerTexIdUniform("uMask", maskTex, 1)
+            p.setSamplerTexIdUniform("uSmall", smallTex, 2)
+            p.setFloatUniform("uHdr", if (useHdr) 1f else 0f)
             fun rgb(c: Int): FloatArray {
                 val v = floatArrayOf(
                     ((c shr 16) and 0xff) / 255f,
@@ -238,8 +264,9 @@ class PartsRecolor(
             frameCopy?.release()
             frameCopy = null
             if (maskTex != 0) {
-                GLES20.glDeleteTextures(1, intArrayOf(maskTex), 0)
+                GLES20.glDeleteTextures(2, intArrayOf(maskTex, smallTex), 0)
                 maskTex = 0
+                smallTex = 0
             }
             executor.execute {
                 interpreter?.close()
@@ -265,23 +292,51 @@ void main() {
         // The new colour keeps the part's shading: dark spots get a deep
         // shade of it, bright spots a light one (so dark hair can turn
         // red or blue, not just stay dark).
+        //
+        // The model's 256 × 256 answer is snapped to the real edges: each
+        // nearby answer counts more when its spot in the small picture has
+        // the same colour as this pixel (so the wall between loose strands
+        // of hair stays the wall, and a strand stays hair).
         const val FRAGMENT = """
-precision mediump float;
+precision highp float;
 uniform sampler2D uFrame;
 uniform sampler2D uMask;
+uniform sampler2D uSmall;
+uniform float uHdr;
 uniform vec3 uHair;
 uniform vec3 uSkin;
 uniform vec3 uClothes;
 uniform vec3 uOn;
 varying vec2 vTex;
+const float N = 256.0;
 vec3 dye(vec3 c, float l, vec3 target, float amount) {
-  vec3 dyed = clamp(target * (0.35 + 1.3 * l), 0.0, max(1.0, l));
-  return mix(c, dyed, clamp(amount, 0.0, 1.0));
+  // Bright spots (a white shirt, platinum hair) go towards a light tint of
+  // the colour instead of all the same flat colour: folds and strands show.
+  float k = 0.35 + 1.3 * l;
+  vec3 dyed = target * min(k, 1.0) + (vec3(1.0) - target) * max(k - 1.0, 0.0) * 0.6;
+  return mix(c, clamp(dyed, 0.0, max(1.0, l)), clamp(amount, 0.0, 1.0));
 }
 void main() {
   vec4 c = texture2D(uFrame, vTex);
+  // This pixel as the small picture has it (HDR frames are in linear light).
+  vec3 here = uHdr > 0.5 ? pow(clamp(c.rgb, 0.0, 1.0), vec3(1.0 / 2.2)) : c.rgb;
+  vec2 p = vec2(vTex.x, 1.0 - vTex.y) * N - 0.5;
+  vec2 b = floor(p);
+  vec3 acc = vec3(0.0);
+  float wsum = 0.0;
+  for (int j = -1; j <= 2; j++) {
+    for (int i = -1; i <= 2; i++) {
+      vec2 q = b + vec2(float(i), float(j));
+      vec2 t = (clamp(q, 0.0, N - 1.0) + 0.5) / N;
+      vec3 d = texture2D(uSmall, t).rgb - here;
+      vec2 e = q - p;
+      float w = exp(-0.5 * dot(e, e) - dot(d, d) * 50.0) + 1e-5;
+      acc += w * texture2D(uMask, t).rgb;
+      wsum += w;
+    }
+  }
   // Weak guesses (stray specks away from the person) are left alone.
-  vec3 m = smoothstep(0.3, 0.7, texture2D(uMask, vec2(vTex.x, 1.0 - vTex.y)).rgb);
+  vec3 m = smoothstep(0.3, 0.7, acc / wsum);
   float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
   vec3 col = c.rgb;
   col = dye(col, l, uHair, m.r * uOn.x);
