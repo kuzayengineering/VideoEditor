@@ -82,6 +82,16 @@ void main() {
     // Maximum would be 22 Mbit/s: held to the source's 17.
     final max = s.copyWith(quality: ExportQuality.maximum);
     expect(max.videoBitrateFor(p.canvas, project: p), 17000000);
+    // Original: the source's own rate (also when that is more than a
+    // quality level would use).
+    final original = s.copyWith(quality: ExportQuality.original);
+    expect(original.videoBitrateFor(p.canvas, project: p), 17000000);
+    expect(
+      original
+          .copyWith(resolution: ExportResolution.p720)
+          .videoBitrateFor(p.canvas, project: p),
+      inInclusiveRange(7500000, 7600000), // 17 × (720/1080)²
+    );
     // Half the frame rate: half the source's rate.
     expect(
       max.copyWith(frameRate: 30).videoBitrateFor(p.canvas, project: p),

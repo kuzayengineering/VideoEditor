@@ -34,7 +34,11 @@ enum ExportQuality {
   standard('Standard', 0.05),
   high('High', 0.08),
   veryHigh('Very high', 0.12),
-  maximum('Maximum', 0.18);
+  maximum('Maximum', 0.18),
+
+  /// The source videos' own bit rate (scaled to the export's size and frame
+  /// rate): about as much detail as was filmed, nothing visibly lost.
+  original('Original', 0.18);
 
   const ExportQuality(this.label, this.bitsPerPixel);
   final String label;
@@ -218,7 +222,12 @@ class ExportSettings {
         final s = scaled.round();
         if (cap == null || s > cap) cap = s;
       }
-      if (cap != null && cap < rate) rate = math.max(cap, 500000);
+      if (quality == ExportQuality.original && cap != null) {
+        // Match the originals, rather than only never going over them.
+        rate = math.max(cap, 500000);
+      } else if (cap != null && cap < rate) {
+        rate = math.max(cap, 500000);
+      }
     }
     return rate;
   }

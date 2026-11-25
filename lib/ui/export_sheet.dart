@@ -207,6 +207,9 @@ class _ExportSheetState extends State<_ExportSheet> {
                 (q) => _update(s.copyWith(quality: q)),
               ),
               note:
+                  '${s.quality == ExportQuality.original ? 'Matches your '
+                            'original videos (adjusted for size and frame '
+                            'rate). ' : ''}'
                   'Variable bit rate: about '
                   '${formatBitrate(s.videoBitrateFor(canvas, project: project))} '
                   'on average, up to '
