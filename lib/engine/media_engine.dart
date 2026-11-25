@@ -142,6 +142,22 @@ class PreviewSegment {
           'recolorStrength': c.partColors!.strength,
           'partsModel': PartsModel.instance.path,
         },
+        if ((c.eyeColor?.isActive ?? false) &&
+            DownloadableModel.face.path != null) ...{
+          'eyeColor': c.eyeColor!.color,
+          'eyeStrength': c.eyeColor!.strength,
+          'faceModel': DownloadableModel.face.path,
+        },
+        if ((c.outfit?.isActive ?? false) &&
+            DownloadableModel.pose.path != null &&
+            DownloadableModel.parts.path != null) ...{
+          'outfit': c.outfit!.colors,
+          'outfitSleeves': c.outfit!.sleeves,
+          'outfitTop': c.outfit!.stockingTop,
+          'outfitSheer': c.outfit!.sheer,
+          'poseModel': DownloadableModel.pose.path,
+          'partsModel': DownloadableModel.parts.path,
+        },
         'volume': c.volume,
         'fadeInUs': c.effectiveFades.fadeIn > dipInUs
             ? c.effectiveFades.fadeIn
@@ -177,6 +193,8 @@ class PreviewSegment {
       other.clip?.opacity == clip?.opacity &&
       other.clip?.cutout == clip?.cutout &&
       other.clip?.partColors == clip?.partColors &&
+      other.clip?.eyeColor == clip?.eyeColor &&
+      other.clip?.outfit == clip?.outfit &&
       other.cutoutFill == cutoutFill &&
       other.clip?.grade == clip?.grade &&
       other.gradeOf?.grade == gradeOf?.grade;

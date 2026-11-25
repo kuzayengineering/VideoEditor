@@ -4,30 +4,72 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Google's MediaPipe "selfie multiclass" model (Apache 2.0), which finds
-/// hair, skin and clothes in a picture. 16 MB, so it's downloaded the first
-/// time Recolour is used (checked against its fingerprint); after that it
-/// runs on the device with no connection, and no video ever leaves it.
-class PartsModel {
-  PartsModel._();
-  static final instance = PartsModel._();
+/// A model file downloaded once (checked against its fingerprint) and then
+/// used on the device with no connection: no video ever leaves it. All are
+/// Google's MediaPipe models (Apache 2.0).
+class DownloadableModel {
+  DownloadableModel._(
+    this.label,
+    this.usedFor,
+    this.url,
+    this.bytes,
+    this.sha256Hex,
+    this.fileName,
+  );
 
-  static const url =
-      'https://storage.googleapis.com/mediapipe-models/image_segmenter/'
-      'selfie_multiclass_256x256/float32/1/selfie_multiclass_256x256.tflite';
-  static const bytes = 16371837;
-  static const sha256Hex =
-      'c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0';
+  final String label;
+  final String usedFor;
+  final String url;
+  final int bytes;
+  final String sha256Hex;
+  final String fileName;
+
+  /// Hair, skin and clothes (Recolour; also skin for Outfit).
+  static final parts = DownloadableModel._(
+    'People\'s hair, skin and clothes',
+    'Recolour, Outfit',
+    'https://storage.googleapis.com/mediapipe-models/image_segmenter/'
+        'selfie_multiclass_256x256/float32/1/selfie_multiclass_256x256.tflite',
+    16371837,
+    'c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0',
+    'selfie_multiclass_256x256.tflite',
+  );
+
+  /// Faces with irises (Eye colour).
+  static final face = DownloadableModel._(
+    'Faces and eyes',
+    'Eye colour',
+    'https://storage.googleapis.com/mediapipe-models/face_landmarker/'
+        'face_landmarker/float16/1/face_landmarker.task',
+    3758596,
+    '64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff',
+    'face_landmarker.task',
+  );
+
+  /// Body joints (Outfit).
+  static final pose = DownloadableModel._(
+    'Body joints',
+    'Outfit',
+    'https://storage.googleapis.com/mediapipe-models/pose_landmarker/'
+        'pose_landmarker_full/float16/1/pose_landmarker_full.task',
+    9398198,
+    '5134a3aad27a58b93da0088d431f366da362b44e3ccfbe3462b3827a839011b1',
+    'pose_landmarker_full.task',
+  );
+
+  static List<DownloadableModel> get all => [parts, face, pose];
 
   String? _path;
 
   /// The model's file once it is on the device (see [check]).
   String? get path => _path;
 
+  String get sizeLabel => '${(bytes / 1e6).toStringAsFixed(1)} MB';
+
   Future<File> _file() async => File(
     '${(await getApplicationSupportDirectory()).path}'
     '${Platform.pathSeparator}models'
-    '${Platform.pathSeparator}selfie_multiclass_256x256.tflite',
+    '${Platform.pathSeparator}$fileName',
   );
 
   /// Looks for an earlier download. Returns true if it's there.
@@ -37,7 +79,15 @@ class PartsModel {
       _path = f.path;
       return true;
     }
+    _path = null;
     return false;
+  }
+
+  /// Removes the download (it can be downloaded again when needed).
+  Future<void> delete() async {
+    final f = await _file();
+    if (await f.exists()) await f.delete();
+    _path = null;
   }
 
   /// Downloads the model (once). [onProgress] gets 0–1.
@@ -53,14 +103,13 @@ class PartsModel {
         response = await (await client.getUrl(Uri.parse(url))).close();
       } on SocketException {
         throw const HttpException(
-          'Could not connect to download the recolour model. Check that the '
-          'device is online (it is only needed for this one-time download).',
+          'Could not connect to download the model. Check that the device '
+          'is online (it is only needed for this one-time download).',
         );
       }
       if (response.statusCode != 200) {
         throw HttpException(
-          'The recolour model could not be downloaded '
-          '(error ${response.statusCode}).',
+          'The model could not be downloaded (error ${response.statusCode}).',
         );
       }
       final out = part.openWrite();
@@ -95,6 +144,11 @@ class PartsModel {
       client.close(force: true);
     }
   }
+}
+
+/// The hair, skin and clothes model (kept under its earlier name).
+abstract final class PartsModel {
+  static DownloadableModel get instance => DownloadableModel.parts;
 }
 
 class _DigestSink implements Sink<Digest> {

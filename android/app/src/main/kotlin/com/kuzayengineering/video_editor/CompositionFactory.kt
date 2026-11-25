@@ -309,10 +309,25 @@ object CompositionFactory {
             val factor = Math.ceil(target / (s.frameRate * s.speed) - 0.01).toInt().coerceIn(1, 4)
             if (factor > 1) video += MotionInterpolation(factor)
         }
+        val ctx2 = context
         // Hair / skin / clothes colours (before the cutout, which goes last).
         val parts = s.recolor
         if (parts != null && s.partsModel != null && java.io.File(s.partsModel).isFile) {
             video += PartsRecolor(s.partsModel, parts.toIntArray(), s.recolorStrength)
+        }
+        // Eye colour and tight-fitting outfits (they need the app, to load
+        // the face and body models).
+        if (ctx2 != null && s.eyeColor != 0 && s.faceModel != null && java.io.File(s.faceModel).isFile) {
+            video += EyeColorEffect(ctx2, s.faceModel, s.eyeColor, s.eyeStrength)
+        }
+        val outfit = s.outfit
+        if (ctx2 != null && outfit != null && s.poseModel != null && s.partsModel != null &&
+            java.io.File(s.poseModel).isFile && java.io.File(s.partsModel).isFile
+        ) {
+            video += OutfitEffect(
+                ctx2, s.poseModel, s.partsModel, outfit.toIntArray(),
+                s.outfitSleeves, s.outfitTop, s.outfitSheer,
+            )
         }
         // Person cutout last, so nothing after it makes the picture solid again.
         val ctx = context

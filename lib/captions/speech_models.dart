@@ -83,6 +83,12 @@ class SpeechModelStore {
     return File('${dir.path}${Platform.pathSeparator}${m.file}');
   }
 
+  /// Removes [m] from the device (downloaded again when needed).
+  Future<void> delete(SpeechModel m) async {
+    final f = await _fileFor(m);
+    if (await f.exists()) await f.delete();
+  }
+
   /// The model's file if it's already on the device.
   Future<String?> pathIfPresent(SpeechModel m) async {
     final f = await _fileFor(m);

@@ -430,6 +430,131 @@ enum PipBlend {
   bool get neutralIsWhite => this == multiply || this == darken;
 }
 
+/// A new eye (iris) colour.
+class EyeColor {
+  const EyeColor({this.color = 0, this.strength = 0.7});
+
+  /// ARGB; 0: none.
+  final int color;
+  final double strength;
+
+  bool get isActive => color != 0 && strength > 0;
+
+  EyeColor copyWith({int? color, double? strength}) =>
+      EyeColor(color: color ?? this.color, strength: strength ?? this.strength);
+
+  @override
+  bool operator ==(Object other) =>
+      other is EyeColor && other.color == color && other.strength == strength;
+
+  @override
+  int get hashCode => Object.hash(color, strength);
+
+  Map<String, Object?> toJson() => {'color': color, 'strength': strength};
+
+  static EyeColor? fromJson(Object? json) {
+    if (json is! Map) return null;
+    return EyeColor(
+      color: (json['color'] as num?)?.toInt() ?? 0,
+      strength: ((json['strength'] as num?)?.toDouble() ?? 0.7).clamp(0.0, 1.0),
+    );
+  }
+}
+
+/// Tight-fitting clothes painted on bare skin (each colour 0: none).
+class Outfit {
+  const Outfit({
+    this.shirt = 0,
+    this.gloves = 0,
+    this.socks = 0,
+    this.stockings = 0,
+    this.sleeves = 2,
+    this.stockingTop = 0.35,
+    this.sheer = 0,
+  });
+
+  final int shirt;
+  final int gloves;
+  final int socks;
+  final int stockings;
+
+  /// Shirt sleeves: 0 none, 1 short, 2 long.
+  final int sleeves;
+
+  /// Where stockings end, as a share of the thigh from the hip (small:
+  /// higher).
+  final double stockingTop;
+
+  /// 0 solid … 0.9 sheer (skin shows through).
+  final double sheer;
+
+  bool get isActive =>
+      shirt != 0 || gloves != 0 || socks != 0 || stockings != 0;
+
+  /// In the order the phone's effect takes them.
+  List<int> get colors => [shirt, gloves, socks, stockings];
+
+  Outfit copyWith({
+    int? shirt,
+    int? gloves,
+    int? socks,
+    int? stockings,
+    int? sleeves,
+    double? stockingTop,
+    double? sheer,
+  }) => Outfit(
+    shirt: shirt ?? this.shirt,
+    gloves: gloves ?? this.gloves,
+    socks: socks ?? this.socks,
+    stockings: stockings ?? this.stockings,
+    sleeves: sleeves ?? this.sleeves,
+    stockingTop: stockingTop ?? this.stockingTop,
+    sheer: sheer ?? this.sheer,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is Outfit &&
+      other.shirt == shirt &&
+      other.gloves == gloves &&
+      other.socks == socks &&
+      other.stockings == stockings &&
+      other.sleeves == sleeves &&
+      other.stockingTop == stockingTop &&
+      other.sheer == sheer;
+
+  @override
+  int get hashCode =>
+      Object.hash(shirt, gloves, socks, stockings, sleeves, stockingTop, sheer);
+
+  Map<String, Object?> toJson() => {
+    if (shirt != 0) 'shirt': shirt,
+    if (gloves != 0) 'gloves': gloves,
+    if (socks != 0) 'socks': socks,
+    if (stockings != 0) 'stockings': stockings,
+    'sleeves': sleeves,
+    'stockingTop': stockingTop,
+    'sheer': sheer,
+  };
+
+  static Outfit? fromJson(Object? json) {
+    if (json is! Map) return null;
+    int c(String k) => (json[k] as num?)?.toInt() ?? 0;
+    return Outfit(
+      shirt: c('shirt'),
+      gloves: c('gloves'),
+      socks: c('socks'),
+      stockings: c('stockings'),
+      sleeves: ((json['sleeves'] as num?)?.toInt() ?? 2).clamp(0, 2),
+      stockingTop: ((json['stockingTop'] as num?)?.toDouble() ?? 0.35).clamp(
+        0.0,
+        1.0,
+      ),
+      sheer: ((json['sheer'] as num?)?.toDouble() ?? 0).clamp(0.0, 0.9),
+    );
+  }
+}
+
 /// New colours for parts of the people in a clip (0: left as filmed).
 class PartColors {
   const PartColors({
@@ -629,6 +754,8 @@ class Clip {
     this.reversed = false,
     this.cutout = false,
     this.partColors,
+    this.eyeColor,
+    this.outfit,
     this.reverseProxy,
     this.volume = 1.0,
     this.fadeInUs = 0,
@@ -810,6 +937,12 @@ class Clip {
   /// New colours for hair, skin or clothes (null: none).
   final PartColors? partColors;
 
+  /// A new eye colour (null: none).
+  final EyeColor? eyeColor;
+
+  /// Tight-fitting clothes on bare skin (null: none).
+  final Outfit? outfit;
+
   /// The prepared backwards copy, once made.
   final ReverseProxy? reverseProxy;
 
@@ -845,6 +978,8 @@ class Clip {
       opacity < 0.999 ||
       cutout ||
       (partColors?.isActive ?? false) ||
+      (eyeColor?.isActive ?? false) ||
+      (outfit?.isActive ?? false) ||
       gradeParams != null;
 
   /// True when the reversed copy is ready for the current in/out points.
@@ -920,6 +1055,8 @@ class Clip {
     bool? cutout,
     PartColors? partColors,
     bool clearPartColors = false,
+    EyeColor? eyeColor,
+    Outfit? outfit,
     ReverseProxy? reverseProxy,
     bool clearReverseProxy = false,
     double? volume,
@@ -960,6 +1097,8 @@ class Clip {
       reversed: reversed ?? this.reversed,
       cutout: cutout ?? this.cutout,
       partColors: clearPartColors ? null : (partColors ?? this.partColors),
+      eyeColor: eyeColor ?? this.eyeColor,
+      outfit: outfit ?? this.outfit,
       reverseProxy: clearReverseProxy
           ? null
           : (reverseProxy ?? this.reverseProxy),
@@ -997,6 +1136,8 @@ class Clip {
     if (reversed) 'reversed': true,
     if (cutout) 'cutout': true,
     if (partColors?.isActive ?? false) 'partColors': partColors!.toJson(),
+    if (eyeColor?.isActive ?? false) 'eyeColor': eyeColor!.toJson(),
+    if (outfit?.isActive ?? false) 'outfit': outfit!.toJson(),
     if (reverseProxy != null) 'reverseProxy': reverseProxy!.toJson(),
     if (volume != 1) 'volume': volume,
     if (fadeInUs > 0) 'fadeInUs': fadeInUs,
@@ -1042,6 +1183,8 @@ class Clip {
       reversed: json['reversed'] as bool? ?? false,
       cutout: json['cutout'] as bool? ?? false,
       partColors: PartColors.fromJson(json['partColors']),
+      eyeColor: EyeColor.fromJson(json['eyeColor']),
+      outfit: Outfit.fromJson(json['outfit']),
       reverseProxy: ReverseProxy.fromJson(json['reverseProxy']),
       volume: ((json['volume'] as num?)?.toDouble() ?? 1.0).clamp(
         0.0,

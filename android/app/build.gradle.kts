@@ -84,6 +84,8 @@ dependencies {
     implementation(project(":media3-effect"))
     // Runs the person-cutout model (Google's MediaPipe selfie segmenter).
     implementation("com.google.ai.edge.litert:litert:1.4.0")
+    // Finds faces (eyes) and body joints for Eye colour and Outfit.
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 }
 
 configurations.configureEach {

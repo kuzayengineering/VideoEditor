@@ -97,4 +97,36 @@ void main() {
     );
     expect(none.mainTrack.clips.single.hasLook, isFalse);
   });
+
+  test('eye colour and outfit are saved and count as a change', () {
+    final p = Project.empty(id: 'p', frameRate: 30).insertMedia([video('a')]);
+    final id = p.mainTrack.clips.single.id;
+    final r = p.updateClip(
+      id,
+      (c) => c.copyWith(
+        eyeColor: const EyeColor(color: 0xFF4A90D9, strength: 0.5),
+        outfit: const Outfit(
+          shirt: 0xFF111111,
+          stockings: 0xFF111111,
+          sleeves: 1,
+          stockingTop: 0.2,
+          sheer: 0.4,
+        ),
+      ),
+    );
+    final clip = r.mainTrack.clips.single;
+    expect(clip.hasLook, isTrue);
+    final back = Clip.fromJson(clip.toJson());
+    expect(back.eyeColor, const EyeColor(color: 0xFF4A90D9, strength: 0.5));
+    expect(back.outfit!.colors, [0xFF111111, 0, 0, 0xFF111111]);
+    expect(back.outfit!.sleeves, 1);
+    expect(back.outfit!.stockingTop, 0.2);
+    expect(back.outfit!.sheer, 0.4);
+    // Nothing picked: no change.
+    final none = p.updateClip(
+      id,
+      (c) => c.copyWith(eyeColor: const EyeColor(), outfit: const Outfit()),
+    );
+    expect(none.mainTrack.clips.single.hasLook, isFalse);
+  });
 }

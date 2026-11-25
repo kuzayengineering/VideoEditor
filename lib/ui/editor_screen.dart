@@ -26,6 +26,7 @@ import 'effects_sheet.dart';
 import '../effects/parts_model.dart';
 import 'pip_sheets.dart';
 import 'recolor_sheet.dart';
+import 'body_sheets.dart';
 import 'preview_view.dart';
 import 'reorder_screen.dart';
 import 'sound_sheets.dart';
@@ -124,9 +125,10 @@ class _EditorScreenState extends State<_Editor>
     _reverses = ReverseJobs(_engine);
     // A downloaded recolour model: make it known before the preview starts.
     if (Platform.isAndroid) {
-      PartsModel.instance.check().then((ok) {
-        if (ok && mounted) c.refreshPreview();
-      });
+      Future.wait([for (final m in DownloadableModel.all) m.check()])
+          .then((ok) {
+            if (ok.any((x) => x) && mounted) c.refreshPreview();
+          });
     }
     // A saved project may have reversed clips whose copies were never
     // finished (e.g. the app was closed): pick those back up. Its
@@ -913,6 +915,18 @@ class _EditorScreenState extends State<_Editor>
           onTap: () => showRecolorSheet(context, c),
         ),
         EditorTool(
+          'Eye colour',
+          Icons.visibility_outlined,
+          stage: 7,
+          onTap: () => showEyeColorSheet(context, c),
+        ),
+        EditorTool(
+          'Outfit',
+          Icons.checkroom_outlined,
+          stage: 7,
+          onTap: () => showOutfitSheet(context, c),
+        ),
+        EditorTool(
           'Filter',
           Icons.photo_filter_outlined,
           stage: 5,
@@ -1032,6 +1046,18 @@ class _EditorScreenState extends State<_Editor>
         Icons.palette_outlined,
         stage: 7,
         onTap: sel.clip.isMedia ? () => showRecolorSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Eye colour',
+        Icons.visibility_outlined,
+        stage: 7,
+        onTap: sel.clip.isMedia ? () => showEyeColorSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Outfit',
+        Icons.checkroom_outlined,
+        stage: 7,
+        onTap: sel.clip.isMedia ? () => showOutfitSheet(context, c) : null,
       ),
     ];
   }
