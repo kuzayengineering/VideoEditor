@@ -1151,6 +1151,7 @@ class _EditorScreenState extends State<_Editor>
                                     showTextSheet(context, c, id),
                                 pipPlayers: _pipPlayers,
                                 pipGestures: _pipGestures,
+                                reverseJobs: _reverses,
                               ),
                             ),
                             _TransportBar(controller: c),

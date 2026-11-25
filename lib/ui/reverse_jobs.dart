@@ -27,6 +27,12 @@ class ReverseJobs extends ChangeNotifier {
 
   bool get busy => _jobs.values.any((j) => !j.done);
 
+  /// The progress of every copy still being made (0.0–1.0 each).
+  List<double> get running => [
+    for (final j in _jobs.values)
+      if (!j.done) j.progress,
+  ];
+
   /// Starts (or joins) making the reversed copy for [c].
   Future<ReverseProxy> start(Clip c) {
     final key = keyOf(c);

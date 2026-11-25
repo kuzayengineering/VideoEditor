@@ -744,7 +744,6 @@ class _TimelinePainter extends CustomPainter {
           p.clip.name,
           if ((p.clip.speed - 1).abs() > 0.001)
             '${p.clip.speed.toStringAsFixed(p.clip.speed == p.clip.speed.roundToDouble() ? 0 : 2)}×',
-          if (p.clip.reversed) _reverseLabel(p.clip),
         ].join('  ·  '),
         style: textStyle.copyWith(
           color: Colors.white,
@@ -757,6 +756,37 @@ class _TimelinePainter extends CustomPainter {
       ellipsis: '…',
     )..layout(maxWidth: math.max(0, rect.width - 12 - (durBeside ? tagW + 6 : 0)));
     name.paint(canvas, Offset(rect.left + 6, rect.top + 4));
+
+    // Reversed / reversing on its own line under the name, with a bar, so
+    // it shows however long the name is.
+    if (p.clip.reversed) {
+      final f = reverseJobs?.progressFor(p.clip);
+      final line = TextPainter(
+        text: TextSpan(
+          text: _reverseLabel(p.clip),
+          style: textStyle.copyWith(
+            color: f == null ? Colors.white70 : Colors.amberAccent,
+            fontWeight: FontWeight.w600,
+            fontSize: 10,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: math.max(0, rect.width - 12));
+      final y = rect.top + 4 + name.height + 1;
+      if (y + line.height <= rect.bottom - 2) {
+        line.paint(canvas, Offset(rect.left + 6, y));
+      }
+      if (f != null) {
+        final bar = Rect.fromLTWH(rect.left, rect.bottom - 3, rect.width, 3);
+        canvas.drawRect(bar, Paint()..color = Colors.black54);
+        canvas.drawRect(
+          Rect.fromLTWH(bar.left, bar.top, bar.width * f, bar.height),
+          Paint()..color = Colors.amberAccent,
+        );
+      }
+    }
 
     if (showDur) {
       final tag = Rect.fromLTWH(
@@ -801,7 +831,7 @@ class _TimelinePainter extends CustomPainter {
 
   String _reverseLabel(Clip clip) {
     final f = reverseJobs?.progressFor(clip);
-    return f == null ? '◀ reversed' : '◀ reversing ${(f * 100).floor()}%';
+    return f == null ? '◀ reversed' : '◀ reversing ${(f * 100).floor()} %';
   }
 
   /// Draws the loudness outline of a sound clip, scaled by its volume.

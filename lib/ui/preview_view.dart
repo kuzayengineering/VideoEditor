@@ -1,3 +1,5 @@
+import 'reverse_jobs.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -20,11 +22,15 @@ class PreviewView extends StatelessWidget {
     this.onEditText,
     this.pipPlayers,
     this.pipGestures,
+    this.reverseJobs,
   });
 
   /// Picture in picture (null without real video).
   final PipPlayers? pipPlayers;
   final PipGestures? pipGestures;
+
+  /// Reversed copies being made (shown as a badge on the picture).
+  final ReverseJobs? reverseJobs;
 
   /// Opens the text editor (double-tapping a text in the preview).
   final void Function(int clipId)? onEditText;
@@ -40,7 +46,7 @@ class PreviewView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([controller, thumbnails]),
+      listenable: Listenable.merge([controller, thumbnails, reverseJobs]),
       builder: (context, _) {
         final project = controller.project;
         final t = controller.playheadUs;
@@ -151,11 +157,25 @@ class PreviewView extends StatelessWidget {
                       onEditText: onEditText ?? (_) {},
                       below: pipGestures,
                     ),
-                    if (controller.transitionsPreparing.isNotEmpty)
+                    if (controller.transitionsPreparing.isNotEmpty &&
+                        (reverseJobs?.running.isEmpty ?? true))
                       const Positioned(
                         left: 8,
                         top: 8,
                         child: IgnorePointer(child: _PreparingBadge()),
+                      ),
+                    if (reverseJobs?.running.isNotEmpty ?? false)
+                      Positioned(
+                        left: 8,
+                        top: 8,
+                        child: IgnorePointer(
+                          child: _ReversingBadge(
+                            running: reverseJobs!.running,
+                            current: current == null
+                                ? null
+                                : reverseJobs!.progressFor(current.clip),
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -338,6 +358,49 @@ class _Placeholder extends StatelessWidget {
             const Text(
               'Demo placeholder clip',
               style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Reversing 42 %" while backwards copies are being made: the clip at the
+/// playhead's progress if it is one of them, else the first one's.
+class _ReversingBadge extends StatelessWidget {
+  const _ReversingBadge({required this.running, this.current});
+
+  final List<double> running;
+  final double? current;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = current ?? running.first;
+    final more = running.length > 1 ? ' (${running.length} clips)' : '';
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                value: f > 0 ? f : null,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Reversing ${(f * 100).floor()} %$more',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
           ],
         ),
