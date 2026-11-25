@@ -72,16 +72,14 @@ class EditorController extends ChangeNotifier {
   bool get previewDrawsEffects => _preview != null && _appliedDrawsEffects;
   bool _appliedDrawsEffects = false;
 
-  /// The ready-made copies the player was last given.
-  Map<String, String> _appliedFiles = const {};
+  /// The main clips the player was last given as ready-made copies.
+  Set<int> _appliedCopies = const {};
   int _timelineGeneration = 0;
 
-  /// True if main clip [index] is playing from its ready-made preview copy
-  /// (which already has its crop, turn and bars).
-  bool playsFromCopy(int index) {
-    final key = project.speedKey(index);
-    return key.isNotEmpty && _appliedFiles.containsKey(key);
-  }
+  /// True if main clip [clipId] is playing from its ready-made preview copy
+  /// (which already has its crop, turn and bars). Follows what the player
+  /// was actually given, not the project as it is mid-change.
+  bool playsFromCopy(int clipId) => _appliedCopies.contains(clipId);
 
   /// True if the preview player draws mixing transitions itself (Android).
   bool get previewBlendsTransitions => _preview?.blendsTransitions ?? false;
@@ -235,7 +233,13 @@ class EditorController extends ChangeNotifier {
     _previewSegments = segments;
     _previewBlends = blends;
     final generation = ++_timelineGeneration;
-    final files = Map<String, String>.of(transitionFiles);
+    final clips = project.mainTrack.clips;
+    final copies = {
+      for (var i = 0; i < clips.length; i++)
+        if (project.speedKey(i) case final k
+            when k.isNotEmpty && transitionFiles.containsKey(k))
+          clips[i].id,
+    };
     final drawsEffects = blends != null || p.drawsEffects(segments);
     final canvas = project.canvas;
     final long = 1920.0;
@@ -252,7 +256,7 @@ class EditorController extends ChangeNotifier {
           .then((_) {
             if (generation == _timelineGeneration) {
               _appliedDrawsEffects = drawsEffects;
-              _appliedFiles = files;
+              _appliedCopies = copies;
               notifyListeners();
             }
             _seekPreview(exact: true);

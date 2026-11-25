@@ -13,7 +13,17 @@ class GradeParams {
     this.shadows = 0,
     this.highlights = 0,
     this.hdr = 0,
+    this.blackPoint = 0,
+    this.whitePoint = 0,
   });
+
+  /// Positive: the darkest tones become black (deeper blacks); negative:
+  /// black is raised.
+  final double blackPoint;
+
+  /// Positive: the brightest tones become full white (brighter whites);
+  /// negative: white is dimmed.
+  final double whitePoint;
 
   /// Lighter or darker dark tones (black stays black).
   final double shadows;
@@ -48,7 +58,9 @@ class GradeParams {
       fade.abs() < 1e-4 &&
       shadows.abs() < 1e-4 &&
       highlights.abs() < 1e-4 &&
-      hdr.abs() < 1e-4;
+      hdr.abs() < 1e-4 &&
+      blackPoint.abs() < 1e-4 &&
+      whitePoint.abs() < 1e-4;
 
   GradeParams operator *(double k) => GradeParams(
     brightness: brightness * k,
@@ -60,6 +72,8 @@ class GradeParams {
     shadows: shadows * k,
     highlights: highlights * k,
     hdr: hdr * k,
+    blackPoint: blackPoint * k,
+    whitePoint: whitePoint * k,
   );
 
   /// Adds two sets of changes (kept within range).
@@ -73,6 +87,8 @@ class GradeParams {
     shadows: (shadows + o.shadows).clamp(-1.0, 1.0),
     highlights: (highlights + o.highlights).clamp(-1.0, 1.0),
     hdr: (hdr + o.hdr).clamp(-1.0, 1.0),
+    blackPoint: (blackPoint + o.blackPoint).clamp(-1.0, 1.0),
+    whitePoint: (whitePoint + o.whitePoint).clamp(-1.0, 1.0),
   );
 
   GradeParams copyWith({
@@ -85,6 +101,8 @@ class GradeParams {
     double? shadows,
     double? highlights,
     double? hdr,
+    double? blackPoint,
+    double? whitePoint,
   }) => GradeParams(
     brightness: brightness ?? this.brightness,
     contrast: contrast ?? this.contrast,
@@ -95,6 +113,8 @@ class GradeParams {
     shadows: shadows ?? this.shadows,
     highlights: highlights ?? this.highlights,
     hdr: hdr ?? this.hdr,
+    blackPoint: blackPoint ?? this.blackPoint,
+    whitePoint: whitePoint ?? this.whitePoint,
   );
 
   /// In the order the shaders take them.
@@ -108,6 +128,8 @@ class GradeParams {
     shadows,
     highlights,
     hdr,
+    blackPoint,
+    whitePoint,
   ];
 
   @override
@@ -121,7 +143,9 @@ class GradeParams {
       other.fade == fade &&
       other.shadows == shadows &&
       other.highlights == highlights &&
-      other.hdr == hdr;
+      other.hdr == hdr &&
+      other.blackPoint == blackPoint &&
+      other.whitePoint == whitePoint;
 
   @override
   int get hashCode => Object.hash(
@@ -134,6 +158,8 @@ class GradeParams {
     shadows,
     highlights,
     hdr,
+    blackPoint,
+    whitePoint,
   );
 
   Map<String, Object?> toJson() => {
@@ -146,6 +172,8 @@ class GradeParams {
     if (shadows != 0) 'shadows': shadows,
     if (highlights != 0) 'highlights': highlights,
     if (hdr != 0) 'hdr': hdr,
+    if (blackPoint != 0) 'blackPoint': blackPoint,
+    if (whitePoint != 0) 'whitePoint': whitePoint,
   };
 
   factory GradeParams.fromJson(Object? json) {
@@ -161,6 +189,8 @@ class GradeParams {
       shadows: v('shadows').clamp(-1.0, 1.0),
       highlights: v('highlights').clamp(-1.0, 1.0),
       hdr: v('hdr').clamp(-1.0, 1.0),
+      blackPoint: v('blackPoint').clamp(-1.0, 1.0),
+      whitePoint: v('whitePoint').clamp(-1.0, 1.0),
     );
   }
 }
@@ -332,7 +362,15 @@ const kneePq = 0.58;
   final f = 0.12 * p.fade;
   final he = math.pow(2, -p.hdr).toDouble();
   final hScale = p.hdr < 0 ? 1 + 0.5 * p.hdr : 1.0;
+  // 0. Black and white points (levels): up to 15 % of the range at each
+  //    end set to black / white, or black raised / white lowered by as much.
+  final inLo = math.max(p.blackPoint, 0) * 0.15;
+  final inHi = 1 - math.max(p.whitePoint, 0) * 0.15;
+  final outLo = math.max(-p.blackPoint, 0) * 0.15;
+  final outHi = 1 - math.max(-p.whitePoint, 0) * 0.15;
   double curve(double x) {
+    x = ((x - inLo) / (inHi - inLo)).clamp(0.0, 1.0);
+    x = outLo + x * (outHi - outLo);
     x = math.pow(x, e).toDouble();
     x = x + p.shadows * x * (1 - x) * (1 - x);
     x = x + p.highlights * x * x * (1 - x);

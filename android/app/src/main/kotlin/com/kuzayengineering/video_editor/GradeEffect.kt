@@ -84,6 +84,8 @@ private class GradeShaderProgram(
         program.setFloatUniform("uShadows", p.getOrElse(6) { 0f })
         program.setFloatUniform("uHighlights", p.getOrElse(7) { 0f })
         program.setFloatUniform("uHdr", p.getOrElse(8) { 0f })
+        program.setFloatUniform("uBlack", p.getOrElse(9) { 0f })
+        program.setFloatUniform("uWhite", p.getOrElse(10) { 0f })
     }
 
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
@@ -134,6 +136,8 @@ uniform float uFade;
 uniform float uShadows;
 uniform float uHighlights;
 uniform float uHdr;
+uniform float uBlack;
+uniform float uWhite;
 varying vec2 vUv;
 
 const float HA = 0.17883277;
@@ -169,6 +173,13 @@ float toLight(float s) {
 }
 
 float curve(float x) {
+  // Black and white points (levels), as in the app's applyGrade.
+  float inLo = max(uBlack, 0.0) * 0.15;
+  float inHi = 1.0 - max(uWhite, 0.0) * 0.15;
+  float outLo = max(-uBlack, 0.0) * 0.15;
+  float outHi = 1.0 - max(-uWhite, 0.0) * 0.15;
+  x = clamp((x - inLo) / (inHi - inLo), 0.0, 1.0);
+  x = outLo + x * (outHi - outLo);
   x = pow(x, pow(2.0, -uBrightness));
   x = x + uShadows * x * (1.0 - x) * (1.0 - x);
   x = x + uHighlights * x * x * (1.0 - x);

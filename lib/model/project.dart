@@ -384,6 +384,9 @@ class Project {
       id: 1,
       startUs: 0,
       clearTransition: true,
+      // The filter goes on top while previewing (changeable live), so
+      // changing it doesn't make the copy out of date.
+      clearGrade: true,
       volume: 1,
       fadeInUs: 0,
       fadeOutUs: 0,

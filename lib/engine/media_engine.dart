@@ -28,7 +28,13 @@ class PreviewSegment {
     this.dipOutUs = 0,
     this.blendOutUs = 0,
     this.fileDurationUs = 0,
+    this.gradeOf,
   });
+
+  /// For a ready-made copy of a clip: the clip whose filter is applied on
+  /// top while previewing (copies are made without it, so the filter can
+  /// be changed live).
+  final Clip? gradeOf;
 
   /// Length of the whole file, for pieces that aren't a clip (a pre-made
   /// transition).
@@ -89,7 +95,10 @@ class PreviewSegment {
   /// Length on the timeline (after speed).
   int get timelineUs => (lengthUs / speed).round();
 
-  bool get hasEffects => (clip?.hasLook ?? false) || (speed - 1).abs() > 0.0001;
+  bool get hasEffects =>
+      (clip?.hasLook ?? false) ||
+      gradeOf?.gradeParams != null ||
+      (speed - 1).abs() > 0.0001;
 
   Map<String, Object?> toMap() {
     final c = clip;
@@ -99,6 +108,11 @@ class PreviewSegment {
       'outUs': outUs,
       'speed': speed,
       if (c == null && fileDurationUs > 0) 'sourceDurationUs': fileDurationUs,
+      if (c == null && gradeOf?.gradeParams != null) ...{
+        'clipId': gradeOf!.id,
+        'grade': gradeOf!.gradeParams!.values,
+        'transfer': gradeOf!.media?.transfer.name ?? 'sdr',
+      },
       if (c != null) ...{
         'hasAudio': c.media?.hasAudio ?? true,
         'frameRate': c.media?.frameRate ?? 30,
@@ -145,7 +159,8 @@ class PreviewSegment {
       other.clip?.flipV == clip?.flipV &&
       other.clip?.crop == clip?.crop &&
       other.clip?.opacity == clip?.opacity &&
-      other.clip?.grade == clip?.grade;
+      other.clip?.grade == clip?.grade &&
+      other.gradeOf?.grade == gradeOf?.grade;
 
   @override
   int get hashCode => Object.hash(source, inUs, outUs, speed);
@@ -205,6 +220,7 @@ List<PreviewSegment> segmentsOf(
           head[i],
           c.durationUs - tail[i],
           fileDurationUs: c.durationUs,
+          gradeOf: c.grade == null ? null : c,
         ),
       );
     } else {

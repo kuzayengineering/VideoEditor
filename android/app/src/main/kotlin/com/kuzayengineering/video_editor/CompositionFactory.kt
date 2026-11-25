@@ -283,7 +283,7 @@ object CompositionFactory {
         val grade = s.grade
         if (grade != null && grade.size >= 6) {
             video += GradeEffect(
-                FloatArray(9) { grade.getOrElse(it) { 0.0 }.toFloat() },
+                FloatArray(11) { grade.getOrElse(it) { 0.0 }.toFloat() },
                 s.transfer,
                 // The preview follows the sliders live; exports don't.
                 liveClipId = if (withGain) null else s.clipId,

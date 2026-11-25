@@ -249,6 +249,8 @@ class _FilterPanelState extends State<_FilterPanel> {
         row('Contrast', a.contrast, (v) => a.copyWith(contrast: v)),
         row('Shadows', a.shadows, (v) => a.copyWith(shadows: v)),
         row('Highlights', a.highlights, (v) => a.copyWith(highlights: v)),
+        row('Black point', a.blackPoint, (v) => a.copyWith(blackPoint: v)),
+        row('White point', a.whitePoint, (v) => a.copyWith(whitePoint: v)),
         row('HDR intensity', a.hdr, (v) => a.copyWith(hdr: v)),
         row('Saturation', a.saturation, (v) => a.copyWith(saturation: v)),
         row('Warmth', a.warmth, (v) => a.copyWith(warmth: v)),

@@ -92,7 +92,7 @@ class PreviewView extends StatelessWidget {
             // A clip playing from its ready-made copy already has its crop,
             // turn and bars: shown as is, like a rendered transition.
             final fromCopy =
-                current != null && controller.playsFromCopy(current.index);
+                current != null && controller.playsFromCopy(current.clip.id);
             content = _LookPreview(
               project: project,
               placement: renderedTransition || fromCopy ? null : current,
