@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../app_settings.dart';
@@ -47,6 +49,63 @@ class _HomeScreenState extends State<HomeScreen> {
             .sweep([for (final d in drafts) d.project, ?justClosed]);
       } catch (_) {}
     }
+  }
+
+  /// Cover pictures, by video file and moment (made once).
+  final Map<String, Future<String?>> _covers = {};
+
+  /// The project's first frame (its first video clip's first frame), made
+  /// with the timeline's picture cache, so it is deleted along with the
+  /// project's other pictures. A film symbol until it's ready.
+  Widget _cover(Project project) {
+    final hdr = project.mainTrack.clips.any((c) => c.media?.isHdr ?? false);
+    final fallback = Icon(hdr ? Icons.hdr_on : Icons.movie_edit);
+    final first = project.mainTrack.clips.where((c) => c.isMedia).firstOrNull;
+    if (first == null || !_services.engine.supportsMedia) return fallback;
+    final t = first.sourceTimeAt(0);
+    final future = _covers.putIfAbsent(
+      '${first.sourcePath}@$t',
+      () => _services.engine
+          .thumbnails(
+            first.sourcePath!,
+            first.media!,
+            [t],
+            height: 120,
+            exact: true,
+          )
+          .then((files) => files.firstOrNull)
+          .catchError((_) => null),
+    );
+    return SizedBox(
+      width: 64,
+      height: 48,
+      child: FutureBuilder<String?>(
+        future: future,
+        builder: (context, snap) {
+          final path = snap.data;
+          if (path == null) return Center(child: fallback);
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.file(
+                  File(path),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Center(child: fallback),
+                ),
+                if (hdr)
+                  const Positioned(
+                    right: 2,
+                    bottom: 2,
+                    child: Icon(Icons.hdr_on, size: 16, color: Colors.white),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   String _newId() => 'p${DateTime.now().microsecondsSinceEpoch}-${_counter++}';
@@ -201,13 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     for (final d in _drafts)
                       Card(
                         child: ListTile(
-                          leading: Icon(
-                            d.project.mainTrack.clips.any(
-                                  (c) => c.media?.isHdr ?? false,
-                                )
-                                ? Icons.hdr_on
-                                : Icons.movie_edit,
-                          ),
+                          leading: _cover(d.project),
                           title: Text(d.project.name),
                           subtitle: Text(
                             '${d.project.canvas.label} · '
