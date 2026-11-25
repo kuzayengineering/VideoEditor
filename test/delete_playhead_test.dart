@@ -94,4 +94,21 @@ void main() {
     expect(before.fadeOutUs, 0);
     expect(before.volume, 1);
   });
+
+  test('keyboard moves: cuts, seconds', () {
+    final c = setUp(); // a 0-4 s, b 4-7 s, c 7-12 s
+    c.seek(5 * s);
+    c.jumpToCut(1);
+    expect(c.playheadUs, 7 * s);
+    c.jumpToCut(1);
+    expect(c.playheadUs, 12 * s);
+    c.jumpToCut(-1);
+    expect(c.playheadUs, 7 * s);
+    c.jumpToCut(-1);
+    expect(c.playheadUs, 4 * s);
+    c.nudge(-s);
+    expect(c.playheadUs, 3 * s);
+    c.nudge(20 * s);
+    expect(c.playheadUs, 12 * s); // not past the end
+  });
 }

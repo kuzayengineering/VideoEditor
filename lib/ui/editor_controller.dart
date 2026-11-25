@@ -386,6 +386,33 @@ class EditorController extends ChangeNotifier {
     return (_dragSpeed * 100000).round().clamp(0, 1000000);
   }
 
+  /// Jumps to the previous (-1) or next (+1) cut between main clips (or
+  /// the start / end of the video).
+  void jumpToCut(int direction) {
+    pause();
+    final edges = <int>{0, project.durationUs};
+    for (final p in project.placementsOn(project.mainTrack)) {
+      edges
+        ..add(p.startUs)
+        ..add(p.endUs);
+    }
+    final sorted = edges.toList()..sort();
+    final now = _playheadUs;
+    final target = direction < 0
+        ? sorted.lastWhere((t) => t < now - 1000, orElse: () => 0)
+        : sorted.firstWhere(
+            (t) => t > now + 1000,
+            orElse: () => project.durationUs,
+          );
+    seek(target, exact: true);
+  }
+
+  /// Moves the playhead by [deltaUs] (paused, exact frame).
+  void nudge(int deltaUs) {
+    pause();
+    seek(snapToFrame(_playheadUs + deltaUs, project.frameRate), exact: true);
+  }
+
   /// Moves exactly one frame forward (+1) or back (-1).
   void stepFrame(int direction) {
     pause();

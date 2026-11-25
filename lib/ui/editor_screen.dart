@@ -1025,6 +1025,40 @@ class _EditorScreenState extends State<_Editor>
         c.duplicateSelected,
     const SingleActivator(LogicalKeyboardKey.delete): c.deleteSelected,
     const SingleActivator(LogicalKeyboardKey.backspace): c.deleteSelected,
+    // Seconds, cuts, start and end.
+    const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true): () =>
+        c.nudge(-usPerSecond),
+    const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () =>
+        c.nudge(usPerSecond),
+    const SingleActivator(LogicalKeyboardKey.arrowUp): () => c.jumpToCut(-1),
+    const SingleActivator(LogicalKeyboardKey.arrowDown): () => c.jumpToCut(1),
+    const SingleActivator(LogicalKeyboardKey.home): () {
+      c.pause();
+      c.seek(0, exact: true);
+    },
+    const SingleActivator(LogicalKeyboardKey.end): () {
+      c.pause();
+      c.seek(c.project.durationUs, exact: true);
+    },
+    const SingleActivator(LogicalKeyboardKey.keyK): c.togglePlay,
+    // Timeline zoom.
+    const SingleActivator(LogicalKeyboardKey.equal): () =>
+        c.setZoom(c.pixelsPerSecond * 1.25),
+    const SingleActivator(LogicalKeyboardKey.numpadAdd): () =>
+        c.setZoom(c.pixelsPerSecond * 1.25),
+    const SingleActivator(LogicalKeyboardKey.minus): () =>
+        c.setZoom(c.pixelsPerSecond / 1.25),
+    const SingleActivator(LogicalKeyboardKey.numpadSubtract): () =>
+        c.setZoom(c.pixelsPerSecond / 1.25),
+    // Adding and exporting.
+    const SingleActivator(LogicalKeyboardKey.keyI, control: true): () {
+      if (_engine.supportsMedia) _addMedia();
+    },
+    const SingleActivator(LogicalKeyboardKey.keyT, control: true): _addText,
+    const SingleActivator(LogicalKeyboardKey.keyE, control: true): _export,
+    const SingleActivator(LogicalKeyboardKey.f1): _showShortcuts,
+    const SingleActivator(LogicalKeyboardKey.slash, shift: true):
+        _showShortcuts,
     const SingleActivator(LogicalKeyboardKey.escape): () {
       final panels = ToolPanelScope.maybeOf(context);
       if (panels?.current != null) {
@@ -1034,6 +1068,63 @@ class _EditorScreenState extends State<_Editor>
       }
     },
   };
+
+  /// The list of keyboard shortcuts (F1 or ?).
+  void _showShortcuts() {
+    const rows = [
+      ('Space or K', 'Play / pause'),
+      ('← →', 'One frame back / forward'),
+      ('Shift + ← →', 'One second back / forward'),
+      ('↑ ↓', 'Previous / next cut'),
+      ('Home / End', 'Start / end of the video'),
+      ('S', 'Split at the playhead'),
+      ('Ctrl + D', 'Copy the selected clip'),
+      ('Delete', 'Delete the selected clip'),
+      ('Ctrl + Z', 'Undo'),
+      ('Ctrl + Y', 'Redo'),
+      ('+ / −', 'Zoom the timeline in / out'),
+      ('Ctrl + I', 'Add media'),
+      ('Ctrl + T', 'Add text'),
+      ('Ctrl + E', 'Export'),
+      ('Esc', 'Close the tool / unselect'),
+      ('F1 or ?', 'This list'),
+    ];
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Keyboard shortcuts'),
+        content: SingleChildScrollView(
+          child: Table(
+            columnWidths: const {0: IntrinsicColumnWidth()},
+            children: [
+              for (final (keys, what) in rows)
+                TableRow(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 4, 16, 4),
+                      child: Text(
+                        keys,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(what),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// True while a text box has the keyboard (typing must not trigger the
   /// editor's shortcuts: Backspace in an empty box would delete the clip).
@@ -1109,6 +1200,12 @@ class _EditorScreenState extends State<_Editor>
                   ),
                 ),
                 actions: [
+                  if (!Platform.isAndroid)
+                    IconButton(
+                      tooltip: 'Keyboard shortcuts (F1)',
+                      icon: const Icon(Icons.keyboard_outlined),
+                      onPressed: _showShortcuts,
+                    ),
                   TextButton.icon(
                     onPressed: () => showCanvasSheet(context, c),
                     icon: const Icon(Icons.aspect_ratio, size: 18),
