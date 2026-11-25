@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_editor/app_settings.dart';
+import 'package:video_editor/engine/media_engine.dart';
 import 'package:video_editor/model/project.dart';
 import 'package:video_editor/model/timecode.dart';
 import 'package:video_editor/ui/editor_controller.dart';
@@ -56,5 +57,20 @@ void main() {
     expect(back.colorValue, 0xFFE53935);
     expect(TextSpec.fromJson(spec.toJson()).opacity, 1);
     expect(const TextSpec().colorValue, 0xFFFFFFFF);
+  });
+
+  test('main-clip cutout: saved, and sent with the background colour', () {
+    final p = Project.empty(id: 'p', frameRate: 30)
+        .insertMedia([video('a')])
+        .withBackground(const BackgroundFill.color(0xFF102030));
+    final id = p.mainTrack.clips.single.id;
+    final cut = p.updateClip(id, (c) => c.copyWith(cutout: true));
+    final clip = cut.mainTrack.clips.single;
+    expect(Clip.fromJson(clip.toJson()).cutout, isTrue);
+    final seg = segmentsOf(cut).single;
+    expect(seg.hasEffects, isTrue);
+    final m = seg.toMap();
+    expect(m['cutout'], isTrue);
+    expect(m['cutoutFill'], 0xFF102030);
   });
 }

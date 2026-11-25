@@ -29,7 +29,12 @@ class PreviewSegment {
     this.blendOutUs = 0,
     this.fileDurationUs = 0,
     this.gradeOf,
+    this.cutoutFill = 0xFF000000,
   });
+
+  /// The colour behind the people when the clip has a person cutout (the
+  /// project's background colour).
+  final int cutoutFill;
 
   /// For a ready-made copy of a clip: the clip whose filter is applied on
   /// top while previewing (copies are made without it, so the filter can
@@ -54,6 +59,7 @@ class PreviewSegment {
     int dipInUs = 0,
     int dipOutUs = 0,
     int blendOutUs = 0,
+    int cutoutFill = 0xFF000000,
   }) {
     final proxy = c.reverseProxy;
     if (c.reversed &&
@@ -68,6 +74,7 @@ class PreviewSegment {
         dipInUs: dipInUs,
         dipOutUs: dipOutUs,
         blendOutUs: blendOutUs,
+        cutoutFill: cutoutFill,
       );
     }
     return PreviewSegment(
@@ -79,6 +86,7 @@ class PreviewSegment {
       dipInUs: dipInUs,
       dipOutUs: dipOutUs,
       blendOutUs: blendOutUs,
+      cutoutFill: cutoutFill,
     );
   }
 
@@ -126,6 +134,7 @@ class PreviewSegment {
         'crop': c.crop.toJson(),
         'opacity': c.opacity,
         if (c.smoothsSlowMo) 'smooth': true,
+        if (c.cutout) ...{'cutout': true, 'cutoutFill': cutoutFill},
         'volume': c.volume,
         'fadeInUs': c.effectiveFades.fadeIn > dipInUs
             ? c.effectiveFades.fadeIn
@@ -159,6 +168,8 @@ class PreviewSegment {
       other.clip?.flipV == clip?.flipV &&
       other.clip?.crop == clip?.crop &&
       other.clip?.opacity == clip?.opacity &&
+      other.clip?.cutout == clip?.cutout &&
+      other.cutoutFill == cutoutFill &&
       other.clip?.grade == clip?.grade &&
       other.gradeOf?.grade == gradeOf?.grade;
 
@@ -230,6 +241,7 @@ List<PreviewSegment> segmentsOf(
           dipInUs: dipHead[i],
           dipOutUs: dipTail[i],
           blendOutUs: blendOut[i],
+          cutoutFill: project.background.colorValue,
         ),
       );
     }
@@ -321,8 +333,10 @@ BlendLayers? blendLayersOf(Project project) {
     final next = clips[i + 1];
     if (next.isMedia && (next.media?.hasAudio ?? false)) {
       audio.add({
-        ...PreviewSegment.of(next.trimmedBy(tailUs: next.durationUs - d))
-            .toMap(),
+        ...PreviewSegment.of(
+          next.trimmedBy(tailUs: next.durationUs - d),
+          cutoutFill: project.background.colorValue,
+        ).toMap(),
         'fadeInUs': d,
         'fadeOutUs': 0,
         'startUs': start,
@@ -337,6 +351,7 @@ BlendLayers? blendLayersOf(Project project) {
         if (clips[i].isMedia)
           PreviewSegment.of(
             clips[i].trimmedBy(headUs: head[i], tailUs: tail[i]),
+            cutoutFill: project.background.colorValue,
           ),
     ],
     windows,

@@ -568,6 +568,7 @@ class Clip {
     this.fillFrom,
     this.opacity = 1.0,
     this.reversed = false,
+    this.cutout = false,
     this.reverseProxy,
     this.volume = 1.0,
     this.fadeInUs = 0,
@@ -741,6 +742,11 @@ class Clip {
   /// Plays backwards.
   final bool reversed;
 
+  /// Person cutout on a main-video clip: everything but the people is
+  /// replaced with the project's background colour. (Picture-in-picture
+  /// clips have their own, see [PipLayout.cutout].)
+  final bool cutout;
+
   /// The prepared backwards copy, once made.
   final ReverseProxy? reverseProxy;
 
@@ -774,6 +780,7 @@ class Clip {
       flipV ||
       !crop.isFull ||
       opacity < 0.999 ||
+      cutout ||
       gradeParams != null;
 
   /// True when the reversed copy is ready for the current in/out points.
@@ -846,6 +853,7 @@ class Clip {
     bool clearFill = false,
     double? opacity,
     bool? reversed,
+    bool? cutout,
     ReverseProxy? reverseProxy,
     bool clearReverseProxy = false,
     double? volume,
@@ -884,6 +892,7 @@ class Clip {
       fillFrom: clearFill ? null : (fillFrom ?? this.fillFrom),
       opacity: opacity ?? this.opacity,
       reversed: reversed ?? this.reversed,
+      cutout: cutout ?? this.cutout,
       reverseProxy: clearReverseProxy
           ? null
           : (reverseProxy ?? this.reverseProxy),
@@ -919,6 +928,7 @@ class Clip {
     if (fillFrom != null) 'fillFrom': fillFrom!.toJson(),
     if (opacity < 1) 'opacity': opacity,
     if (reversed) 'reversed': true,
+    if (cutout) 'cutout': true,
     if (reverseProxy != null) 'reverseProxy': reverseProxy!.toJson(),
     if (volume != 1) 'volume': volume,
     if (fadeInUs > 0) 'fadeInUs': fadeInUs,
@@ -962,6 +972,7 @@ class Clip {
           : CropRect.fromJson(json['fillFrom']),
       opacity: ((json['opacity'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 1.0),
       reversed: json['reversed'] as bool? ?? false,
+      cutout: json['cutout'] as bool? ?? false,
       reverseProxy: ReverseProxy.fromJson(json['reverseProxy']),
       volume: ((json['volume'] as num?)?.toDouble() ?? 1.0).clamp(
         0.0,

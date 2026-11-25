@@ -30,9 +30,17 @@ object PersonCutout {
     private const val MODEL = "selfie_segmenter.tflite"
     private const val SIZE = 256
 
-    fun effect(context: Context) = ByteBufferGlEffect(Processor(context.applicationContext))
+    /**
+     * [fill]: null makes the background see-through (picture in picture);
+     * a colour (ARGB) paints it over the background instead (main video).
+     */
+    fun effect(context: Context, fill: Int? = null) =
+        ByteBufferGlEffect(Processor(context.applicationContext, fill))
 
-    private class Processor(private val context: Context) : ByteBufferGlEffect.Processor<ByteArray> {
+    private class Processor(
+        private val context: Context,
+        private val fill: Int?,
+    ) : ByteBufferGlEffect.Processor<ByteArray> {
         private val executor: ListeningExecutorService =
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor())
         private var interpreter: Interpreter? = null
@@ -147,15 +155,34 @@ object PersonCutout {
                 GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, maskBuffer,
             )
             GlUtil.checkGlError()
-            // Write only the see-through amount; the colours stay as they are.
             GlUtil.focusFramebufferUsingCurrentContext(outputFrame.fboId, outputFrame.width, outputFrame.height)
-            GLES20.glDisable(GLES20.GL_BLEND)
-            GLES20.glColorMask(false, false, false, true)
             p.use()
             p.setSamplerTexIdUniform("uMask", maskTex, 0)
+            val f = fill
+            if (f == null) {
+                // Write only the see-through amount; the colours stay.
+                GLES20.glDisable(GLES20.GL_BLEND)
+                GLES20.glColorMask(false, false, false, true)
+                p.setIntUniform("uPaint", 0)
+            } else {
+                // Paint the colour over everything but the people.
+                GLES20.glEnable(GLES20.GL_BLEND)
+                GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                GLES20.glColorMask(true, true, true, false)
+                p.setIntUniform("uPaint", 1)
+                p.setFloatsUniform(
+                    "uFill",
+                    floatArrayOf(
+                        ((f shr 16) and 0xff) / 255f,
+                        ((f shr 8) and 0xff) / 255f,
+                        (f and 0xff) / 255f,
+                    ),
+                )
+            }
             p.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GLES20.glColorMask(true, true, true, true)
+            GLES20.glDisable(GLES20.GL_BLEND)
             GlUtil.checkGlError()
         }
 
@@ -189,10 +216,13 @@ void main() {
     private const val FRAGMENT = """
 precision mediump float;
 uniform sampler2D uMask;
+uniform int uPaint;
+uniform vec3 uFill;
 varying vec2 vTex;
 void main() {
-  float m = texture2D(uMask, vec2(vTex.x, 1.0 - vTex.y)).r;
-  gl_FragColor = vec4(0.0, 0.0, 0.0, smoothstep(0.25, 0.75, m));
+  float m = smoothstep(0.25, 0.75, texture2D(uMask, vec2(vTex.x, 1.0 - vTex.y)).r);
+  // See-through amount, or the colour where there is no person.
+  gl_FragColor = uPaint == 1 ? vec4(uFill, 1.0 - m) : vec4(0.0, 0.0, 0.0, m);
 }
 """
 }

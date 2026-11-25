@@ -1007,8 +1007,19 @@ class _EditorScreenState extends State<_Editor>
               }
             : null,
       ),
-      const EditorTool('Cutout', Icons.person_outline, stage: 7),
-      const EditorTool('Smooth slo-mo', Icons.slow_motion_video, stage: 7),
+      EditorTool(
+        'Cutout',
+        Icons.person_outline,
+        stage: 7,
+        onTap: sel.clip.isMedia ? () => showCutoutSheet(context, c) : null,
+      ),
+      EditorTool(
+        'Smooth slo-mo',
+        Icons.slow_motion_video,
+        stage: 7,
+        // The switch is in the speed panel (it needs a slowed clip).
+        onTap: sel.clip.isMedia ? () => showSpeedSheet(context, c) : null,
+      ),
     ];
   }
 

@@ -57,8 +57,9 @@ Future<void> showBlendSheet(BuildContext context, EditorController c) {
   );
 }
 
-/// Cutout: hides everything but the people in a picture-in-picture clip, so
-/// the person shows over the clips below.
+/// Cutout: hides everything but the people. On a picture-in-picture clip
+/// the person shows over the clips below; on a main-video clip everything
+/// else becomes the project's background colour.
 Future<void> showCutoutSheet(BuildContext context, EditorController c) {
   final id = c.selectedClipId;
   if (id == null) return Future.value();
@@ -70,8 +71,9 @@ Future<void> showCutoutSheet(BuildContext context, EditorController c) {
       listenable: c,
       builder: (context, _) {
         final clip = c.project.placementOf(id)?.clip;
-        final pip = clip?.pip;
-        if (pip == null) return const SizedBox.shrink();
+        if (clip == null) return const SizedBox.shrink();
+        final pip = clip.pip;
+        final on = pip?.cutout ?? clip.cutout;
         final theme = Theme.of(context);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,16 +82,19 @@ Future<void> showCutoutSheet(BuildContext context, EditorController c) {
               contentPadding: EdgeInsets.zero,
               title: const Text('Remove background'),
               subtitle: const Text('Keep only the people'),
-              value: pip.cutout,
+              value: on,
               onChanged: (v) => c.apply(
                 c.project.updateClip(
                   id,
-                  (x) => x.copyWith(pip: pip.copyWith(cutout: v)),
+                  (x) => pip != null
+                      ? x.copyWith(pip: pip.copyWith(cutout: v))
+                      : x.copyWith(cutout: v),
                 ),
               ),
             ),
             const SizedBox(height: 6),
             Text(
+              '${pip != null ? 'The person shows over the clips below. ' : 'Everything else becomes the background colour (change it with the Background tool). To put the person over other video, add this clip with PiP instead. '}'
               'Works best when the person is fairly close to the camera and '
               'stands out from the background.'
               '${Platform.isAndroid ? '' : ' On Windows the cutout is not '

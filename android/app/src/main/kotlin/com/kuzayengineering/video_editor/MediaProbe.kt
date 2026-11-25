@@ -31,6 +31,9 @@ data class Segment(
     val smooth: Boolean = false,
     /** Picture-in-picture person cutout: the background see-through. */
     val cutout: Boolean = false,
+    /** Main-video cutout: the colour (ARGB) behind the people. Null: the
+     * background becomes see-through (picture in picture). */
+    val cutoutFill: Int? = null,
     val volume: Double = 1.0,
     val fadeInUs: Long = 0,
     val fadeOutUs: Long = 0,
@@ -60,7 +63,7 @@ data class Segment(
     val lengthUs: Long get() = outUs - inUs
 
     val hasEffects: Boolean
-        get() = rotation != 0 || flipH || flipV || opacity < 0.999 ||
+        get() = rotation != 0 || flipH || flipV || opacity < 0.999 || cutout ||
             Math.abs(speed - 1.0) > 0.0001 || grade != null ||
             crop[0] > 0.0005 || crop[1] > 0.0005 || crop[2] < 0.9995 || crop[3] < 0.9995
 
@@ -81,6 +84,7 @@ data class Segment(
             opacity = (map["opacity"] as Number?)?.toDouble() ?: 1.0,
             smooth = map["smooth"] as Boolean? ?: false,
             cutout = map["cutout"] as Boolean? ?: false,
+            cutoutFill = (map["cutoutFill"] as Number?)?.toInt(),
             volume = (map["volume"] as Number?)?.toDouble() ?: 1.0,
             fadeInUs = (map["fadeInUs"] as Number?)?.toLong() ?: 0L,
             fadeOutUs = (map["fadeOutUs"] as Number?)?.toLong() ?: 0L,

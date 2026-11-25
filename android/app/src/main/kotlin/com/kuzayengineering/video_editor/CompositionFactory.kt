@@ -311,7 +311,7 @@ object CompositionFactory {
         }
         // Person cutout last, so nothing after it makes the picture solid again.
         val ctx = context
-        if (s.cutout && ctx != null) video += PersonCutout.effect(ctx)
+        if (s.cutout && ctx != null) video += PersonCutout.effect(ctx, s.cutoutFill)
 
         val audio = when {
             silent -> listOf()
