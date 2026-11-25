@@ -1,9 +1,10 @@
-import 'reverse_jobs.dart';
+import 'dart:async';
 
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'reverse_jobs.dart';
 import '../engine/media_engine.dart';
 import '../model/project.dart';
 import 'editor_controller.dart';
@@ -83,7 +84,7 @@ class PreviewView extends StatelessWidget {
             dipColor = Color(d.color);
           }
         }
-        final Widget content;
+        Widget content;
         if (player != null && project.hasMedia) {
           if (controller.previewDrawsEffects) {
             // The player renders the finished frame (bars and all).
@@ -101,6 +102,26 @@ class PreviewView extends StatelessWidget {
               plainCanvas: renderedTransition || fromCopy,
             );
           }
+          // The phone's video view resizes a moment after the screen does
+          // (a panel opening shrinks the preview): a still of the frame,
+          // which resizes with the screen, covers it meanwhile.
+          final still = current == null || !current.clip.isMedia
+              ? null
+              : thumbnails?.imageAt(
+                  current.clip.sourcePath!,
+                  current.clip.sourceTimeAt(t - current.startUs),
+                );
+          content = _ResizeGuard(
+            cover: _LookPreview(
+              project: project,
+              placement: current,
+              player: still == null
+                  ? const ColoredBox(color: Colors.black)
+                  : RawImage(image: still, fit: BoxFit.fill),
+              thumbnails: thumbnails,
+            ),
+            child: content,
+          );
         } else {
           final placeholder = project.mainClipAt(controller.playheadUs);
           content = DecoratedBox(
@@ -407,4 +428,58 @@ class _ReversingBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Shows [cover] over [child] while this box is changing size, and for a
+/// moment after: the phone's video view lags behind size changes, and
+/// would show too big or too small meanwhile.
+class _ResizeGuard extends StatefulWidget {
+  const _ResizeGuard({required this.child, required this.cover});
+
+  final Widget child;
+  final Widget cover;
+
+  @override
+  State<_ResizeGuard> createState() => _ResizeGuardState();
+}
+
+class _ResizeGuardState extends State<_ResizeGuard> {
+  Size? _size;
+  bool _covered = false;
+  Timer? _timer;
+
+  void _sized(Size size) {
+    if (_size == null) {
+      _size = size;
+      return;
+    }
+    if ((size.width - _size!.width).abs() < 0.5 &&
+        (size.height - _size!.height).abs() < 0.5) {
+      return;
+    }
+    _size = size;
+    _timer?.cancel();
+    _timer = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) setState(() => _covered = false);
+    });
+    // Covered from this very frame (this runs while building).
+    _covered = true;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      _sized(box.biggest);
+      return Stack(
+        fit: StackFit.expand,
+        children: [widget.child, if (_covered) widget.cover],
+      );
+    },
+  );
 }
