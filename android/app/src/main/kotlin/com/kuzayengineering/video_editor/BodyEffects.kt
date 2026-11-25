@@ -157,6 +157,8 @@ class EyeColorEffect(
         private var program: GlProgram? = null
         private val copy = FrameCopy(hdr)
         private var last: List<Eye> = emptyList()
+        /** The model failed to run once: don't keep trying every frame. */
+        @Volatile private var broken = false
         private var lastUs = Long.MIN_VALUE
 
         override fun configure(inputWidth: Int, inputHeight: Int): Size {
@@ -171,7 +173,20 @@ class EyeColorEffect(
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            return executor.submit<List<Eye>> { find(px, image.width, image.height, presentationTimeUs) }
+            val job = EffectStatus.start("Eye color")
+            return executor.submit<List<Eye>> {
+                try {
+                    if (broken) emptyList() else find(px, image.width, image.height, presentationTimeUs)
+                } catch (t: Throwable) {
+                    // Leave the picture as it is (and say why) rather than
+                    // stopping the video.
+                    broken = true
+                    EffectStatus.fail("Eye color", t)
+                    emptyList()
+                } finally {
+                    EffectStatus.end(job)
+                }
+            }
         }
 
         private fun find(px: ByteArray, w: Int, h: Int, timeUs: Long): List<Eye> {
@@ -360,6 +375,7 @@ class OutfitEffect(
         private var skinTex = 0
         private val skinBuffer = ByteBuffer.allocateDirect(SIZE * SIZE)
         private var lastPoints: FloatArray? = null
+        @Volatile private var broken = false
         private var lastUs = Long.MIN_VALUE
 
         override fun configure(inputWidth: Int, inputHeight: Int): Size {
@@ -374,7 +390,18 @@ class OutfitEffect(
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            return executor.submit<Body> { find(px, image.width, image.height, presentationTimeUs) }
+            val job = EffectStatus.start("Outfit")
+            return executor.submit<Body> {
+                try {
+                    if (broken) none else find(px, image.width, image.height, presentationTimeUs)
+                } catch (t: Throwable) {
+                    broken = true
+                    EffectStatus.fail("Outfit", t)
+                    none
+                } finally {
+                    EffectStatus.end(job)
+                }
+            }
         }
 
         private fun find(px: ByteArray, w: Int, h: Int, timeUs: Long): Body {

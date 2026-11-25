@@ -132,8 +132,51 @@ class EditorController extends ChangeNotifier {
   bool get previewMuted => _previewMuted;
   bool _previewMuted = false;
 
+  /// The look effect the preview is waiting for (e.g. 'Eye color'), once
+  /// it has waited long enough to notice; null otherwise.
+  String? get effectWorking => _effectWorking;
+  String? _effectWorking;
+
+  /// Why an effect could not be shown, in words (until dismissed).
+  String? get effectError => _effectError;
+  String? _effectError;
+  Timer? _statusTimer;
+  bool _statusAsked = false;
+
+  void _pollStatus() {
+    final p = _preview;
+    if (p == null || _statusAsked || _disposed) return;
+    _statusAsked = true;
+    p.status().then(
+      (st) {
+        _statusAsked = false;
+        if (_disposed) return;
+        final working = st.busy != null && st.busyMs > 400 ? st.busy : null;
+        if (working != _effectWorking || st.error != _effectError) {
+          _effectWorking = working;
+          _effectError = st.error;
+          notifyListeners();
+        }
+      },
+      onError: (Object _) {
+        _statusAsked = false;
+      },
+    );
+  }
+
+  void dismissEffectError() {
+    _effectError = null;
+    unawaited(_preview?.clearError());
+    notifyListeners();
+  }
+
   void attachPreview(PreviewPlayer preview, {AudioPreviewMixer? audio}) {
     _preview = preview;
+    _statusTimer?.cancel();
+    _statusTimer = Timer.periodic(
+      const Duration(milliseconds: 350),
+      (_) => _pollStatus(),
+    );
     // Paused: ready for quick scrubbing and frame stepping.
     unawaited(preview.setScrubbing(true));
     _audio = audio?..sync(project, _playheadUs);
@@ -768,6 +811,7 @@ class EditorController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _restTimer?.cancel();
+    _statusTimer?.cancel();
     super.dispose();
   }
 

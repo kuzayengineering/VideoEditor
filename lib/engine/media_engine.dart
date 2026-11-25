@@ -545,6 +545,22 @@ abstract class OverlayPlayer {
   Future<void> dispose();
 }
 
+/// What the preview's frame-by-frame effects are doing.
+class PreviewStatus {
+  const PreviewStatus({this.busy, this.busyMs = 0, this.error});
+
+  /// The effect a frame is waiting for (e.g. 'Eye color'), if any.
+  final String? busy;
+
+  /// How long that frame has waited.
+  final int busyMs;
+
+  /// The last problem, in words.
+  final String? error;
+
+  static const idle = PreviewStatus();
+}
+
 /// Shows the edit while editing.
 abstract class PreviewPlayer {
   /// The video picture.
@@ -591,6 +607,12 @@ abstract class PreviewPlayer {
 
   /// Current timeline position.
   Future<int> position();
+
+  /// What frame-by-frame effects (Eye color, Outfit, Recolor) are doing.
+  Future<PreviewStatus> status();
+
+  /// Forgets the last [PreviewStatus.error] (once it has been read).
+  Future<void> clearError();
 
   /// Loudness of the video's own sound (0.0–1.0).
   Future<void> setVolume(double volume);

@@ -31,6 +31,12 @@ class _Engine implements MediaEngine {
 
 class _Preview implements PreviewPlayer {
   @override
+  Future<PreviewStatus> status() async => PreviewStatus.idle;
+
+  @override
+  Future<void> clearError() async {}
+
+  @override
   bool get gradesLive => false;
   @override
   bool get blendsTransitions => false;

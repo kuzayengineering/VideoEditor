@@ -8,6 +8,12 @@ import 'package:video_editor/ui/editor_controller.dart';
 const s = usPerSecond;
 
 class _Player implements PreviewPlayer {
+  @override
+  Future<PreviewStatus> status() async => PreviewStatus.idle;
+
+  @override
+  Future<void> clearError() async {}
+
   int rebuilds = 0;
   final grades = <Map<int, List<double>>>[];
   final seeks = <(int, bool, int)>[];

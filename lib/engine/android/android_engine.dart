@@ -562,6 +562,20 @@ class AndroidPreviewPlayer implements PreviewPlayer {
       (await _channel.invokeMethod<num>('previewPosition'))?.toInt() ?? 0;
 
   @override
+  Future<PreviewStatus> status() async {
+    final m = await _channel.invokeMapMethod<String, Object?>('previewStatus');
+    if (m == null) return PreviewStatus.idle;
+    return PreviewStatus(
+      busy: m['busy'] as String?,
+      busyMs: (m['busyMs'] as num?)?.toInt() ?? 0,
+      error: m['error'] as String?,
+    );
+  }
+
+  @override
+  Future<void> clearError() => _channel.invokeMethod('previewClearError');
+
+  @override
   Future<void> dispose() =>
       _channel.invokeMethod('previewSetTimeline', {'segments': <Object>[]});
 }

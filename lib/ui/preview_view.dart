@@ -188,6 +188,28 @@ class PreviewView extends StatelessWidget {
                           top: 8,
                           child: IgnorePointer(child: _PreparingBadge()),
                         ),
+                      if (controller.effectWorking != null &&
+                          (reverseJobs?.running.isEmpty ?? true) &&
+                          controller.transitionsPreparing.isEmpty)
+                        Positioned(
+                          left: 8,
+                          top: 8,
+                          child: IgnorePointer(
+                            child: _WorkingBadge(
+                              label: controller.effectWorking!,
+                            ),
+                          ),
+                        ),
+                      if (controller.effectError != null)
+                        Positioned(
+                          left: 8,
+                          right: 8,
+                          bottom: 8,
+                          child: _EffectErrorBar(
+                            message: controller.effectError!,
+                            onClose: controller.dismissEffectError,
+                          ),
+                        ),
                       if (reverseJobs?.running.isNotEmpty ?? false)
                         Positioned(
                           left: 8,
@@ -397,6 +419,77 @@ class _Placeholder extends StatelessWidget {
 
 /// "Reversing 42 %" while backwards copies are being made: the clip at the
 /// playhead's progress if it is one of them, else the first one's.
+/// A look effect (Eye color, Outfit, Recolor) is finding people in the
+/// picture: the model is loading, or the phone is catching up.
+class _WorkingBadge extends StatelessWidget {
+  const _WorkingBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.6),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Applying $label…',
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _EffectErrorBar extends StatelessWidget {
+  const _EffectErrorBar({required this.message, required this.onClose});
+
+  final String message;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.errorContainer,
+    borderRadius: BorderRadius.circular(8),
+    child: Padding(
+      padding: const EdgeInsets.only(left: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onErrorContainer,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            color: Theme.of(context).colorScheme.onErrorContainer,
+            onPressed: onClose,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _ReversingBadge extends StatelessWidget {
   const _ReversingBadge({required this.running, this.current});
 

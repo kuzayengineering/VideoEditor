@@ -72,6 +72,12 @@ class SpeedMap {
 /// background are drawn by the screen around the video; speed is applied by
 /// changing mpv's playback speed as each clip starts.
 class MpvPreviewPlayer implements PreviewPlayer {
+  @override
+  Future<PreviewStatus> status() async => PreviewStatus.idle;
+
+  @override
+  Future<void> clearError() async {}
+
   MpvPreviewPlayer() {
     final native = _player.platform;
     if (native is NativePlayer) {

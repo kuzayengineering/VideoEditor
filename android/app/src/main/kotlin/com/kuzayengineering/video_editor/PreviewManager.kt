@@ -93,6 +93,7 @@ class PreviewManager(private val context: Context) {
             player != null
         ) return
         val keep = positionUs()
+        EffectStatus.clearError()
         // A rebuild carries the newest filter values itself.
         LiveGrades.set(emptyMap())
         segments = newSegments
@@ -138,6 +139,17 @@ class PreviewManager(private val context: Context) {
                         val s = segments
                         segments = emptyList()
                         main.post { setTimeline(s, canvas.first, canvas.second, blends) }
+                    }
+                })
+            }
+            if (wantComposition && !wantLayers) {
+                // Say why instead of just leaving the picture blank.
+                player!!.addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        var cause: Throwable? = error
+                        while (cause?.cause != null && cause.cause !== cause) cause = cause.cause
+                        val why = (cause?.message ?: error.errorCodeName).lineSequence().first().take(160)
+                        EffectStatus.failText("The preview stopped because an effect failed ($why).")
                     }
                 })
             }

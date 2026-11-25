@@ -56,6 +56,7 @@ class PartsRecolor(
          * stop edges flickering. */
         private val previous = FloatArray(SIZE * SIZE * 3)
         private var previousUs = Long.MIN_VALUE
+        @Volatile private var broken = false
         private var inputW = 0
         private var inputH = 0
         private var program: GlProgram? = null
@@ -78,7 +79,20 @@ class PartsRecolor(
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            return executor.submit<ByteArray> { classify(px, image.width, image.height, presentationTimeUs) }
+            val job = EffectStatus.start("Recolor")
+            return executor.submit<ByteArray> {
+                try {
+                    if (broken) ByteArray(SIZE * SIZE * 3)
+                    else classify(px, image.width, image.height, presentationTimeUs)
+                } catch (t: Throwable) {
+                    // An empty mask leaves the picture as it is.
+                    broken = true
+                    EffectStatus.fail("Recolor", t)
+                    ByteArray(SIZE * SIZE * 3)
+                } finally {
+                    EffectStatus.end(job)
+                }
+            }
         }
 
         private fun classify(px: ByteArray, w: Int, h: Int, timeUs: Long): ByteArray {

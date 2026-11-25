@@ -254,6 +254,17 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "previewPosition" -> result.success(preview.positionUs())
+            "previewStatus" -> {
+                val busy = EffectStatus.busy()
+                result.success(
+                    mapOf(
+                        "busy" to busy?.first,
+                        "busyMs" to (busy?.second ?: 0L),
+                        "error" to EffectStatus.error,
+                    )
+                )
+            }
+            "previewClearError" -> { EffectStatus.clearError(); result.success(null) }
             "renderTransition" -> {
                 TransitionRenderer.render(this, call.arguments as Map<*, *>) { error ->
                     result.success(mapOf("ok" to (error == null), "error" to error))
