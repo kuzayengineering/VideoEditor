@@ -310,17 +310,21 @@ object CompositionFactory {
             if (factor > 1) video += MotionInterpolation(factor)
         }
         val ctx2 = context
+        // The people-finding models take longer than a frame lasts: the
+        // preview finds people about 10 times a second (each answer used
+        // for the frames until the next), exports about 30 times.
+        val everyUs = if (withGain) 33_000L else 100_000L
         // Hair / skin / clothes colours (before the cutout, which goes last).
         val parts = s.recolor
         if (parts != null && s.partsModel != null && java.io.File(s.partsModel).isFile) {
-            video += PartsRecolor(s.partsModel, parts.toIntArray(), s.recolorStrength)
+            video += PartsRecolor(s.partsModel, parts.toIntArray(), s.recolorStrength, everyUs)
         }
         // Eye colour and tight-fitting outfits (they need the app, to load
         // the face and body models).
         if (ctx2 != null && (s.eyeColor != 0 || s.eyeBright > 0f) && s.faceModel != null &&
             java.io.File(s.faceModel).isFile
         ) {
-            video += EyeColorEffect(ctx2, s.faceModel, s.eyeColor, s.eyeStrength, s.eyeBright)
+            video += EyeColorEffect(ctx2, s.faceModel, s.eyeColor, s.eyeStrength, s.eyeBright, everyUs)
         }
         val outfit = s.outfit
         if (ctx2 != null && outfit != null && s.poseModel != null && s.partsModel != null &&
@@ -328,7 +332,7 @@ object CompositionFactory {
         ) {
             video += OutfitEffect(
                 ctx2, s.poseModel, s.partsModel, outfit.toIntArray(),
-                s.outfitSleeves, s.outfitTop, s.outfitSheer, s.outfitPattern,
+                s.outfitSleeves, s.outfitTop, s.outfitSheer, s.outfitPattern, everyUs,
             )
         }
         // Person cutout last, so nothing after it makes the picture solid again.

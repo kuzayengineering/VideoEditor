@@ -37,17 +37,23 @@ class PartsRecolor(
     /** ARGB colours for hair, skin and clothes; 0 leaves that part alone. */
     private val colors: IntArray,
     private val strength: Float,
+    /** Find people at most this often (video time); frames between reuse
+     * the latest answer. */
+    private val everyUs: Long = 0,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        ByteBufferGlEffect(Processor(model, colors, strength, useHdr))
+        ByteBufferGlEffect(Processor(model, colors, strength, everyUs, useHdr))
             .toGlShaderProgram(context, useHdr)
 
     private class Processor(
         private val model: String,
         private val colors: IntArray,
         private val strength: Float,
+        private val everyUs: Long,
         private val useHdr: Boolean,
     ) : ByteBufferGlEffect.Processor<ByteArray> {
+        private var lastFuture: ListenableFuture<ByteArray>? = null
+        private var lastAskedUs = 0L
         private val executor: ListeningExecutorService =
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor())
         private var interpreter: Interpreter? = null
@@ -78,10 +84,14 @@ class PartsRecolor(
             image: ByteBufferGlEffect.Image,
             presentationTimeUs: Long,
         ): ListenableFuture<ByteArray> {
+            // Reuse the latest answer for frames close to it.
+            val near = lastFuture
+            if (near != null && Math.abs(presentationTimeUs - lastAskedUs) < everyUs) return near
+            lastAskedUs = presentationTimeUs
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            return executor.submit<ByteArray> {
+            val f = executor.submit<ByteArray> {
                 // Counted from when the work starts (not while queued).
                 val job = EffectStatus.start("Recolor")
                 try {
@@ -96,6 +106,8 @@ class PartsRecolor(
                     EffectStatus.end(job)
                 }
             }
+            lastFuture = f
+            return f
         }
 
         private fun classify(px: ByteArray, w: Int, h: Int, timeUs: Long): ByteArray {

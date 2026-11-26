@@ -130,9 +130,11 @@ class EyeColorEffect(
     private val strength: Float,
     /** 0 … 1: how much brighter the whole visible eye gets. */
     private val brighten: Float,
+    /** Find faces at most this often (video time). */
+    private val everyUs: Long = 0,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        ByteBufferGlEffect(Processor(this.context, model, color, strength, brighten, useHdr))
+        ByteBufferGlEffect(Processor(this.context, model, color, strength, brighten, everyUs, useHdr))
             .toGlShaderProgram(context, useHdr)
 
     /** Per eye: iris centre and radius, and the eye opening (an ellipse). */
@@ -147,8 +149,11 @@ class EyeColorEffect(
         private val color: Int,
         private val strength: Float,
         private val brighten: Float,
+        private val everyUs: Long,
         private val hdr: Boolean,
     ) : ByteBufferGlEffect.Processor<List<Eye>> {
+        private var lastFuture: ListenableFuture<List<Eye>>? = null
+        private var lastAskedUs = 0L
         private val executor: ListeningExecutorService =
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor())
         private var landmarker: FaceLandmarker? = null
@@ -170,11 +175,15 @@ class EyeColorEffect(
         override fun getScaledRegion(presentationTimeUs: Long) = GlRect(inW, inH)
 
         override fun processImage(image: ByteBufferGlEffect.Image, presentationTimeUs: Long): ListenableFuture<List<Eye>> {
+            // Reuse the latest answer for frames close to it.
+            val near = lastFuture
+            if (near != null && Math.abs(presentationTimeUs - lastAskedUs) < everyUs) return near
+            lastAskedUs = presentationTimeUs
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
             val job = EffectStatus.start("Eye color")
-            return executor.submit<List<Eye>> {
+            val f = executor.submit<List<Eye>> {
                 try {
                     if (broken) emptyList() else find(px, image.width, image.height, presentationTimeUs)
                 } catch (t: Throwable) {
@@ -187,6 +196,8 @@ class EyeColorEffect(
                     EffectStatus.end(job)
                 }
             }
+            lastFuture = f
+            return f
         }
 
         private fun find(px: ByteArray, w: Int, h: Int, timeUs: Long): List<Eye> {
@@ -350,6 +361,8 @@ class OutfitEffect(
     private val sheer: Float,
     /** 0 solid, 1 plaid, 2 stripes. */
     private val pattern: Int = 0,
+    /** Find the body at most this often (video time). */
+    private val everyUs: Long = 0,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
         ByteBufferGlEffect(Processor(this, useHdr)).toGlShaderProgram(context, useHdr)
@@ -360,6 +373,8 @@ class OutfitEffect(
 
     private class Processor(private val e: OutfitEffect, private val hdr: Boolean) :
         ByteBufferGlEffect.Processor<Body> {
+        private var lastFuture: ListenableFuture<Body>? = null
+        private var lastAskedUs = 0L
         /** No one found in the frame. */
         private val none = Body(FloatArray(0), 0f, ByteArray(0))
         private val executor: ListeningExecutorService =
@@ -387,10 +402,14 @@ class OutfitEffect(
         override fun getScaledRegion(presentationTimeUs: Long) = GlRect(inW, inH)
 
         override fun processImage(image: ByteBufferGlEffect.Image, presentationTimeUs: Long): ListenableFuture<Body> {
+            // Reuse the latest answer for frames close to it.
+            val near = lastFuture
+            if (near != null && Math.abs(presentationTimeUs - lastAskedUs) < e.everyUs) return near
+            lastAskedUs = presentationTimeUs
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            return executor.submit<Body> {
+            val f = executor.submit<Body> {
                 // Counted from when the work starts (not while queued).
                 val job = EffectStatus.start("Outfit")
                 try {
@@ -403,6 +422,8 @@ class OutfitEffect(
                     EffectStatus.end(job)
                 }
             }
+            lastFuture = f
+            return f
         }
 
         private fun find(px: ByteArray, w: Int, h: Int, timeUs: Long): Body {
