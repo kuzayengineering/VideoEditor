@@ -243,7 +243,7 @@ class _EditorScreenState extends State<_Editor>
 
   /// Adds a text at the playhead (3 seconds, or to the end of the video)
   /// and opens the text editor.
-  void _addText() {
+  Future<void> _addText() async {
     c.pause();
     final start =
         c.playheadUs >= c.project.durationUs && c.project.durationUs > 0
@@ -251,8 +251,27 @@ class _EditorScreenState extends State<_Editor>
         : c.playheadUs;
     final room = c.project.durationUs - start;
     final length = room >= 1000000 ? room.clamp(1000000, 3000000) : 3000000;
+    // Starts as the date the clip under the playhead was recorded, as
+    // large as fits across the picture.
+    var spec = const TextSpec();
+    final clip = c.project.mainClipAt(start)?.clip;
+    var date = clip?.media?.createdAt;
+    if (date == null && clip?.sourcePath != null && _engine.supportsMedia) {
+      try {
+        date =
+            (await _engine
+                    .probe(clip!.sourcePath!)
+                    .timeout(const Duration(seconds: 3)))
+                .createdAt;
+      } catch (_) {}
+      if (!mounted) return;
+    }
+    if (date != null) {
+      spec = spec.copyWith(text: longDate(date.toLocal()));
+      spec = spec.copyWith(size: _fitWidth(spec));
+    }
     final project = c.project.addText(
-      Clip.text(const TextSpec(), startUs: start, durationUs: length),
+      Clip.text(spec, startUs: start, durationUs: length),
     );
     c.apply(project);
     final id = c.project.textTracks
@@ -261,6 +280,18 @@ class _EditorScreenState extends State<_Editor>
         .id;
     c.select(id);
     showTextSheet(context, c, id);
+  }
+
+  /// The letter size at which [spec]'s text spans 90 % of the picture's
+  /// width.
+  double _fitWidth(TextSpec spec) {
+    const h = 1000.0;
+    final probe = layoutText(spec.copyWith(size: 0.1, scale: 1), h);
+    final w = probe.width;
+    probe.dispose();
+    if (w <= 0) return spec.size;
+    final frameW = h * c.project.canvas.value;
+    return (0.1 * frameW * 0.9 / w).clamp(0.02, 0.25);
   }
 
   Future<void> _reorder(int clipId) async {

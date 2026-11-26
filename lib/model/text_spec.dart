@@ -300,3 +300,21 @@ TextFrame textFrameAt(TextSpec s, int offsetUs, int durationUs) {
     visibleChars: chars,
   );
 }
+
+const _months = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/// A date written out, e.g. "December 10, 2024".
+String longDate(DateTime d) => '${_months[d.month - 1]} ${d.day}, ${d.year}';
