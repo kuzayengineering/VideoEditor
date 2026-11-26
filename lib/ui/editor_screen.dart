@@ -460,21 +460,39 @@ class _EditorScreenState extends State<_Editor>
       }
       c.setTransitionPreparing(key, true);
       _transitionQueue = _transitionQueue.then((_) async {
-        try {
-          final path = await _engine.renderPreviewClip(mini, key);
-          if (!mounted) return;
-          if (path != null) {
-            c.addTransitionFile(key, path);
-          } else {
-            c.setTransitionPreparing(key, false);
+        for (var attempt = 1; ; attempt++) {
+          try {
+            final path = await _engine.renderPreviewClip(mini, key);
+            if (!mounted) return;
+            if (path != null) {
+              c.addTransitionFile(key, path);
+            } else {
+              c.setTransitionPreparing(key, false);
+            }
+            return;
+          } catch (e) {
+            if (!mounted) return;
+            // The phone can take a video decoder back for something else
+            // (the preview, another app) mid-render: try again.
+            final why = _reason(e);
+            if (attempt < 3 && _decoderTakenBack(why)) {
+              await Future<void>.delayed(Duration(seconds: attempt));
+              continue;
+            }
+            // The preview keeps the dip-through-black stand-in.
+            c.setTransitionError(key, why);
+            return;
           }
-        } catch (e) {
-          // The preview keeps the dip-through-black stand-in.
-          if (mounted) c.setTransitionError(key, _reason(e));
         }
       });
     }
   }
+
+  static bool _decoderTakenBack(String why) =>
+      why.contains('resource manager') ||
+      why.contains('reclaim') ||
+      why.contains('NO_MEMORY') ||
+      why.contains('Invalid to call during release');
 
   /// Android: clips at a changed speed, or cropped, turned or mirrored, get
   /// a ready-to-play copy made in the background (like transitions), so the

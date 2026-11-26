@@ -479,8 +479,18 @@ class EditorController extends ChangeNotifier {
   bool get loopsSelected => _loopSelected;
   void setLoopSelected(bool on) => _loopSelected = on;
 
+  /// A stretch to repeat set by a panel itself (e.g. across a transition).
+  (int, int)? _customLoop;
+  void setCustomLoop((int, int)? range) => _customLoop = range;
+
   /// The stretch being repeated, if any (start, end).
   (int, int)? get loopRange {
+    final custom = _customLoop;
+    if (custom != null) {
+      final start = custom.$1.clamp(0, project.durationUs);
+      final end = custom.$2.clamp(0, project.durationUs);
+      return end - start >= 2 * project.frameUs ? (start, end) : null;
+    }
     final id = _selectedClipId;
     if (!_loopSelected || id == null) return null;
     final p = project.placementOf(id);

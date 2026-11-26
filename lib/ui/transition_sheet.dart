@@ -106,7 +106,9 @@ class _TransitionPanelState extends State<_TransitionPanel>
     duration: const Duration(milliseconds: 2200),
   )..repeat();
   late TransitionGroup _group = _current?.kind.group ?? TransitionGroup.basic;
-  int? _stopAtUs;
+
+  /// Start playing the loop once this transition's preview is ready.
+  bool _playWhenReady = false;
 
   EditorController get c => widget.c;
   TransitionSpec? get _current {
@@ -117,39 +119,60 @@ class _TransitionPanelState extends State<_TransitionPanel>
   @override
   void initState() {
     super.initState();
-    c.addListener(_watchPlayback);
-    // Show the cut, ready to play.
+    c.addListener(_watch);
+    // Show the transition, repeating, as soon as it's ready.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _jumpToCut(play: false);
+      if (mounted) _loopCut(play: _current != null);
     });
   }
 
   @override
   void dispose() {
-    c.removeListener(_watchPlayback);
+    c.removeListener(_watch);
+    c.setCustomLoop(null);
     _loop.dispose();
     super.dispose();
   }
 
-  /// Puts the playhead just before the cut and (optionally) plays across it.
-  void _jumpToCut({required bool play}) {
+  /// Repeats from just before the cut to just after the transition; with
+  /// [play], starts once the transition's preview is ready.
+  void _loopCut({required bool play}) {
     final placements = c.project.placementsOn(c.project.mainTrack);
     if (widget.index + 1 >= placements.length) return;
     final start = placements[widget.index + 1].startUs;
     final d = c.project.transitionUsAfter(widget.index);
+    final from = math.max(0, start - 700000);
+    c.setCustomLoop((from, start + d + 500000));
     c.pause();
-    c.seek(math.max(0, start - 700000), exact: true);
-    if (play) {
-      _stopAtUs = start + d + 500000;
-      c.play();
-    }
+    c.seek(from, exact: true);
+    _playWhenReady = play;
+    _armedAt = DateTime.now();
+    _watch();
+    // (In case nothing is being prepared for it at all.)
+    Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) _watch();
+    });
   }
 
-  void _watchPlayback() {
-    final stop = _stopAtUs;
-    if (stop != null && (c.playheadUs >= stop || !c.playing)) {
-      _stopAtUs = null;
-      if (c.playing) c.pause();
+  DateTime _armedAt = DateTime.now();
+
+  /// The transition's preview is ready (or couldn't be made).
+  bool get _ready {
+    if (_current == null) return true;
+    final key = c.project.transitionKey(widget.index);
+    return c.transitionFiles.containsKey(key) ||
+        c.transitionErrors.containsKey(key) ||
+        (!c.transitionsPreparing.contains(key) &&
+            DateTime.now().difference(_armedAt).inMilliseconds > 1000);
+  }
+
+  void _watch() {
+    if (_playWhenReady && _ready && !c.playing) {
+      _playWhenReady = false;
+      // (Not from inside the controller's own notification.)
+      Future.microtask(() {
+        if (mounted) c.play();
+      });
     }
   }
 
@@ -161,7 +184,7 @@ class _TransitionPanelState extends State<_TransitionPanel>
           ? null
           : TransitionSpec(k, durationUs: current?.durationUs ?? 800000),
     );
-    if (k != null) _jumpToCut(play: true);
+    _loopCut(play: k != null);
   }
 
   @override
@@ -224,7 +247,7 @@ class _TransitionPanelState extends State<_TransitionPanel>
                         ),
                         onChangeEnd: (_) {
                           c.endLiveEdit();
-                          _jumpToCut(play: true);
+                          _loopCut(play: true);
                         },
                       ),
                     ),
