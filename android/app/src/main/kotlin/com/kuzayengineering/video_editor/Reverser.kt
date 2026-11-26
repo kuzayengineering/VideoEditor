@@ -372,8 +372,10 @@ object Reverser {
         // batch of frames can be held and passed to the encoder backwards.
         val bytesPerFrame = width.toLong() * height * (if (hdr) 3 else 2)
         // Up to about 250 MB of frames at a time (more ran phones out of
-        // memory and closed the app).
-        val batch = if (fast) (250L * 1024 * 1024 / bytesPerFrame).toInt().coerceIn(4, 60) else 0
+        // memory and closed the app), and at most 30: the phone's frame
+        // queue holds 64 in all, shared with the decoder's own working
+        // frames, and asking for too many there stops the app outright.
+        val batch = if (fast) (250L * 1024 * 1024 / bytesPerFrame).toInt().coerceIn(4, 30) else 0
         var reader: ImageReader? = null
         var writer: ImageWriter? = null
         var readerThread: HandlerThread? = null
