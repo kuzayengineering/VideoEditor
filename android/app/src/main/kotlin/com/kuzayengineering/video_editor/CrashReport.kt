@@ -35,7 +35,7 @@ object CrashReport {
 
     /** A report of closings not shown before, or null. */
     fun unseen(context: Context): String? {
-        val prefs = context.getSharedPreferences("crash_report", Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences("crash_report2", Context.MODE_PRIVATE)
         val seen = prefs.getLong("seen", System.currentTimeMillis() - 60_000L * 60 * 24)
         var newest = seen
         val out = StringBuilder()
