@@ -63,6 +63,9 @@ class PartsRecolor(
          * stop edges flickering. */
         private val previous = FloatArray(SIZE * SIZE * 3)
         private var previousUs = Long.MIN_VALUE
+        private val meanLight = floatArrayOf(30f, 60f, 50f)
+        private val lightSum = FloatArray(3)
+        private val lightWeight = FloatArray(3)
         @Volatile private var broken = false
         private var inputW = 0
         private var inputH = 0
@@ -95,13 +98,13 @@ class PartsRecolor(
                 // Counted from when the work starts (not while queued).
                 val job = EffectStatus.start("Recolor")
                 try {
-                    if (broken) ByteArray(SIZE * SIZE * 6)
+                    if (broken) ByteArray(RESULT)
                     else classify(px, image.width, image.height, presentationTimeUs)
                 } catch (t: Throwable) {
                     // An empty mask leaves the picture as it is.
                     broken = true
                     EffectStatus.fail("Recolor", t)
-                    ByteArray(SIZE * SIZE * 6)
+                    ByteArray(RESULT)
                 } finally {
                     EffectStatus.end(job)
                 }
@@ -117,7 +120,7 @@ class PartsRecolor(
             ).also { interpreter = it }
             // The small picture, top row first (people upright). It is also
             // sent back with the result: the edges are snapped to it.
-            val out = ByteArray(SIZE * SIZE * 6)
+            val out = ByteArray(RESULT)
             var green = 0L
             for (y in 0 until SIZE) {
                 val row = (h - 1 - y * h / SIZE) * w
@@ -150,6 +153,10 @@ class PartsRecolor(
             val steady = previousUs != Long.MIN_VALUE && Math.abs(timeUs - previousUs) < 100_000
             previousUs = timeUs
             val score = FloatArray(CLASSES)
+            fun lin(b: Byte): Float {
+                val v = (b.toInt() and 0xff) / 255f
+                return if (v <= 0.04045f) v / 12.92f else Math.pow((v + 0.055) / 1.055, 2.4).toFloat()
+            }
             for (i in 0 until SIZE * SIZE) {
                 // Scores to shares (background, hair, body skin, face skin,
                 // clothes, other).
@@ -168,12 +175,29 @@ class PartsRecolor(
                     (score[2] + score[3]) / sum,
                     score[4] / sum,
                 )
+                val o = SIZE * SIZE * 3 + i * 3
+                val y = 0.2126f * lin(out[o]) + 0.7152f * lin(out[o + 1]) + 0.0722f * lin(out[o + 2])
+                val lStar = if (y > 0.008856f) 116f * Math.cbrt(y.toDouble()).toFloat() - 16f else 903.3f * y
                 for (k in 0 until 3) {
                     var m = parts[k]
                     if (steady) m = 0.65f * m + 0.35f * previous[i * 3 + k]
                     previous[i * 3 + k] = m
                     out[i * 3 + k] = (m * 255f + 0.5f).toInt().coerceIn(0, 255).toByte()
+                    if (m > 0.5f) {
+                        lightSum[k] += m * lStar
+                        lightWeight[k] += m
+                    }
                 }
+            }
+            // Each part's average lightness (L*, 0-100), steadied across
+            // frames: the new colour is centred on it.
+            for (k in 0 until 3) {
+                var mean = if (lightWeight[k] > 1f) lightSum[k] / lightWeight[k] else meanLight[k]
+                if (steady) mean = 0.8f * meanLight[k] + 0.2f * mean
+                meanLight[k] = mean
+                out[SIZE * SIZE * 6 + k] = (mean / 100f * 255f).toInt().coerceIn(0, 255).toByte()
+                lightSum[k] = 0f
+                lightWeight[k] = 0f
             }
             return out
         }
@@ -246,18 +270,14 @@ class PartsRecolor(
             p.setSamplerTexIdUniform("uMask", maskTex, 1)
             p.setSamplerTexIdUniform("uSmall", smallTex, 2)
             p.setFloatUniform("uHdr", if (useHdr) 1f else 0f)
-            fun rgb(c: Int): FloatArray {
-                val v = floatArrayOf(
-                    ((c shr 16) and 0xff) / 255f,
-                    ((c shr 8) and 0xff) / 255f,
-                    (c and 0xff) / 255f,
-                )
-                // HDR pictures are in linear light: the colour too.
-                return if (useHdr) FloatArray(3) { Math.pow(v[it].toDouble(), 2.2).toFloat() } else v
-            }
-            p.setFloatsUniform("uHair", rgb(colors.getOrElse(0) { 0 }))
-            p.setFloatsUniform("uSkin", rgb(colors.getOrElse(1) { 0 }))
-            p.setFloatsUniform("uClothes", rgb(colors.getOrElse(2) { 0 }))
+            p.setFloatsUniform("uHair", lab(colors.getOrElse(0) { 0 }))
+            p.setFloatsUniform("uSkin", lab(colors.getOrElse(1) { 0 }))
+            p.setFloatsUniform("uClothes", lab(colors.getOrElse(2) { 0 }))
+            val base = SIZE * SIZE * 6
+            p.setFloatsUniform(
+                "uMeanL",
+                FloatArray(3) { (result[base + it].toInt() and 0xff) / 255f * 100f },
+            )
             p.setFloatsUniform(
                 "uOn",
                 floatArrayOf(
@@ -292,6 +312,28 @@ class PartsRecolor(
     private companion object {
         const val SIZE = 256
         const val CLASSES = 6
+        /** Masks, the small picture, and each part's average lightness. */
+        const val RESULT = SIZE * SIZE * 6 + 3
+
+        /** An sRGB colour as CIE L*a*b* (D65). */
+        fun lab(c: Int): FloatArray {
+            fun lin(v: Int): Double {
+                val x = v / 255.0
+                return if (x <= 0.04045) x / 12.92 else Math.pow((x + 0.055) / 1.055, 2.4)
+            }
+            val r = lin((c shr 16) and 0xff)
+            val g = lin((c shr 8) and 0xff)
+            val b = lin(c and 0xff)
+            val x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+            val y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            val z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+            fun f(t: Double) = if (t > 0.008856) Math.cbrt(t) else 7.787 * t + 16.0 / 116.0
+            return floatArrayOf(
+                (116 * f(y) - 16).toFloat(),
+                (500 * (f(x) - f(y))).toFloat(),
+                (200 * (f(y) - f(z))).toFloat(),
+            )
+        }
 
         const val VERTEX = """
 attribute vec4 aFramePosition;
@@ -302,9 +344,10 @@ void main() {
 }
 """
 
-        // The new colour keeps the part's shading: dark spots get a deep
-        // shade of it, bright spots a light one (so dark hair can turn
-        // red or blue, not just stay dark).
+        // Like a hair dye: each part keeps its own light and shade (strands,
+        // folds, shine), moved so its average lands on the new colour's
+        // lightness, with the new colour's hue and strength (in CIE L*a*b*,
+        // so a brown is a natural brown).
         //
         // The model's 256 × 256 answer is snapped to the real edges: each
         // nearby answer counts more when its spot in the small picture has
@@ -320,14 +363,53 @@ uniform vec3 uHair;
 uniform vec3 uSkin;
 uniform vec3 uClothes;
 uniform vec3 uOn;
+uniform vec3 uMeanL;
 varying vec2 vTex;
 const float N = 256.0;
-vec3 dye(vec3 c, float l, vec3 target, float amount) {
-  // Bright spots (a white shirt, platinum hair) go towards a light tint of
-  // the colour instead of all the same flat colour: folds and strands show.
-  float k = 0.35 + 1.3 * l;
-  vec3 dyed = target * min(k, 1.0) + (vec3(1.0) - target) * max(k - 1.0, 0.0) * 0.6;
-  return mix(c, clamp(dyed, 0.0, max(1.0, l)), clamp(amount, 0.0, 1.0));
+const vec3 WP = vec3(0.95047, 1.0, 1.08883);
+
+vec3 toLin(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+}
+vec3 fromLin(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+vec3 labF(vec3 t) {
+  return mix(7.787 * t + 16.0 / 116.0, pow(max(t, 1e-6), vec3(1.0 / 3.0)), step(0.008856, t));
+}
+vec3 labFi(vec3 t) {
+  return mix((t - 16.0 / 116.0) / 7.787, t * t * t, step(0.2069, t));
+}
+vec3 rgbToLab(vec3 c) {
+  vec3 l = toLin(c);
+  vec3 xyz = vec3(
+    dot(l, vec3(0.4124, 0.3576, 0.1805)),
+    dot(l, vec3(0.2126, 0.7152, 0.0722)),
+    dot(l, vec3(0.0193, 0.1192, 0.9505))) / WP;
+  vec3 f = labF(xyz);
+  return vec3(116.0 * f.y - 16.0, 500.0 * (f.x - f.y), 200.0 * (f.y - f.z));
+}
+vec3 labToRgb(vec3 lab) {
+  float fy = (lab.x + 16.0) / 116.0;
+  vec3 xyz = labFi(vec3(fy + lab.y / 500.0, fy, fy - lab.z / 200.0)) * WP;
+  vec3 l = vec3(
+    dot(xyz, vec3(3.2406, -1.5372, -0.4986)),
+    dot(xyz, vec3(-0.9689, 1.8758, 0.0415)),
+    dot(xyz, vec3(0.0557, -0.2040, 1.0570)));
+  return fromLin(l);
+}
+vec3 dye(vec3 c, vec3 target, float meanL, float amount) {
+  if (amount <= 0.001) return c;
+  vec3 lab = rgbToLab(c);
+  // Detail a little stronger when going much lighter (dark hair to blonde).
+  float k = clamp((target.x + 15.0) / (meanL + 15.0), 0.7, 1.8);
+  float L = clamp(target.x + (lab.x - meanL) * k, 0.0, 100.0);
+  // Shadows less coloured, as in real hair and cloth.
+  float ch = clamp(L / max(target.x, 1.0), 0.3, 1.2);
+  vec3 n = labToRgb(vec3(L, target.yz * ch));
+  return mix(c, n, clamp(amount, 0.0, 1.0));
 }
 void main() {
   vec4 c = texture2D(uFrame, vTex);
@@ -350,11 +432,14 @@ void main() {
   }
   // Weak guesses (stray specks away from the person) are left alone.
   vec3 m = smoothstep(0.3, 0.7, acc / wsum);
-  float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
-  vec3 col = c.rgb;
-  col = dye(col, l, uHair, m.r * uOn.x);
-  col = dye(col, l, uSkin, m.g * uOn.y);
-  col = dye(col, l, uClothes, m.b * uOn.z);
+  // Worked on as an ordinary picture (HDR: its light seen as one).
+  vec3 col = here;
+  col = dye(col, uHair, uMeanL.x, m.r * uOn.x);
+  col = dye(col, uSkin, uMeanL.y, m.g * uOn.y);
+  col = dye(col, uClothes, uMeanL.z, m.b * uOn.z);
+  // HDR: only the change is added, so untouched light (highlights above
+  // the ordinary range included) stays exactly as it was.
+  if (uHdr > 0.5) col = c.rgb + (pow(col, vec3(2.2)) - pow(here, vec3(2.2)));
   gl_FragColor = vec4(col, c.a);
 }
 """

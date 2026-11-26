@@ -23,6 +23,32 @@ const _colors = <int>[
   0xFF43A047, // green
 ];
 
+/// Real hair colours first, then fashion colours.
+const _hairColors = <(String, int)>[
+  ('Black', 0xFF1C1714),
+  ('Soft black', 0xFF2B211C),
+  ('Dark brown', 0xFF3B2A1E),
+  ('Brown', 0xFF6A4E38),
+  ('Light brown', 0xFF8C6A4A),
+  ('Auburn', 0xFF8A3B24),
+  ('Copper', 0xFFB0582C),
+  ('Strawberry blonde', 0xFFC8835A),
+  ('Dark blonde', 0xFFA68A5B),
+  ('Golden blonde', 0xFFC8A060),
+  ('Platinum', 0xFFE6DCC8),
+  ('Silver', 0xFFB4B4B8),
+  ('White', 0xFFEDEDED),
+];
+
+const _fashionHair = <(String, int)>[
+  ('Red', 0xFFB02030),
+  ('Pink', 0xFFD84A8A),
+  ('Purple', 0xFF7A3FA0),
+  ('Blue', 0xFF2A40A0),
+  ('Teal', 0xFF1F8A8A),
+  ('Green', 0xFF2E8040),
+];
+
 /// Recolour: new colours for the hair, skin or clothes of the people in the
 /// selected clip, found by an on-device model (downloaded once).
 Future<void> showRecolorSheet(BuildContext context, EditorController c) {
@@ -131,39 +157,60 @@ class _RecolorPanelState extends State<_RecolorPanel> {
         final clip = c.project.placementOf(widget.clipId)?.clip;
         if (clip == null) return const SizedBox.shrink();
         final p = clip.partColors ?? const PartColors();
-        Widget row(String label, int value, PartColors Function(int) change) =>
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 6),
-                  child: Text(label, style: theme.textTheme.titleSmall),
-                ),
-                SizedBox(
-                  height: 40,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
+        Widget row(
+          String label,
+          int value,
+          PartColors Function(int) change, {
+          List<(String, int)>? named,
+        }) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 6),
+              child: Text(label, style: theme.textTheme.titleSmall),
+            ),
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  _Swatch(
+                    selected: value == 0,
+                    onTap: () => _set(change(0)),
+                    child: const Icon(Icons.block, size: 18),
+                  ),
+                  if (named == null)
+                    for (final col in _colors)
                       _Swatch(
-                        selected: value == 0,
-                        onTap: () => _set(change(0)),
-                        child: const Icon(Icons.block, size: 18),
-                      ),
-                      for (final col in _colors)
-                        _Swatch(
+                        selected: value == col,
+                        color: Color(col),
+                        onTap: () => _set(change(col)),
+                      )
+                  else
+                    for (final (name, col) in named)
+                      Tooltip(
+                        message: name,
+                        child: _Swatch(
                           selected: value == col,
                           color: Color(col),
                           onTap: () => _set(change(col)),
                         ),
-                    ],
-                  ),
-                ),
-              ],
-            );
+                      ),
+                ],
+              ),
+            ),
+          ],
+        );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            row('Hair', p.hair, (v) => p.copyWith(hair: v)),
+            row('Hair', p.hair, (v) => p.copyWith(hair: v), named: _hairColors),
+            row(
+              'Hair (fashion colors)',
+              p.hair,
+              (v) => p.copyWith(hair: v),
+              named: _fashionHair,
+            ),
             row('Clothes', p.clothes, (v) => p.copyWith(clothes: v)),
             row('Skin', p.skin, (v) => p.copyWith(skin: v)),
             Padding(
