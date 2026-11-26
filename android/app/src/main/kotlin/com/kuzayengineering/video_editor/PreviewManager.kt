@@ -44,17 +44,24 @@ class PreviewManager(private val context: Context) {
     private var starts: LongArray = LongArray(0)
     private var surface: SurfaceView? = null
 
+    /** Transitions mixed live (two players; see LiveBlendPlayer). */
+    private var live: LiveBlendPlayer? = null
+
     fun attach(view: SurfaceView) {
         surface = view
-        player?.setVideoSurfaceView(view)
+        live?.attach(view) ?: player?.setVideoSurfaceView(view)
     }
 
     fun detach(view: SurfaceView) {
         if (surface === view) {
+            live?.detach(view)
             player?.clearVideoSurfaceView(view)
             surface = null
         }
     }
+
+    /** Every piece plays as is, or with only a filter. */
+    private fun liveOk(list: List<Segment>) = list.all { !it.copy(grade = null).hasEffects }
 
     /**
      * Pieces that carry straight on from the previous one in the same file
@@ -90,10 +97,36 @@ class PreviewManager(private val context: Context) {
         val newSegments = if (newBlends == null) joined(given) else given
         val newCanvas = Pair(canvasWidth, canvasHeight)
         if (newSegments == segments && newCanvas == canvas && newBlends == blends &&
-            player != null
+            (player != null || live != null)
         ) return
         val keep = positionUs()
         EffectStatus.clearError()
+        if (newBlends != null && liveOk(newSegments) && liveOk(newBlends.layerB)) {
+            // Transitions mixed live: the one-player modes stand down.
+            player?.let { old ->
+                surface?.let { old.clearVideoSurfaceView(it) }
+                old.release()
+            }
+            player = null
+            usingComposition = false
+            usingLayers = false
+            LiveGrades.set(emptyMap())
+            segments = newSegments
+            blends = newBlends
+            canvas = newCanvas
+            val l = live ?: LiveBlendPlayer(context).also { created ->
+                live = created
+                surface?.let { created.attach(it) }
+            }
+            l.setScrubbing(scrubbing)
+            l.setTimeline(newSegments, newBlends.layerB, newBlends.windows, keep)
+            return
+        }
+        live?.let { old ->
+            // Back to one player: the screen is handed over first.
+            old.release()
+            live = null
+        }
         // A rebuild carries the newest filter values itself.
         LiveGrades.set(emptyMap())
         segments = newSegments
@@ -205,12 +238,17 @@ class PreviewManager(private val context: Context) {
     }
 
     fun play() {
+        live?.play()
         player?.play()
     }
 
     /** New filter values while a slider moves: redraw the frame with them. */
     fun setGrades(grades: Map<Int, FloatArray>) {
         LiveGrades.set(grades)
+        live?.let {
+            it.gradesChanged()
+            return
+        }
         val p = player ?: return
         if (!p.isPlaying) p.seekTo(p.currentPosition)
     }
@@ -226,6 +264,7 @@ class PreviewManager(private val context: Context) {
     }
 
     private fun applyScrubbing() {
+        live?.setScrubbing(scrubbing)
         when (val p = player) {
             is ExoPlayer -> p.setScrubbingModeEnabled(scrubbing)
             is CompositionPlayer -> p.setScrubbingModeEnabled(scrubbing)
@@ -234,14 +273,20 @@ class PreviewManager(private val context: Context) {
 
     /** Loudness of the video's own sound (0–1; louder isn't possible here). */
     fun setVolume(v: Double) {
+        live?.setVolume(v.toFloat().coerceIn(0f, 1f))
         player?.volume = v.toFloat().coerceIn(0f, 1f)
     }
 
     fun pause() {
+        live?.pause()
         player?.pause()
     }
 
     fun seek(timeUs: Long, exact: Boolean, toleranceUs: Long = 0) {
+        live?.let {
+            it.seek(timeUs, exact, toleranceUs)
+            return
+        }
         val p = player ?: return
         if (segments.isEmpty()) return
         if (p is ExoPlayer) {
@@ -262,6 +307,7 @@ class PreviewManager(private val context: Context) {
     }
 
     fun positionUs(): Long {
+        live?.let { return it.positionUs() }
         val p = player ?: return 0
         if (segments.isEmpty()) return 0
         if (usingComposition) return p.currentPosition * 1000
@@ -270,6 +316,8 @@ class PreviewManager(private val context: Context) {
     }
 
     fun release() {
+        live?.release()
+        live = null
         player?.release()
         player = null
         segments = emptyList()

@@ -81,8 +81,35 @@ class EditorController extends ChangeNotifier {
   /// was actually given, not the project as it is mid-change.
   bool playsFromCopy(int clipId) => _appliedCopies.contains(clipId);
 
-  /// True if the preview player draws mixing transitions itself (Android).
-  bool get previewBlendsTransitions => _preview?.blendsTransitions ?? false;
+  /// True if the preview player draws mixing transitions itself right now
+  /// (Android, live: see [transitionsLive]).
+  bool get previewBlendsTransitions => _blendLive;
+  bool _blendLive = false;
+
+  /// The pre-made copies (speed etc.) without the pre-made transitions.
+  Map<String, String> _copiesOnly(Project project) {
+    final out = Map<String, String>.of(transitionFiles);
+    for (var i = 0; i + 1 < project.mainTrack.clips.length; i++) {
+      out.remove(project.transitionKey(i));
+    }
+    return out;
+  }
+
+  /// True when [project]'s transitions can be mixed live by the preview
+  /// player (no pre-made transition videos needed).
+  bool transitionsLive(Project project) {
+    final p = _preview;
+    if (p == null || !p.blendsTransitions) return false;
+    return liveBlendable(
+      segmentsOf(project, transitionFiles: _copiesOnly(project), blend: true),
+      blendLayersOf(project),
+    );
+  }
+
+  /// The pieces the preview plays now (live-mixed or not).
+  List<PreviewSegment> _segmentsNow() => _blendLive
+      ? segmentsOf(project, transitionFiles: _copiesOnly(project), blend: true)
+      : segmentsOf(project, transitionFiles: transitionFiles);
 
   AudioPreviewMixer? _audio;
 
@@ -254,17 +281,7 @@ class EditorController extends ChangeNotifier {
     _showOriginal = on;
     final p = _preview;
     if (p != null && p.gradesLive) {
-      unawaited(
-        p.setGrades(
-          _gradesOf(
-            segmentsOf(
-              project,
-              transitionFiles: transitionFiles,
-              blend: p.blendsTransitions,
-            ),
-          ),
-        ),
-      );
+      unawaited(p.setGrades(_gradesOf(_segmentsNow())));
     }
     notifyListeners();
   }
@@ -274,11 +291,7 @@ class EditorController extends ChangeNotifier {
   void _liveGrades() {
     final p = _preview;
     if (p == null || !p.gradesLive || _previewShape == null) return;
-    final segments = segmentsOf(
-      project,
-      transitionFiles: transitionFiles,
-      blend: p.blendsTransitions,
-    );
+    final segments = _segmentsNow();
     final shape = _shapeOf(segments);
     if (shape == _previewShape) {
       unawaited(p.setGrades(_gradesOf(segments)));
@@ -293,12 +306,9 @@ class EditorController extends ChangeNotifier {
   void _syncPreviewTimeline() {
     final p = _preview;
     if (p == null) return;
-    final blend = p.blendsTransitions;
-    final segments = segmentsOf(
-      project,
-      transitionFiles: transitionFiles,
-      blend: blend,
-    );
+    final blend = transitionsLive(project);
+    _blendLive = blend;
+    final segments = _segmentsNow();
     final blends = blend ? blendLayersOf(project) : null;
     if (listEquals(segments, _previewSegments) && blends == _previewBlends) {
       return;

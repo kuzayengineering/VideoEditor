@@ -338,6 +338,29 @@ class BlendLayers {
       Object.hash(Object.hashAll(layerB), Object.hashAll(windows));
 }
 
+/// True when Android can mix [project]'s transitions live, with two plain
+/// players: every piece of both layers plays as it is, or with only a filter
+/// (speed, crop, turn and the people effects need the slower ways).
+bool liveBlendable(List<PreviewSegment> layerA, BlendLayers? layers) {
+  bool plain(PreviewSegment s) {
+    if ((s.speed - 1).abs() > 0.0001) return false;
+    final c = s.clip;
+    if (c == null) return true;
+    return c.rotation == 0 &&
+        !c.flipH &&
+        !c.flipV &&
+        c.crop.isFull &&
+        c.opacity >= 0.999 &&
+        !c.cutout &&
+        !c.smoothsSlowMo &&
+        !(c.partColors?.isActive ?? false) &&
+        !(c.eyeColor?.isActive ?? false) &&
+        !(c.outfit?.isActive ?? false);
+  }
+
+  return layers != null && layerA.every(plain) && layers.layerB.every(plain);
+}
+
 /// The second layer for mixing transitions, or null if there are none.
 BlendLayers? blendLayersOf(Project project) {
   final clips = project.mainTrack.clips;

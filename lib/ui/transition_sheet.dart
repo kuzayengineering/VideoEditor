@@ -158,7 +158,7 @@ class _TransitionPanelState extends State<_TransitionPanel>
 
   /// The transition's preview is ready (or couldn't be made).
   bool get _ready {
-    if (_current == null) return true;
+    if (_current == null || c.transitionsLive(c.project)) return true;
     final key = c.project.transitionKey(widget.index);
     return c.transitionFiles.containsKey(key) ||
         c.transitionErrors.containsKey(key) ||

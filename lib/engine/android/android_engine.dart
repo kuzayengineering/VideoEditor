@@ -514,10 +514,11 @@ class AndroidPreviewPlayer implements PreviewPlayer {
     'canvasHeight': canvasHeight,
   });
 
-  /// Transitions play from little pre-made videos (see renderPreviewClip):
-  /// Media3's two-layer player can't jump around reliably.
+  /// Mixes transitions live (two players, like YouCut) when every clip
+  /// around them plays as is or with only a filter; otherwise transitions
+  /// play from little pre-made videos (see renderPreviewClip).
   @override
-  bool get blendsTransitions => false;
+  bool get blendsTransitions => true;
 
   @override
   bool drawsEffects(List<PreviewSegment> segments) =>

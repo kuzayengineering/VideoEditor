@@ -447,6 +447,8 @@ class _EditorScreenState extends State<_Editor>
   void _renderTransitions(Project project) {
     if (!_engine.supportsAllTransitions || !_engine.supportsMedia) return;
     if (Platform.isAndroid) _renderSpeedClips(project);
+    // Mixed live by the preview player: nothing to make.
+    if (c.transitionsLive(project)) return;
     for (var i = 0; i + 1 < project.mainTrack.clips.length; i++) {
       if (project.transitionUsAfter(i) <= 0) continue;
       final key = project.transitionKey(i);

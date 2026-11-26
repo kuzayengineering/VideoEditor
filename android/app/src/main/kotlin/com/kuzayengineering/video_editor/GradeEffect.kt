@@ -123,7 +123,12 @@ void main() {
         // Signal <-> light conversions are Media3's own (BT.2100 HLG, and PQ
         // scaled so 1.0 is 1000 nits as Media3 keeps it). uTransfer 0: the
         // values already are the signal (SDR).
-        const val FRAGMENT = """#version 100
+        const val FRAGMENT = GRADE_FRAGMENT
+    }
+}
+
+/** The filter shader (also used by the live preview, see LiveBlendPlayer). */
+internal const val GRADE_FRAGMENT = """#version 100
 precision highp float;
 uniform sampler2D uTex;
 uniform int uTransfer;
@@ -218,5 +223,3 @@ void main() {
   gl_FragColor = vec4(toLight(c.r), toLight(c.g), toLight(c.b), lin.a);
 }
 """
-    }
-}
