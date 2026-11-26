@@ -43,7 +43,10 @@ object EffectStatus {
 
     fun fail(label: String, t: Throwable) {
         Log.e("VideoEditor", "$label failed", t)
-        val why = t.message?.lineSequence()?.firstOrNull()?.take(160) ?: t.javaClass.simpleName
+        var root: Throwable = t
+        while (root.cause != null && root.cause !== root) root = root.cause!!
+        val why = (root.javaClass.simpleName + ": " + (root.message?.lineSequence()?.firstOrNull() ?: ""))
+            .take(160)
         error = "$label couldn't run on this video ($why)."
     }
 

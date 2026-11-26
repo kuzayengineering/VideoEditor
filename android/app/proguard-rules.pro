@@ -12,3 +12,7 @@
 -keep class org.tensorflow.lite.** { *; }
 -keep class com.google.ai.edge.litert.** { *; }
 -dontwarn org.tensorflow.lite.**
+# MediaPipe logs with Flogger, which finds its logging back end by name when
+# MediaPipe starts: without these, starting it fails ("...framework.Graph").
+-keep class com.google.common.flogger.** { *; }
+-dontwarn com.google.common.flogger.**
