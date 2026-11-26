@@ -477,8 +477,8 @@ class _EditorScreenState extends State<_Editor>
             // The phone can take a video decoder back for something else
             // (the preview, another app) mid-render: try again.
             final why = _reason(e);
-            if (attempt < 3 && _decoderTakenBack(why)) {
-              await Future<void>.delayed(Duration(seconds: attempt));
+            if (attempt < 4 && _decoderTakenBack(why)) {
+              await Future<void>.delayed(Duration(seconds: 2 * attempt));
               continue;
             }
             // The preview keeps the dip-through-black stand-in.
@@ -494,7 +494,10 @@ class _EditorScreenState extends State<_Editor>
       why.contains('resource manager') ||
       why.contains('reclaim') ||
       why.contains('NO_MEMORY') ||
-      why.contains('Invalid to call during release');
+      why.contains('Invalid to call during release') ||
+      // No hardware decoder free at that moment (the backup one can't do
+      // 10-bit HDR).
+      why.contains('DECODER_INIT_FAILED');
 
   /// Android: clips at a changed speed, or cropped, turned or mirrored, get
   /// a ready-to-play copy made in the background (like transitions), so the
