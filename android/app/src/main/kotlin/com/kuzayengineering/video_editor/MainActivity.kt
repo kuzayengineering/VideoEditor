@@ -41,6 +41,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         CompositionFactory.context = applicationContext
+        CrashReport.install(applicationContext)
         textures = flutterEngine.renderer
         flutterEngine.platformViewsController.registry
             .registerViewFactory(PreviewViewFactory.VIEW_TYPE, PreviewViewFactory(preview))
@@ -102,6 +103,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
             "reverseProgress" -> result.success(Reverser.progress)
+            "lastCrash" -> background(result) { CrashReport.unseen(applicationContext) }
             "speechAudio" -> {
                 val source = call.argument<String>("source")!!
                 val inUs = (call.argument<Number>("inUs")!!).toLong()

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_settings.dart';
 import '../app_services.dart';
@@ -37,6 +38,48 @@ class _HomeScreenState extends State<HomeScreen> {
     _loaded = true;
     _services = AppServices.of(context);
     _reload();
+    if (Platform.isAndroid) _crashReport();
+  }
+
+  /// If the app closed unexpectedly last time, says why (from the phone's
+  /// own records), with a button to copy it.
+  Future<void> _crashReport() async {
+    String? text;
+    try {
+      text = await const MethodChannel('ve/engine')
+          .invokeMethod<String>('lastCrash');
+    } catch (_) {}
+    if (text == null || !mounted) return;
+    final report = 'Video Editor $appVersion\n$text';
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('The app closed unexpectedly'),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              report,
+              style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: report));
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('Copied')));
+            },
+            child: const Text('Copy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _reload({Project? justClosed}) async {
