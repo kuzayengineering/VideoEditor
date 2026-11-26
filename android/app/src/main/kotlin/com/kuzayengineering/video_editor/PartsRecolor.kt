@@ -81,8 +81,9 @@ class PartsRecolor(
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            val job = EffectStatus.start("Recolor")
             return executor.submit<ByteArray> {
+                // Counted from when the work starts (not while queued).
+                val job = EffectStatus.start("Recolor")
                 try {
                     if (broken) ByteArray(SIZE * SIZE * 6)
                     else classify(px, image.width, image.height, presentationTimeUs)

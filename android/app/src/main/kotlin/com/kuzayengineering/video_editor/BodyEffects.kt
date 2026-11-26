@@ -390,8 +390,9 @@ class OutfitEffect(
             val px = ByteArray(image.width * image.height * 4)
             image.pixelBuffer.rewind()
             image.pixelBuffer.get(px)
-            val job = EffectStatus.start("Outfit")
             return executor.submit<Body> {
+                // Counted from when the work starts (not while queued).
+                val job = EffectStatus.start("Outfit")
                 try {
                     if (broken) none else find(px, image.width, image.height, presentationTimeUs)
                 } catch (t: Throwable) {
