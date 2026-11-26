@@ -61,28 +61,12 @@ object CrashReport {
                         x.reason == ApplicationExitInfo.REASON_ANR
                     ) {
                         x.traceInputStream?.use { stream ->
-                            // The native report is binary: keep its readable
-                            // lines about where it happened.
-                            val buf = ByteArray(256 * 1024)
-                            var n = 0
-                            while (n < buf.size) {
-                                val r = stream.read(buf, n, buf.size - n)
-                                if (r <= 0) break
-                                n += r
+                            val bytes = stream.readBytes()
+                            if (x.reason == ApplicationExitInfo.REASON_ANR) {
+                                out.append(String(bytes).take(6000)).append('\n')
+                            } else {
+                                out.append(Tombstone.summary(bytes)).append('\n')
                             }
-                            val bytes = buf.copyOf(n)
-                            val lines = Regex("[\\x20-\\x7e]{6,}").findAll(String(bytes, Charsets.ISO_8859_1))
-                                .map { it.value }
-                                .filter {
-                                    x.reason == ApplicationExitInfo.REASON_ANR ||
-                                        it.contains(".so") || it.contains("Abort") ||
-                                        it.contains("SIG") || it.contains("Java_") ||
-                                        it.contains("art::") || it.contains("abort")
-                                }
-                                .distinct()
-                                .take(60)
-                                .toList()
-                            lines.forEach { out.append("  ").append(it.take(200)).append('\n') }
                         }
                     }
                 }
@@ -96,5 +80,114 @@ object CrashReport {
         }
         prefs.edit().putLong("seen", maxOf(newest, System.currentTimeMillis())).apply()
         return out.toString().trim().ifEmpty { null }
+    }
+}
+
+/**
+ * Reads the parts that matter from the phone's crash record ("tombstone",
+ * in Google's protobuf format): the stop message, the thread that stopped
+ * and its call stack, and the app's last log lines.
+ */
+private object Tombstone {
+    private class Reader(val b: ByteArray, var p: Int = 0, val end: Int = b.size) {
+        fun more() = p < end
+        fun varint(): Long {
+            var r = 0L
+            var shift = 0
+            while (p < end) {
+                val x = b[p++].toInt() and 0xff
+                r = r or ((x and 0x7f).toLong() shl shift)
+                if (x and 0x80 == 0) break
+                shift += 7
+            }
+            return r
+        }
+        /** Calls [f] with (field, wire type, value or sub-reader). */
+        fun each(f: (Int, Int, Long, Reader?) -> Unit) {
+            while (more()) {
+                val key = varint()
+                val field = (key ushr 3).toInt()
+                when ((key and 7).toInt()) {
+                    0 -> f(field, 0, varint(), null)
+                    1 -> { p += 8; f(field, 1, 0, null) }
+                    5 -> { p += 4; f(field, 5, 0, null) }
+                    2 -> {
+                        val len = varint().toInt()
+                        val sub = Reader(b, p, minOf(end, p + len))
+                        p = minOf(end, p + len)
+                        f(field, 2, 0, sub)
+                    }
+                    else -> return
+                }
+            }
+        }
+        fun text() = String(b, p, end - p, Charsets.UTF_8)
+    }
+
+    fun summary(bytes: ByteArray): String = try {
+        val out = StringBuilder()
+        var tid = -1L
+        var abort = ""
+        var signal = ""
+        val threads = HashMap<Long, Pair<String, List<String>>>()
+        val logs = mutableListOf<String>()
+        Reader(bytes).each { f, _, v, r ->
+            when (f) {
+                6 -> tid = v
+                14 -> abort = r!!.text()
+                10 -> r!!.each { g, _, _, rr -> if (g == 2) signal = rr!!.text() }
+                16 -> {
+                    // map entry: key (1) thread id, value (2) Thread
+                    var id = -1L
+                    var name = ""
+                    val frames = mutableListOf<String>()
+                    r!!.each { g, _, vv, rr ->
+                        if (g == 1) id = vv
+                        if (g == 2) rr!!.each { h, _, _, t ->
+                            when (h) {
+                                2 -> name = t!!.text()
+                                4 -> {
+                                    var fn = ""
+                                    var file = ""
+                                    t!!.each { k, _, _, u ->
+                                        if (k == 4) fn = u!!.text()
+                                        if (k == 6) file = u!!.text().substringAfterLast('/')
+                                    }
+                                    frames += if (fn.isNotEmpty()) "$fn ($file)" else file
+                                }
+                            }
+                        }
+                    }
+                    threads[id] = name to frames
+                }
+                18 -> r!!.each { g, _, _, rr ->
+                    if (g == 2) {
+                        var tag = ""
+                        var msg = ""
+                        var prio = 0L
+                        rr!!.each { h, _, vv, t ->
+                            if (h == 4) prio = vv
+                            if (h == 5) tag = t!!.text()
+                            if (h == 6) msg = t!!.text()
+                        }
+                        // Warnings and errors only (4 info, 5 warn, 6 error, 7 fatal).
+                        if (prio >= 5) logs += "$tag: ${msg.trim()}"
+                    }
+                }
+            }
+        }
+        if (signal.isNotEmpty()) out.append("  Signal: $signal\n")
+        if (abort.isNotEmpty()) out.append("  Stop message: ${abort.take(1500)}\n")
+        threads[tid]?.let { (name, frames) ->
+            out.append("  Thread: $name\n")
+            frames.take(40).forEach { out.append("    ").append(it.take(220)).append('\n') }
+        }
+        if (logs.isNotEmpty()) {
+            out.append("  Last warnings:\n")
+            logs.takeLast(40).forEach { out.append("    ").append(it.take(300)).append('\n') }
+        }
+        out.toString().trimEnd()
+    } catch (t: Throwable) {
+        "  (crash record unreadable: ${t.message})"
     }
 }
