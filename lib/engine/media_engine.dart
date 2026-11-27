@@ -338,6 +338,28 @@ class BlendLayers {
       Object.hash(Object.hashAll(layerB), Object.hashAll(windows));
 }
 
+/// Why [project]'s transitions can't be mixed live right now (null if
+/// they can), in words: the first clip that stops it.
+String? liveBlockReasonOf(Project project, Map<String, String> copies) {
+  final clips = project.mainTrack.clips;
+  for (var i = 0; i < clips.length; i++) {
+    final c = clips[i];
+    if (!c.isMedia) continue;
+    final n = 'Clip ${i + 1}';
+    if (c.opacity < 0.999) return '$n is see-through';
+    if (c.cutout) return '$n has Cutout';
+    if (c.partColors?.isActive ?? false) return '$n has Recolor';
+    if (c.eyeColor?.isActive ?? false) return '$n has Eye color';
+    if (c.outfit?.isActive ?? false) return '$n has Outfit';
+    if (c.smoothsSlowMo) return '$n has smooth slow motion';
+    final key = project.speedKey(i);
+    if (key.isNotEmpty && !copies.containsKey(key)) {
+      return '$n (speed, crop or turn) is still being prepared';
+    }
+  }
+  return null;
+}
+
 /// True when Android can mix [project]'s transitions live, with two plain
 /// players: every piece of both layers plays as it is, or with only a filter
 /// (speed, crop, turn and the people effects need the slower ways).
@@ -362,7 +384,12 @@ bool liveBlendable(List<PreviewSegment> layerA, BlendLayers? layers) {
 }
 
 /// The second layer for mixing transitions, or null if there are none.
-BlendLayers? blendLayersOf(Project project) {
+/// With [transitionFiles] (the preview), clips that have a ready-made copy
+/// (speed, crop, turn) play from it, as in [segmentsOf].
+BlendLayers? blendLayersOf(
+  Project project, {
+  Map<String, String> transitionFiles = const {},
+}) {
   final clips = project.mainTrack.clips;
   final n = clips.length;
   final placements = project.placementsOn(project.mainTrack);
@@ -396,14 +423,29 @@ BlendLayers? blendLayersOf(Project project) {
     }
   }
   if (windows.isEmpty) return null;
+  PreviewSegment piece(int i) {
+    final c = clips[i];
+    final key = project.speedKey(i);
+    final copy = key.isEmpty ? null : transitionFiles[key];
+    if (copy != null) {
+      return PreviewSegment(
+        copy,
+        head[i],
+        c.durationUs - tail[i],
+        fileDurationUs: c.durationUs,
+        gradeOf: c.grade == null ? null : c,
+      );
+    }
+    return PreviewSegment.of(
+      c.trimmedBy(headUs: head[i], tailUs: tail[i]),
+      cutoutFill: project.background.colorValue,
+    );
+  }
+
   return BlendLayers(
     [
       for (var i = 0; i < n; i++)
-        if (clips[i].isMedia)
-          PreviewSegment.of(
-            clips[i].trimmedBy(headUs: head[i], tailUs: tail[i]),
-            cutoutFill: project.background.colorValue,
-          ),
+        if (clips[i].isMedia) piece(i),
     ],
     windows,
     audio,

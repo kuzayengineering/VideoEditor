@@ -226,6 +226,15 @@ class _TransitionPanelState extends State<_TransitionPanel>
               ),
             ),
             if (current != null)
+              if (c.liveBlockedReason(c.project) case final why?)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: Text(
+                    'Prepared first, not shown live: $why.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+            if (current != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(

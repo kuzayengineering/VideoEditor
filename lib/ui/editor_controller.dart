@@ -102,8 +102,19 @@ class EditorController extends ChangeNotifier {
     if (p == null || !p.blendsTransitions) return false;
     return liveBlendable(
       segmentsOf(project, transitionFiles: _copiesOnly(project), blend: true),
-      blendLayersOf(project),
+      blendLayersOf(project, transitionFiles: _copiesOnly(project)),
     );
+  }
+
+  /// Why transitions aren't mixed live right now (null if they are, or
+  /// the player can't at all).
+  String? liveBlockedReason(Project project) {
+    final p = _preview;
+    if (p == null || !p.blendsTransitions || transitionsLive(project)) {
+      return null;
+    }
+    return liveBlockReasonOf(project, _copiesOnly(project)) ??
+        'a clip needs effects the live preview can\'t draw yet';
   }
 
   /// The pieces the preview plays now (live-mixed or not).
@@ -309,7 +320,9 @@ class EditorController extends ChangeNotifier {
     final blend = transitionsLive(project);
     _blendLive = blend;
     final segments = _segmentsNow();
-    final blends = blend ? blendLayersOf(project) : null;
+    final blends = blend
+        ? blendLayersOf(project, transitionFiles: _copiesOnly(project))
+        : null;
     if (listEquals(segments, _previewSegments) && blends == _previewBlends) {
       return;
     }
