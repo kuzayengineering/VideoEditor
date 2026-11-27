@@ -496,6 +496,34 @@ class EditorController extends ChangeNotifier {
     seek(frameStartUs(frame < 0 ? 0 : frame, fps), exact: true);
   }
 
+  /// The other clips cut from the same video or sound file as [clipId].
+  List<int> sameSourceAs(int clipId) {
+    final from = project.placementOf(clipId)?.clip;
+    final path = from?.sourcePath;
+    if (path == null) return const [];
+    return [
+      for (final p in project.allPlacements)
+        if (p.clip.id != clipId && p.clip.sourcePath == path) p.clip.id,
+    ];
+  }
+
+  /// Gives every other clip from [clipId]'s file the same setting, in one
+  /// step that can be undone: [copy] makes [target]'s new version from the
+  /// project and the clip being copied.
+  void applyToSameSource(
+    int clipId,
+    Project Function(Project project, int target, Clip from) copy,
+  ) {
+    final from = project.placementOf(clipId)?.clip;
+    if (from == null) return;
+    endLiveEdit();
+    var next = project;
+    for (final id in sameSourceAs(clipId)) {
+      next = copy(next, id, from);
+    }
+    apply(next);
+  }
+
   /// While a tool panel is open for a clip, playback repeats that clip's
   /// stretch of the timeline (to hear or see the effect over and over).
   bool _loopSelected = false;

@@ -767,6 +767,16 @@ class _EditorScreenState extends State<_Editor>
     if (name != null) c.rename(name);
   }
 
+  /// Which set of tools shows (each set remembers its own scrolling).
+  String _toolsKind() {
+    final sel = c.selected;
+    if (sel == null) return 'none';
+    if (sel.clip.kind == ClipKind.text) return 'text';
+    if (sel.track.kind == TrackKind.overlay) return 'pip';
+    if (sel.clip.kind == ClipKind.audio) return 'audio';
+    return 'main';
+  }
+
   List<EditorTool> _tools() {
     final sel = c.selected;
     final split = EditorTool(
@@ -1384,7 +1394,7 @@ class _EditorScreenState extends State<_Editor>
                                 ),
                               ),
                               const Divider(height: 1),
-                              ToolBar(tools: _tools()),
+                              ToolBar(tools: _tools(), memoryKey: _toolsKind()),
                             ],
                           ],
                         ),

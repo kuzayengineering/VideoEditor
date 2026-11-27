@@ -119,6 +119,17 @@ Future<void> showSpeedSheet(BuildContext context, EditorController c) {
               c.project.updateClip(id, (x) => x.copyWith(smoothSlowMo: v)),
             ),
           ),
+        SameSourceButton(
+          c: c,
+          clipId: id,
+          what: 'speed',
+          copy: (p, target, from) => p
+              .setSpeed(target, from.speed)
+              .updateClip(
+                target,
+                (x) => x.copyWith(smoothSlowMo: from.smoothSlowMo),
+              ),
+        ),
         const SizedBox(height: 8),
         Text('Sound keeps its normal pitch.', style: theme.textTheme.bodySmall),
       ],
@@ -641,6 +652,13 @@ Future<void> showVolumeSheet(BuildContext context, EditorController c) {
               ),
             ),
           ],
+        ),
+        SameSourceButton(
+          c: c,
+          clipId: id,
+          what: 'volume',
+          copy: (p, target, from) =>
+              p.updateClip(target, (x) => x.copyWith(volume: from.volume)),
         ),
         Text(
           'Tip: to lower music under speech, split the music clip where the '

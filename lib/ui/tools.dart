@@ -18,9 +18,14 @@ class EditorTool {
 
 /// Horizontally scrolling row of tool buttons, like YouCut's.
 class ToolBar extends StatelessWidget {
-  const ToolBar({super.key, required this.tools});
+  const ToolBar({super.key, required this.tools, this.memoryKey});
 
   final List<EditorTool> tools;
+
+  /// Remembers how far the row was scrolled under this name (e.g. one per
+  /// kind of clip), so it is where it was after a menu closes or another
+  /// clip of the same kind is picked.
+  final String? memoryKey;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +33,7 @@ class ToolBar extends StatelessWidget {
     return SizedBox(
       height: 76,
       child: ListView.separated(
+        key: memoryKey == null ? null : PageStorageKey('tools-$memoryKey'),
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         itemCount: tools.length,

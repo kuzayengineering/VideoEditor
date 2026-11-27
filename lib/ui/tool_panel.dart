@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../model/project.dart';
+import 'editor_controller.dart';
+
 /// A tool's settings, shown in the editor's bottom area (where the timeline
 /// and toolbar are) so the video above stays fully visible while you work.
 class ToolPanel {
@@ -167,6 +170,56 @@ class _PanelBody extends StatelessWidget {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
       child: child,
+    );
+  }
+}
+
+/// "Same … for the other clips from this file": copies one setting of the clip to
+/// the other clips cut from the same file. Hidden when there are none.
+class SameSourceButton extends StatelessWidget {
+  const SameSourceButton({
+    super.key,
+    required this.c,
+    required this.clipId,
+    required this.what,
+    required this.copy,
+  });
+
+  final EditorController c;
+  final int clipId;
+
+  /// What is copied, for the message (e.g. "pitch").
+  final String what;
+  final Project Function(Project project, int target, Clip from) copy;
+
+  @override
+  Widget build(BuildContext context) {
+    final others = c.sameSourceAs(clipId).length;
+    final clip = c.project.placementOf(clipId)?.clip;
+    if (others == 0 || clip == null) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        icon: const Icon(Icons.copy_all_outlined, size: 18),
+        label: Text(
+          'Same $what for the other $others '
+          'clip${others == 1 ? '' : 's'} from ${clip.name}',
+          overflow: TextOverflow.ellipsis,
+        ),
+        onPressed: () {
+          c.applyToSameSource(clipId, copy);
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Done: $others more clip${others == 1 ? '' : 's'}.',
+                ),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+        },
+      ),
     );
   }
 }

@@ -126,6 +126,19 @@ Future<void> showPitchSheet(BuildContext context, EditorController c) =>
                 ),
             ],
           ),
+          SameSourceButton(
+            c: c,
+            clipId: edit.id,
+            what: 'pitch',
+            copy: (p, target, from) => p.updateClip(
+              target,
+              (x) => x.copyWith(
+                audioFx: (x.audioFx ?? AudioFx.none).copyWith(
+                  pitch: (from.audioFx ?? AudioFx.none).pitch,
+                ),
+              ),
+            ),
+          ),
           _note(
             context,
             '${label(fx.pitch)}. The speed stays the same. 12 semitones is '

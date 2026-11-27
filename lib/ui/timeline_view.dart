@@ -746,11 +746,23 @@ class _TimelinePainter extends CustomPainter {
         : (p.clip.volume <= 0.001
               ? '🔇 muted'
               : '🔊 ${(p.clip.volume * 100).round()} %');
+    // Sound effects and the filter, so it's clear which clips have them.
+    final fx = p.clip.activeAudioFx;
+    final marks = [
+      if (fx != null && fx.pitch != 0)
+        '♪ ${fx.pitch > 0 ? '+' : ''}${fx.pitch}',
+      if (fx != null && fx.hasEq) 'EQ',
+      if (fx != null && fx.reverb != null && fx.reverbAmount > 0.001) 'Reverb',
+      if (fx != null && fx.delayMs != null && fx.delayAmount > 0.001) 'Echo',
+      if (fx != null && fx.noise != null && fx.noiseAmount > 0.001) 'Denoise',
+      if (p.clip.gradeParams != null) 'Filter',
+    ].join(' ');
+    final badges = [?volume, if (marks.isNotEmpty) marks].join('  ·  ');
     final thin = rect.height < 40;
     final name = TextPainter(
       text: TextSpan(
         text: [
-          if (thin) ?volume,
+          if (thin && badges.isNotEmpty) badges,
           p.clip.name,
           if ((p.clip.speed - 1).abs() > 0.001)
             '${p.clip.speed.toStringAsFixed(p.clip.speed == p.clip.speed.roundToDouble() ? 0 : 2)}×',
@@ -770,12 +782,12 @@ class _TimelinePainter extends CustomPainter {
     // Volume (when changed) and reversed / reversing on their own line
     // under the name (in front of it on thin rows), so they show however
     // long the name is.
-    if (p.clip.reversed || (volume != null && !thin)) {
+    if (p.clip.reversed || (badges.isNotEmpty && !thin)) {
       final f = p.clip.reversed ? reverseJobs?.progressFor(p.clip) : null;
       final line = TextPainter(
         text: TextSpan(
           text: [
-            if (!thin) ?volume,
+            if (!thin && badges.isNotEmpty) badges,
             if (p.clip.reversed) _reverseLabel(p.clip),
           ].join('  ·  '),
           style: textStyle.copyWith(
