@@ -12,6 +12,7 @@ import '../model/project.dart';
 import '../model/timecode.dart';
 import 'editor_screen.dart';
 import 'settings_screen.dart';
+import 'windows_updates.dart';
 import 'import_media.dart';
 
 /// Version label baked in by the automatic build (see
@@ -39,6 +40,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _services = AppServices.of(context);
     _reload();
     if (Platform.isAndroid) _crashReport();
+    if (Platform.isWindows) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) WindowsUpdates.check(context, appVersion);
+      });
+    }
   }
 
   /// If the app closed unexpectedly last time, says why (from the phone's

@@ -234,20 +234,33 @@ jobs:
           }
           $filters = & "$dest/ffmpeg.exe" -hide_banner -filters
           if (-not ($filters | Select-String " zscale ")) { throw "FFmpeg build lacks zscale" }
-      - name: Package
+      - name: Package (installer, and a zip for those who prefer it)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           $folder = "VideoEditor-$env:VERSION-windows-x64"
           Copy-Item -Recurse build/windows/x64/runner/Release "dist/$folder"
           Compress-Archive -Path "dist/$folder" -DestinationPath "dist/$folder.zip"
+          # Inno Setup makes the one-file installer (installed if missing).
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          & $iscc installer/windows.iss
+          if ($LASTEXITCODE -ne 0) { throw "The installer could not be made" }
+          if (-not (Test-Path "dist/VideoEditor-$env:VERSION-windows-setup.exe")) {
+            throw "The installer is missing"
+          }
       - name: Attach to the release
         if: needs.check.outputs.publish == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "v$env:VERSION" "dist/VideoEditor-$env:VERSION-windows-x64.zip" --clobber
+        run: |
+          gh release upload "v$env:VERSION" `
+            "dist/VideoEditor-$env:VERSION-windows-setup.exe" `
+            "dist/VideoEditor-$env:VERSION-windows-x64.zip" --clobber
 
   release:
     name: Publish release
@@ -284,7 +297,7 @@ jobs:
             echo "---"
             echo "- **Android:** \`VideoEditor-$VERSION-android-arm64.apk\` (Obtainium installs this automatically)"
             if [ "${{ needs.windows.result }}" = "success" ]; then
-              echo "- **Windows:** download the \`.zip\`, unzip it, and run \`video_editor.exe\`"
+              echo "- **Windows:** download \`VideoEditor-$VERSION-windows-setup.exe\` and run it (it checks for updates itself; the \`.zip\` is the same program without installing)"
             else
               echo "- **Windows:** not built this time (see an earlier release, or build it on request)"
             fi
