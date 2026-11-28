@@ -211,10 +211,30 @@ class WaveformCache extends ChangeNotifier {
   /// 100 values per second, 0–255; null while still being read.
   Uint8List? peaksFor(String source) => _peaks[source];
 
+  /// The loudest moment of [source] between two points (in 1/100 s), so
+  /// each clip's waveform can be drawn with that at full height.
+  int loudestIn(String source, int from, int to) {
+    final p = _peaks[source];
+    if (p == null || p.isEmpty) return 0;
+    final key = '$source|$from|$to';
+    final known = _loudest[key];
+    if (known != null) return known;
+    var top = 0;
+    final a = from.clamp(0, p.length), b = to.clamp(0, p.length);
+    for (var i = a; i < b; i++) {
+      if (p[i] > top) top = p[i];
+    }
+    if (_loudest.length > 500) _loudest.clear();
+    return _loudest[key] = top;
+  }
+
+  final Map<String, int> _loudest = {};
+
   void ensureFor(Project project) {
     if (!engine.supportsMedia) return;
-    for (final t in project.audioTracks) {
+    for (final t in [project.mainTrack, ...project.audioTracks]) {
       for (final c in t.clips) {
+        if (c.media != null && !c.media!.hasAudio) continue;
         final source = c.sourcePath;
         if (!c.isMedia || source == null || _peaks.containsKey(source)) {
           continue;

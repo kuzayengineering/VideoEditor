@@ -699,8 +699,18 @@ class _TimelinePainter extends CustomPainter {
         Paint()..color = Colors.black.withValues(alpha: 0.35),
       );
     }
-    if (p.clip.isMedia && p.clip.kind == ClipKind.audio) {
-      _paintWaveform(canvas, size, p, rect);
+    if (p.clip.isMedia &&
+        (p.clip.kind == ClipKind.audio ||
+            (p.clip.kind == ClipKind.video &&
+                p.track.kind == TrackKind.main))) {
+      // On video clips a see-through layer over the pictures.
+      _paintWaveform(
+        canvas,
+        size,
+        p,
+        rect,
+        alpha: p.clip.kind == ClipKind.audio ? 0.55 : 0.4,
+      );
     }
     // Subtle stripes stand in for pictures and sound in the demo clips.
     if (!p.clip.isMedia && p.clip.kind != ClipKind.text) {
@@ -860,11 +870,28 @@ class _TimelinePainter extends CustomPainter {
     return f == null ? '◀ reversed' : '◀ reversing ${(f * 100).floor()} %';
   }
 
-  /// Draws the loudness outline of a sound clip, scaled by its volume.
-  void _paintWaveform(Canvas canvas, Size size, ClipPlacement p, Rect rect) {
-    final peaks = waveforms?.peaksFor(p.clip.sourcePath!);
-    if (peaks == null || peaks.isEmpty) return;
-    final bar = Paint()..color = Colors.white.withValues(alpha: 0.55);
+  /// Draws the loudness outline of a clip, scaled by its volume. Each clip
+  /// is scaled so its loudest moment fills the height, and quiet parts are
+  /// lifted, so even a quiet clip shows where the sound is.
+  void _paintWaveform(
+    Canvas canvas,
+    Size size,
+    ClipPlacement p,
+    Rect rect, {
+    double alpha = 0.55,
+  }) {
+    final cache = waveforms;
+    final peaks = cache?.peaksFor(p.clip.sourcePath!);
+    if (cache == null || peaks == null || peaks.isEmpty) return;
+    final a = p.clip.sourceTimeAt(0) ~/ 10000;
+    final b = p.clip.sourceTimeAt(p.clip.durationUs) ~/ 10000;
+    final loudest = cache.loudestIn(
+      p.clip.sourcePath!,
+      math.min(a, b),
+      math.max(a, b) + 1,
+    );
+    if (loudest <= 0) return;
+    final bar = Paint()..color = Colors.white.withValues(alpha: alpha);
     final mid = rect.center.dy;
     final half = rect.height / 2 - 2;
     final left = math.max(rect.left, 0.0);
@@ -874,7 +901,8 @@ class _TimelinePainter extends CustomPainter {
       final idx = p.clip.sourceTimeAt(offsetUs) ~/ 10000;
       if (idx < 0 || idx >= peaks.length) continue;
       final gain = p.clip.gainAt(offsetUs).clamp(0.0, 1.5);
-      final h = math.max(1.0, peaks[idx] / 255 * half * gain);
+      final level = math.pow(peaks[idx] / loudest, 0.6).toDouble();
+      final h = math.max(1.0, level * half * gain.clamp(0.0, 1.0));
       canvas.drawRect(Rect.fromLTRB(x, mid - h, x + 2, mid + h), bar);
     }
   }
